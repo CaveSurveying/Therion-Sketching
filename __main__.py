@@ -103,7 +103,8 @@ def _opts(a):
     name = a.name or PROJECT.scrap_prefix(
         re.sub(r'[^A-Za-z0-9]', '', a.survey or os.path.splitext(os.path.basename(a.output))[0]))
     return convert.Options(name, a.survey, tuple(a.author) if a.author else None,
-                           tuple(a.copyright) if a.copyright else None, a.qualify)
+                           tuple(a.copyright) if a.copyright else None, a.qualify,
+                           PROJECT.scraps.get(a.survey) if a.survey else None)
 
 
 def cmd_plan(a):

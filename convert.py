@@ -289,8 +289,9 @@ def header(xvi_path, out_path, anchor, anchor_xy, polys, px):
 
 
 class Options:
-    def __init__(self, name, survey=None, author=None, copyright=None, qualify=False):
+    def __init__(self, name, survey=None, author=None, copyright=None, qualify=False, scraps=None):
         self.name = name
+        self.scraps = scraps            # [scraps] in project.toml: station specs per plan scrap (scraps.py)
         self.survey = survey
         self.author = author            # (date, name)
         self.copyright = copyright      # (year, holder)
@@ -557,13 +558,20 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
     xs_text, made, used = section_scraps(sketch, opt, K)
     lines = [l for i, l in enumerate(sketch.lines) if i not in used]
     geo = PlanGeometry(pos, sketch.shots)
-    member = {n: i for i, g in enumerate(groups) for n in g}
-    near = lambda p: member.get(_nearest(pos, p), 0) if pos else 0
+    if opt.scraps and SETTINGS['hand_scraps']:    # chosen by hand: strokes go with their nearest leg's scrap
+        from . import scraps as by_hand
+        names = sorted(pos, key=register.natural)
+        groups = by_hand.complete(by_hand.parse(opt.scraps, names), names, geo.legs)
+        pieces = by_hand.assign(lines, groups, pos, geo.legs)
+    else:
+        member = {n: i for i, g in enumerate(groups) for n in g}
+        near = lambda p: member.get(_nearest(pos, p), 0) if pos else 0
+        pieces = [(near(pp[len(pp) // 2]), c, pp) for c, pp in lines if pp]
 
     body, scraps, polys_all = [], [], []
     placed = []
     for gi, g in enumerate(groups):
-        mine = [(c, pp) for c, pp in lines if pp and near(pp[len(pp) // 2]) == gi]
+        mine = [(c, pp) for k, c, pp in pieces if k == gi]
         notes = []
         if SETTINGS['notation']:          # steps and overhangs, by their notation
             from . import notation
