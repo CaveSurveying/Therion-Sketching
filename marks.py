@@ -249,6 +249,14 @@ def th2(lines, passage, px, idbase, wall_colours, boulder_min, barriers=()):
         o += [f"line border -subtype invisible -id {lid} -close on"] + rows + \
              ["endline", "", f"area {kind}", f"  {lid}", "endarea", ""]
     inside = passage.buffer(-0.05)
+    # (an area drawn as a spline bulges past its simplified outline by up to area_splines)
+    rocks = [g.buffer(SETTINGS['area_splines']) for kind, g in areas if kind in ('blocks', 'debris')]
+    if not SETTINGS['area_lines'] and rocks:
+        # brown lines mostly inside a boulder or debris area are part of the rocks' drawing
+        def in_rocks(pp):
+            L = LineString(pp).intersection(inside)        # the part that would be drawn
+            return L.length > 0 and max(L.intersection(r).length for r in rocks) >= 0.5 * L.length
+        brown_lines = [pp for pp in brown_lines if len(pp) < 2 or not in_rocks(pp)]
     for pp in brown_lines:
         g = LineString(pp).intersection(inside)
         for part in getattr(g, 'geoms', [g]):

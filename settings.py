@@ -38,6 +38,10 @@ UPSTREAM = {
                                  # only nested rings stay a formation
     'area_over_walls': 0.0,      # m: areas run out this far over the walls, which clip them (0: cut at the walls)
     'area_splines': 0.0,         # m: area outlines simplified to this and drawn as splines (0: straight, 0.03 m)
+    'corner_cone': 0.0,          # degrees: an outer wall's passage leg may be this far off straight
+                                 # across (a corner), when cutting the fill back to it (0: straight only)
+    'area_lines': True,          # False: open brown lines lying mostly inside a boulder/debris area are
+                                 # dropped (they are part of the rocks' drawing)
     'hand_scraps': False,        # True: plan scraps from [scraps] in project.toml where a survey has them (scraps.py)
     'join_local': False,         # True: walls joined end to end are refitted only near the join
                                  # (smooth.py), so the rest of each wall stays as drawn

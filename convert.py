@@ -112,14 +112,29 @@ def splay_supported(run, splay_ends, near=0.25, need=2):
     return sum(1 for e in splay_ends if line.distance(Point(e)) < near) >= need
 
 
-def traced_outer(run, poly, others, legs, samples=5, reach=20.0, leg_reach=8.0):
+def _leg_in_cone(p, d, legs, reach, cone):
+    """True if the nearest point of the survey legs is within `reach` of p
+    and within `cone` degrees of the direction d (a passage round a corner
+    has its leg off to one side, not straight across from the wall)."""
+    from shapely.ops import nearest_points
+    q = nearest_points(p, legs)[1]
+    vx, vy = q.x - p.x, q.y - p.y
+    L = math.hypot(vx, vy)
+    if L == 0 or L > reach:
+        return False
+    return (vx * d[0] + vy * d[1]) / L >= math.cos(math.radians(cone))
+
+
+def traced_outer(run, poly, others, legs, samples=5, reach=20.0, leg_reach=8.0, cone=0.0):
     """(side, width) if, for most of the stroke, tracing out to one side
     (+1 left, -1 right) reaches the edge of the passage fill without
     crossing another wall stroke or a survey leg, while the other side has
     a survey leg (the passage); else None. width: how far the fill goes on
     beyond the stroke there (median). The fill's closing-up bridges a
     wall's inward bends, leaving the real wall inside it; a pillar's wall
-    fails, as tracing through the pillar meets its far wall."""
+    fails, as tracing through the pillar meets its far wall. With `cone`
+    (degrees), the leg may also be off to one side within that angle of
+    straight across, as at a corner ([convert] corner_cone)."""
     line = LineString(run)
     if line.length < 0.3:
         return None
@@ -140,7 +155,7 @@ def traced_outer(run, poly, others, legs, samples=5, reach=20.0, leg_reach=8.0):
                 continue
             back = LineString([(p.x - nx * 0.05 * s, p.y - ny * 0.05 * s),
                                (p.x - nx * leg_reach * s, p.y - ny * leg_reach * s)])
-            if back.intersects(legs):
+            if back.intersects(legs) or (cone and _leg_in_cone(p, (-nx * s, -ny * s), legs, leg_reach, cone)):
                 found[s].append(0.0 if first is None else first.distance(p) + first.length)
     s = max(found, key=lambda k: len(found[k]))
     if len(found[s]) * 2 <= samples:
@@ -177,7 +192,7 @@ def cut_back(poly, walls, legs, splay_ends):
         for edge, run in split_by_edge(w, list(poly.exterior.coords)):
             if edge or len(run) < 2:
                 continue
-            t = traced_outer(run, poly, others, leg_lines)
+            t = traced_outer(run, poly, others, leg_lines, cone=SETTINGS['corner_cone'])
             if t is None and splay_supported(run, splay_ends):
                 t = (side_away_from_legs(run, leg_lines), 1.0)
             if t is None:
