@@ -671,7 +671,9 @@ def edge_fixes(objs, K, map_scale=500):
             g = Polygon(pts).buffer(0)
             if g.is_empty or g.geom_type != 'Polygon' or g.distance(wall_lines) > 0.3 * K:
                 continue
-            reach = g.buffer(0.4 * K, join_style=2).intersection(wall_lines.buffer(0.25 * K))
+            from .settings import SETTINGS
+            r = SETTINGS['boulder_over_wall']
+            reach = g.buffer(r * K, join_style=2).intersection(wall_lines.buffer(min(0.25, r) * K))
             h = unary_union([g, reach]).buffer(0)
             if h.geom_type != 'Polygon':
                 continue
@@ -891,10 +893,14 @@ def tidy_scrap(header, body, map_scale=500, elevation=False):
 
     # 2. no -clip off; water with an invisible border, out to the walls it lies against
     drop_ids = set()
+    from .settings import SETTINGS
+    water_ids = {r.strip() for o in objs if o.kind == 'area' and o.head.split()[:2] == ['area', 'water']
+                 for r in o.rows if r.strip()}
     for o in objs:
         if o.kind in ('line', 'area'):
             o.head = opt_remove(o.head, '-clip off')
-        if o.kind == 'line' and o.head.startswith('line border') and '-id' in o.head and '-close on' in o.head:
+        if o.kind == 'line' and o.head.startswith('line border') and '-id' in o.head and '-close on' in o.head \
+                and re.search(r'-id (\S+)', o.head).group(1) in water_ids:
             if '-subtype invisible' not in o.head:
                 o.head = o.head.replace('line border', 'line border -subtype invisible', 1)
             if outline_poly is not None and not outline_poly.is_empty:
@@ -905,8 +911,10 @@ def tidy_scrap(header, body, map_scale=500, elevation=False):
                 if pool.is_empty or pool.geom_type != 'Polygon' or pool.area < (0.15 * K) ** 2:
                     drop_ids.add(re.search(r'-id (\S+)', o.head).group(1))
                     o.kind = 'drop'
-                else:
+                elif SETTINGS['water_to_walls']:
                     o.set_segments([[x, y] for x, y in list(water_to_walls(pool, objs, K).exterior.coords)[:-1]])
+                else:
+                    o.set_segments([[x, y] for x, y in list(pool.simplify(0.02 * K).exterior.coords)[:-1]])
     for o in objs:
         if o.kind == 'area' and any(r.strip() in drop_ids for r in o.rows):
             o.kind = 'drop'
@@ -986,6 +994,9 @@ def tidy_scrap(header, body, map_scale=500, elevation=False):
         cm = re.fullmatch(r'C([\d.]+)m', text)
         if cm:
             h = float(cm.group(1))
+            from .settings import SETTINGS
+            if SETTINGS['climb_whole']:
+                h = max(1, math.floor(h + 0.5))
             text = ('P' if h >= 3 else 'C') + ('%g' % h)
             o.head = o.head.replace(m.group(0), '-text "%s"' % text)
         if outline_poly is None:

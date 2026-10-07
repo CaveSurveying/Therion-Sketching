@@ -29,6 +29,7 @@ from . import register
 from .features import classify, centroid
 from .symbols import split_symbols, symbols_th2
 from .walls import clean, bezier_lines, bezier_closed, chaikin, split_by_edge
+from .settings import SETTINGS
 
 WALLS = ('BLACK', 'BROWN', 'GRAY')
 
@@ -51,8 +52,13 @@ def wall_strokes(lines):
     black = [pp for c, pp in lines if c == 'BLACK' and len(pp) > 1
              and sum(math.dist(a, b) for a, b in zip(pp, pp[1:])) >= 0.15]
     black, boulders, arrows = split_symbols(black)
-    other = [pp for c, pp in lines if c in WALLS[1:] and len(pp) > 1 and is_outline(pp)]
+    cols = [c for c in SETTINGS['wall_colours'] if c != 'BLACK']
+    other = [pp for c, pp in lines if c in cols and len(pp) > 1 and is_outline(pp)]
     return black + other, boulders, arrows
+
+
+def _lerp_pt(a, b, t):
+    return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
 
 
 def _polygons(g, min_area=0.5):
@@ -99,13 +105,22 @@ def elevation_fill(walls, legs, extra=(), below=3.0, above=5.0):
 
 # -- th2 pieces ------------------------------------------------------------------
 
-def walls_th2(walls, poly, px):
+def walls_th2(walls, poly, px, legs=()):
     ring = list(poly.exterior.coords)
     o = []
     for w in walls:
         if not LineString(w).intersects(poly.buffer(0.3)):
             continue
         for edge, run in split_by_edge(w, ring):
+            if not edge and SETTINGS['interior_borders'] and len(run) > 1:
+                # outside the passage, or nothing beyond it on one side: an
+                # outer wall the fill missed, not a border
+                if not poly.buffer(-0.05).contains(LineString(run).interpolate(0.5, normalized=True)):
+                    edge = True
+            if not edge and SETTINGS['smooth_lines']:
+                from .marks import smooth_rows
+                o += ["line border -clip off"] + smooth_rows(run, px) + ["endline", ""]
+                continue
             o += ["line wall -outline none" if edge else "line border -clip off"] + \
                  bezier_lines(run, px) + ["endline", ""]
     o += ["line wall -subtype invisible -close on"] + ["  %.2f %.2f" % px(p) for p in ring[:-1]] + ["endline", ""]
@@ -122,7 +137,7 @@ def water_th2(lines, passage, px, idbase, legs=(), flow=True):
     pools, flows, forms = classify(lines, passage)
     o = []
     for i, (_, g) in enumerate(pools):
-        if g.geom_type != 'Polygon' or g.area < 0.1:
+        if g.geom_type != 'Polygon' or g.area < min(0.1, SETTINGS['pool_min_area']):
             continue
         lid = f"{idbase}-water{i + 1}"
         o += [f"line border -id {lid} -close on -clip off"] + \
@@ -440,6 +455,20 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
     placed = []
     for gi, g in enumerate(groups):
         mine = [(c, pp) for c, pp in lines if pp and near(pp[len(pp) // 2]) == gi]
+        notes = []
+        if SETTINGS['notation']:          # steps and overhangs, by their notation
+            from . import notation
+            notes, used_n = notation.find(mine)
+            mine = [l for k, l in enumerate(mine) if k not in used_n]
+        gours = []
+        if SETTINGS['gours']:             # solid green lines: gours
+            from .marks import is_gour
+            gours = [pp for c, pp in mine if c == 'GREEN' and len(pp) > 1 and is_gour(pp)]
+            mine = [(c, pp) for c, pp in mine if not (c == 'GREEN' and any(pp is g for g in gours))]
+        if SETTINGS['green_loops']:       # single green loops are boulders/debris, drawn like brown
+            from .marks import green_loops
+            loops = set(green_loops([(k, pp) for k, (c, pp) in enumerate(mine) if c == 'GREEN']))
+            mine = [('BROWN', pp) if k in loops else (c, pp) for k, (c, pp) in enumerate(mine)]
         walls, boulders, arrows = wall_strokes(mine)
         walls = clean(walls)
         gset = set(g)
@@ -451,13 +480,33 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
             if not inside:
                 inside = [_nearest({n: pos[n] for n in g}, poly.representative_point().coords[0])]
             o = [f"scrap {name} -projection plan{opt.attrs(K)}", ""]
-            o += walls_th2(walls, poly, px)
+            o += walls_th2(walls, poly, px, legs)
             o += symbols_th2([b for b in boulders if poly.contains(b.centroid)],
                              [a for a in arrows if poly.contains(Point(a[0]))], px)
             o += water_th2(mine, poly, px, name, [(pos[a], pos[b]) for a, b in geo.legs])
+            if SETTINGS['brown'] == 'floor' or SETTINGS['interior_borders']:
+                from . import marks
+                inner = poly.buffer(-0.15)
+                barriers = [LineString(w) for w in walls if len(w) > 1
+                            and inner.contains(LineString(w).interpolate(0.5, normalized=True))]
+                barriers += [LineString(p) for k, p, _ in notes]
+                o += marks.th2(mine if SETTINGS['brown'] == 'floor' else
+                               [(c, pp) for c, pp in mine if c != 'BROWN'],
+                               poly, px, name, SETTINGS['wall_colours'], SETTINGS['boulder_min'], barriers)
+            if notes:
+                from . import notation
+                climbs = [(_lerp_pt(pos[a], pos[b], fr), d) for a, b, fr, d in (floor or {}).get('climbs', [])
+                          if a in pos and b in pos]
+                o += notation.th2(notes, poly, px, climbs, SETTINGS['pitch_min'])
+            for pp in gours:
+                from .marks import smooth_rows
+                if poly.buffer(0.3).intersects(LineString(pp)):
+                    from .marks import gour_rows
+                    o += ["line rimstone-dam"] + gour_rows(pp, px) + ["endline", ""]
             if floor:
                 from .floor import th2 as floor_th2
-                o += floor_th2(floor, {n: pos[n] for n in inside}, poly, px, placed)
+                o += floor_th2(floor, {n: pos[n] for n in inside}, poly, px, placed,
+                               [LineString(p) for k, p, _ in notes if k == 'step'])
             for n, sname, centre, W, H in made:
                 if n in inside:
                     o += section_line(geo, n, px)[0]

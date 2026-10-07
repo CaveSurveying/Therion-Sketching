@@ -21,7 +21,14 @@ def centroid(pp): return (sum(p[0] for p in pp)/len(pp), sum(p[1] for p in pp)/l
 def classify(polys, passage=None):
     """passage: optional shapely polygon to trim pools to."""
     from shapely.ops import unary_union
+    from .settings import SETTINGS
     blue=[pp for c,pp in polys if c=='BLUE' and len(pp)>1 and plen(pp)>0.05]
+    closed_pools=set()
+    if SETTINGS['pools_first']:      # a closed blue outline is a pool, never a flow arrow
+        for k,pp in enumerate(blue):
+            if math.dist(pp[0],pp[-1])<max(0.15,0.2*plen(pp)) and len(pp)>2:
+                g=Polygon(pp).buffer(0)
+                if g.area>=SETTINGS['pool_min_area']: closed_pools.add(k)
     lines=[LineString(pp) for pp in blue]
     hatch=[i for i,pp in enumerate(blue) if straightness(pp)<0.08 and 0.15<plen(pp)<3.5]
     # group hatch strokes that lie within 0.6 m of each other
@@ -31,7 +38,7 @@ def classify(polys, passage=None):
         merged={i}
         for g in hit: merged|=g; groups.remove(g)
         groups.append(merged)
-    groups=[g for g in groups if len(g)>=3]
+    groups=[g for g in groups if len(g)>=3 and not (g & closed_pools)]
     used=set(); pools=[]
     for g in groups:
         core=unary_union([lines[k] for k in g])
@@ -43,12 +50,18 @@ def classify(polys, passage=None):
         used|=members; pools.append((None,geom.simplify(0.03)))
     flows=[]
     for k,pp in enumerate(blue):
-        if k in used: continue
+        if k in used or k in closed_pools: continue
         if any(g.buffer(0.2).contains(Point(centroid(pp))) for _,g in pools): continue
         if plen(pp)<0.3: continue
         if straightness(pp)<0.06: continue            # stray straight stroke, not a squiggle
         flows.append(pp)
-    for pp in blue:   # a closed blue outline with no hatching is a pool too
+    for k,pp in enumerate(blue):   # a closed blue outline with no hatching is a pool too
+        if k in closed_pools:
+            g=Polygon(pp).buffer(0)
+            if passage is not None: g=g.intersection(passage.buffer(0.3))
+            if g.geom_type=='MultiPolygon': g=max(g.geoms,key=lambda q:q.area)
+            if not g.is_empty: pools.append((pp,g))
+            continue
         if plen(pp)>1.0 and math.dist(pp[0],pp[-1])<0.35 and not any(g.intersects(LineString(pp)) for _,g in pools):
             g=Polygon(pp).buffer(0)
             if g.area>0.25: pools.append((pp,g))

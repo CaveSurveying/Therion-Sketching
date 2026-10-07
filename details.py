@@ -187,6 +187,27 @@ def boulders(objs, K):
         n += 1
         if g.area < (0.9 * K) ** 2:
             continue
+        from .settings import SETTINGS
+        if SETTINGS['one_rock_edge']:
+            # one edge, corner to corner through a ridge near the middle,
+            # ending on the corners (lines end on a node of what they meet)
+            # Edges meet at a ridge near the middle and end on corners: as few
+            # lines as possible, the first two corners as one line through it.
+            c = g.centroid
+            far = max(corners, key=lambda p: math.dist(p, (c.x, c.y)))
+            ridge = (c.x + (far[0] - c.x) * 0.2, c.y + (far[1] - c.y) * 0.2)
+            by_angle = sorted(corners, key=lambda p: math.atan2(p[1] - ridge[1], p[0] - ridge[0]))
+            k = 3 if len(corners) >= 5 and size > 1.6 else 2
+            step = len(by_angle) / k
+            chosen = [by_angle[int(i * step)] for i in range(k)]
+            e = Obj('line', 'line rock-edge', [])
+            e.set_segments([[chosen[0][0], chosen[0][1]], [ridge[0], ridge[1]], [chosen[1][0], chosen[1][1]]])
+            out.append(e)
+            for p in chosen[2:]:
+                e = Obj('line', 'line rock-edge', [])
+                e.set_segments([[ridge[0], ridge[1]], [p[0], p[1]]])
+                out.append(e)
+            continue
         # a ridge point a little off the middle, joined to the corners
         # furthest round from each other
         c = g.centroid
@@ -221,7 +242,10 @@ def redo_file(path, splays=None, only=None):
         K = scale_of(header)
         objs = parse_scrap(body)
         legs = _legs(objs, splays, survey)
-        steps = floor_steps(objs, K, legs)
+        from .settings import SETTINGS
+        # interior_borders: lines inside the passage stay borders; a step is
+        # recognised by its symbol in the sketch, not guessed from its length.
+        steps = 0 if SETTINGS['interior_borders'] else floor_steps(objs, K, legs)
         blocks = boulders(objs, K)
         out.append(t[pos:m.start(3)] + '\n'.join(o.text() for o in objs).rstrip('\n') + '\n')
         pos = m.end(3)

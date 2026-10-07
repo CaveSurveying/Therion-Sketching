@@ -294,29 +294,48 @@ def show(out, stations, title='', before=None, after=PLAN, ring=(), pad=15, view
 
 # -- building --------------------------------------------------------------------------
 
-def review_config(s, out):
+def review_config(s, out, select=None, names=True):
     """The sheet's config with station names on and one plan export to `out`.
 
-    The plan layout is the one the config's plan export uses."""
+    The plan layout is the one the config's plan export uses. `select`
+    (a map, e.g. GoSouthMP@GoSouth.LongwoodValleySink) replaces the
+    config's selection, to show one survey alone; with `names=False`
+    the sheet's own station and centreline settings are kept."""
     m = re.search(r'^\s*export map\b[^\n]*-proj\w* plan\b[^\n]*-layout (\S+)', s, re.M) or \
         re.search(r'^\s*export map\b[^\n]*-layout (\S+)[^\n]*-proj\w* plan\b', s, re.M)
     if not m:
         raise ValueError('the config has no plan export with a -layout')
     lay = m.group(1)
     s = re.sub(r'^\s*export .*$', '', s, flags=re.M)
+    if select:
+        s = re.sub(r'^\s*select .*$', '', s, flags=re.M)
+        s = re.sub(r'^(\s*source [^\n]*\n)', lambda mm: mm.group(1) + f'\nselect {select}\n', s, count=1, flags=re.M)
+        # one survey alone: the sheet's legend, north arrow and scale bar are
+        # placed for the whole cave and would land on the drawing
+        s = s.rstrip('\n') + (f'\n\nlayout review-one\n  copy {lay}\n  legend off\n'
+                              '  code tex-map\n    \\def\\maplayout{}\n  endcode\nendlayout\n')
+        lay = 'review-one'
+    if not names:
+        return s.rstrip('\n') + f'\n\nexport map -projection plan -layout {lay} -o {out}\n'
     s = re.sub(r'^\s*symbol-hide (point station|group cave-cent(re|er)line)\b.*$', '', s, flags=re.M)
     s = re.sub(rf'^(layout {re.escape(lay)}\n)', r'\1  debug station-names\n', s, count=1, flags=re.M)
     return s.rstrip('\n') + f'\n\nexport map -projection plan -layout {lay} -o {out}\n'
 
 
-def build(config=PROJECT.cave['thconfig'], out=PLAN, therion=('therion',)):
-    """The plan with station names, from the sheet's own config.
+def survey_map(survey):
+    """The selection for one survey's plan map, from the master survey."""
+    return f"{PROJECT.survey_plan_map(survey)}@{survey}.{PROJECT.cave['survey']}"
 
-    Run in the config's folder, as its paths are relative to it."""
+
+def build(config=PROJECT.cave['thconfig'], out=PLAN, therion=('therion',), survey=None, names=True):
+    """The plan with station names, from the sheet's own config (only
+    `survey`'s plan map, if given). Run in the config's folder, as its
+    paths are relative to it."""
     out = os.path.abspath(out)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     folder = os.path.dirname(os.path.abspath(config))
-    s = review_config(open(config, encoding='utf-8').read(), out)
+    s = review_config(open(config, encoding='utf-8').read(), out,
+                      survey_map(survey) if survey else None, names)
     tmp = os.path.join(folder, 'review-plan.thcfg')
     open(tmp, 'w', encoding='utf-8').write(s)
     try:
@@ -387,6 +406,9 @@ def main(argv):
     sub = ap.add_subparsers(dest='cmd', required=True)
     b = sub.add_parser('build'); b.add_argument('--config', default=PROJECT.cave['thconfig'])
     b.add_argument('--therion', default='therion', help='the command that runs therion (e.g. a docker wrapper)')
+    b.add_argument('--survey', help='show only this survey (its plan map), e.g. GoSouth')
+    b.add_argument('--plain', action='store_true', help='without station names, as the sheet')
+    b.add_argument('-o', '--out', default=PLAN)
     s = sub.add_parser('show'); s.add_argument('out'); s.add_argument('stations', nargs='+')
     s.add_argument('--title', default=''); s.add_argument('--before'); s.add_argument('--after', default=PLAN)
     s.add_argument('--ring', nargs='*', default=()); s.add_argument('--pad', type=float, default=15)
@@ -395,7 +417,7 @@ def main(argv):
     c = sub.add_parser('check'); c.add_argument('th2'); c.add_argument('scraps', nargs='*')
     a = ap.parse_args(argv)
     if a.cmd == 'build':
-        print(build(a.config, therion=a.therion.split()))
+        print(build(a.config, a.out, therion=a.therion.split(), survey=a.survey, names=not a.plain))
     elif a.cmd == 'show':
         print(show(a.out, a.stations, a.title, a.before, a.after, a.ring, a.pad, survey=a.survey))
     elif a.cmd == 'gaps':

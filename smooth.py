@@ -642,12 +642,20 @@ def redo_file(path, scraps=None):
         K = scale_of(header)
         tidy = one_line_per_wall(objs, K)
         b, a = smooth_scrap(objs, K)
-        if a == b and not any(tidy):
-            report.append((name, b, a) + tidy)
+        from .settings import SETTINGS
+        stepped = 0
+        if SETTINGS['wall_jog_max'] > 0:        # walls joined through the sketcher's steps (jogs.py)
+            from .jogs import join_scrap
+            stepped = join_scrap(objs, K, SETTINGS['wall_jog_max'])
+        if SETTINGS['end_on_node']:             # lines ending at walls end on a wall node (nodes.py)
+            from .nodes import snap_scrap
+            stepped += snap_scrap(objs, K)
+        if a == b and not any(tidy) and not stepped:
+            report.append((name, b, a) + tidy + (0,))
             continue
         out.append(t[pos:m.start(3)] + '\n'.join(o.text() for o in objs).rstrip('\n') + '\n')
         pos = m.end(3)
-        report.append((name, b, a) + tidy)
+        report.append((name, b, a) + tidy + (stepped,))
     out.append(t[pos:])
     t = ''.join(out)
     if b'\r\n' in raw:

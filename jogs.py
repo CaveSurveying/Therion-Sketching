@@ -1,0 +1,104 @@
+# Part of tools/sketch2therion (new for the Cheddar Catchment survey).
+# GPLv3: see tools/LICENSE.
+"""Steps in walls: a short cross-piece where a wall jogs sideways.
+
+Where the sketcher's wall strokes do not quite meet (drawn underground in
+difficult conditions), the converted wall jogs: a short piece across the
+wall's direction joins two runs that carry on roughly parallel. It is
+not a feature of the cave, so the wall is joined through it: the two
+corners become one point midway, and the wall runs on. A short piece at
+the very start or end of a wall, turned across it, is dropped.
+
+Applied by `smooth` when tools/project.toml sets [convert] wall_jog_max.
+"""
+import math
+
+from .tidy import Obj
+
+MIN_TURN = 50.0       # degrees: the piece crosses the wall's direction at least this much
+MAX_SKEW = 40.0       # degrees: the runs either side carry on within this of each other
+
+
+def _anchors(o):
+    return [(s[-2], s[-1]) for s in o.segments()]
+
+
+def _dir(a, b):
+    return math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
+
+
+def _diff(a, b):
+    d = abs(a - b) % 360
+    return min(d, 360 - d)
+
+
+def _axis_diff(a, b):
+    """Angle between two directions, ignoring which way along: 0 to 90."""
+    d = _diff(a, b)
+    return min(d, 180 - d)
+
+
+def jogs(points, max_len):
+    """Indices i where points[i] -> points[i+1] is a wall step."""
+    out = []
+    n = len(points)
+    for i in range(n - 1):
+        a, b = points[i], points[i + 1]
+        d = math.dist(a, b)
+        if d == 0 or d > max_len:
+            continue
+        piece = _dir(a, b)
+        before = _dir(points[i - 1], a) if i > 0 else None
+        after = _dir(b, points[i + 2]) if i + 2 < n else None
+        if before is None and after is None:
+            continue
+        runs = [r for r in (before, after) if r is not None]
+        if any(_axis_diff(piece, r) < MIN_TURN for r in runs):
+            continue
+        if before is not None and after is not None and _diff(before, after) > MAX_SKEW:
+            continue
+        out.append(i)
+    return out
+
+
+def _row(seg):
+    return '  ' + ' '.join('%.2f' % v for v in seg)
+
+
+def _moved_end(seg, p):
+    """A segment ending at p instead (its control points kept)."""
+    return list(seg[:-2]) + [p[0], p[1]]
+
+
+def join(o, max_len):
+    """Wall `o` with its steps joined through; returns how many."""
+    segs = [list(s) for s in o.segments()]
+    pts = [(s[-2], s[-1]) for s in segs]
+    cut = jogs(pts, max_len)
+    if not cut:
+        return 0
+    drop = set()
+    for i in cut:
+        if i == 0:                                   # turned piece at the start
+            drop.add(0)
+            segs[1] = [segs[1][-2], segs[1][-1]]
+        elif i + 1 == len(segs) - 1:                 # turned piece at the end
+            drop.add(i + 1)
+        else:
+            m = ((pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2)
+            segs[i] = _moved_end(segs[i], m)
+            drop.add(i + 1)
+    kept = [s for k, s in enumerate(segs) if k not in drop]
+    kept[0] = kept[0][-2:]
+    o.rows = [_row(s) for s in kept]
+    return len(cut)
+
+
+def join_scrap(objs, K, max_len_m):
+    """Join every outline wall through its steps; returns how many."""
+    n = 0
+    for o in objs:
+        if o.kind == 'line' and o.head.split()[:2] == ['line', 'wall'] and '-subtype invisible' not in o.head \
+                and '-close on' not in o.head and '-outline none' not in o.head and len(o.segments()) > 2:
+            n += join(o, max_len_m * K)
+    return n

@@ -109,7 +109,10 @@ def _opts(a):
 def cmd_plan(a):
     sk = load(a.sketch, 'plan')
     floor = None
-    if a.floor:
+    from .settings import SETTINGS
+    if a.floor and not SETTINGS['elevation_data']:
+        print("--floor ignored: tools/project.toml draws only what the plan sketch shows (elevation_data = false)")
+    elif a.floor:
         from . import floor as fl
         floor = fl.analyse(load(a.floor, 'elevation'))
         print(f"floor: {len(floor['climbs'])} steps, {len(floor['gradients'])} gradients")
@@ -175,10 +178,10 @@ def cmd_details(a):
 def cmd_smooth(a):
     from . import smooth
     for f in a.files:
-        for name, before, after, dropped, borders, joined in smooth.redo_file(f, scraps=a.scrap):
-            if before or dropped or borders or joined:
+        for name, before, after, dropped, borders, joined, stepped in smooth.redo_file(f, scraps=a.scrap):
+            if before or dropped or borders or joined or stepped:
                 print(f"  {name}: {joined} walls joined, {dropped} doubled or stray pieces gone, "
-                      f"{borders} made borders; wall points {before} -> {after}")
+                      f"{borders} made borders, {stepped} wall steps joined or line ends put on wall nodes; wall points {before} -> {after}")
 
 
 def cmd_xvi(a):

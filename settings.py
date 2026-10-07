@@ -1,0 +1,61 @@
+# Part of tools/sketch2therion (new for the Cheddar Catchment survey).
+# GPLv3: see tools/LICENSE.
+"""How the converter reads a cave's sketches: the [convert] table in
+tools/project.toml, over defaults that reproduce the upstream converter
+exactly (caves-mendip-swildons; so the upstream regression test still holds).
+
+    from .settings import SETTINGS
+    SETTINGS['wall_colours']
+"""
+from .. import project as _project
+
+UPSTREAM = {
+    'wall_colours': ['BLACK', 'BROWN', 'GRAY'],  # strokes that can make the passage outline
+    'interior_borders': False,   # True: lines inside the passage stay borders (no floor-step guessing)
+    'brown': 'level',            # 'level': another level's walls (upstream); 'floor': boulders, debris, sand, mud
+    'boulder_min': 0.6,          # m: a closed brown loop at least this wide is a boulder, smaller is debris
+    'wall_jog_max': 0.0,         # m: a wall is joined through a short cross-piece up to this long (0: off)
+    'pool_min_area': 0.25,       # m2: a closed blue outline at least this big is a pool
+    'pools_first': False,        # True: a closed blue outline is never also a flow arrow
+    'climb_whole': False,        # True: climb/pitch labels in whole metres
+    'notation': False,           # True: steps, pitches and overhangs from their notation (notation.py)
+    'elevation_step_min': 0.0,   # m: an elevation climb with no notation near gets a guessed step if this high
+    'pitch_min': 2.0,            # m: a ticked line where the elevation drops this much is a pitch
+    'gours': False,              # True: solid green lines are gours (line rimstone-dam)
+    'water_to_walls': True,      # False: pools keep their sketched outline (not run along the walls)
+    'area_marks': False,         # True: groups of boulders or debris are areas, not single boulders too
+    'one_rock_edge': False,      # True: a boulder's edge is one line, corner to corner through a ridge
+    'smooth_lines': False,       # True: borders, steps and overhangs simplified and smoothed (splines)
+    'end_on_node': False,        # True: lines that end at a wall end on a node of it (nodes.py)
+    'boulder_over_wall': 0.4,    # m: how far a boulder at a wall is run out along and over it
+    'elevation_data': True,      # False: draw only what the plan sketch shows (no steps, pitches,
+                                 # labels or slope arrows inferred from the elevation sketch)
+    'mark_max': 0.0,             # m: brown loops and strokes smaller than this are marks (dirt):
+                                 # ignored alone, sand or mud when three or more are together
+    'area_min_width': 0.0,       # m: parts of areas narrower than this are dropped (sand/mud: 0.6 of it)
+    'area_min_area': 0.0,        # m2: smaller areas are dropped (no room for their symbols)
+    'green_loops': False,        # True: single green loops are boulders/debris (colour mistaken);
+                                 # only nested rings stay a formation
+}
+
+SETTINGS = dict(UPSTREAM)
+
+
+def load(p=None):
+    """SETTINGS from tools/project.toml's [convert] table."""
+    p = p or _project.load()
+    use(p.convert)
+
+
+def use(values):
+    unknown = set(values) - set(UPSTREAM)
+    if unknown:
+        raise ValueError(f"project.toml [convert]: unknown {', '.join(sorted(unknown))}")
+    if values.get('brown', 'level') not in ('level', 'floor'):
+        raise ValueError('project.toml [convert]: brown must be "level" or "floor"')
+    SETTINGS.clear()
+    SETTINGS.update(UPSTREAM)
+    SETTINGS.update(values)
+
+
+load()

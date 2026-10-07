@@ -134,6 +134,8 @@ def gradients(prof, steps, min_deg=8, max_deg=35, min_h=2.0):
 def analyse(elevation, colours=('BLACK', 'BROWN', 'GRAY')):
     """Climbs and gradients from an extended-elevation Sketch:
     {'climbs': [(a, b, frac, height)], 'gradients': [(upper, lower, degrees)]}."""
+    # The floor profile: every colour that can draw a floor (black rock,
+    # brown mud, grey steps), whatever the cave's wall colours are.
     pos = elevation.positions()
     lines = [pp for c, pp in elevation.lines if c in colours and len(pp) > 1]
     legs = [(a, b) for a, b, *_ in elevation.legs()]
@@ -155,13 +157,21 @@ def _lerp(a, b, t):
 
 
 def _label(h):
+    from .settings import SETTINGS
+    if SETTINGS['climb_whole']:       # whole metres, half up (1.5 -> 2, 2.5 -> 3)
+        return "C%dm" % max(1, math.floor(h + 0.5))
     r = round(h * 2) / 2
     return "C%dm" % r if r == int(r) else "C%.1fm" % r
 
 
-def th2(data, stations, passage, px, placed=None):
+def th2(data, stations, passage, px, placed=None, notation=()):
     """th2 lines for the floor steps, climb labels and gradient arrows on a plan scrap.
-    stations: plan positions; passage: the scrap's outline polygon."""
+    stations: plan positions; passage: the scrap's outline polygon;
+    notation: step lines read from the plan sketch (LineStrings, m). With
+    [convert] elevation_step_min set, a climb gets a guessed step line only
+    if no notation step is near and it is at least that high."""
+    from .settings import SETTINGS
+    guess_min = SETTINGS['elevation_step_min']
     placed = [] if placed is None else placed
     o = []
     for a, b, fr, d in data.get('climbs', []):
@@ -169,6 +179,8 @@ def th2(data, stations, passage, px, placed=None):
             continue
         A, B = stations[a], stations[b]
         p = _lerp(A, B, fr)
+        noted = any(n.distance(Point(p)) < 2.5 for n in notation)
+        draw = not noted and d >= guess_min
         L = math.dist(A, B) or 1
         u = ((B[0] - A[0]) / L, (B[1] - A[1]) / L)
         left = (-u[1], u[0])
@@ -185,7 +197,11 @@ def th2(data, stations, passage, px, placed=None):
         q = [_lerp(q[0], q[-1], 0.04), _lerp(q[0], q[-1], 0.96)]
         if (q[0][0] - p[0]) * left[0] + (q[0][1] - p[1]) * left[1] < 0:
             q = q[::-1]
-        o += ["line floor-step"] + ["  %.2f %.2f" % px(v) for v in q] + ["endline", ""]
+        if guess_min > 0:             # keep the guess off the walls
+            q = [_lerp(q[0], q[-1], 0.08), _lerp(q[0], q[-1], 0.92)]
+        if draw:
+            head = "line pit" if guess_min > 0 and d >= SETTINGS['pitch_min'] else "line floor-step"
+            o += [head] + ["  %.2f %.2f" % px(v) for v in q] + ["endline", ""]
         if d >= 0.95:
             lp = None
             for k in (1.0, 2.0, -1.0, 3.0, -2.0):
