@@ -20,6 +20,8 @@
               roofs and details)
   review      check a drawing against the sketch with someone who knows the
               cave: split-screen pictures, outline gaps, outline checks
+  place       file a converted plan into its survey and the cave's plan map
+  zip         a survey's drawing, sketches and review files, for review elsewhere
 
 Sketches can be SexyTopo or PocketTopo .xvi files, PocketTopo .top files or
 PocketTopo Therion exports (_th.txt). Run from the top of the repository,
@@ -228,6 +230,12 @@ def main(argv=None):
     if args[:1] == ['review']:                 # its own sub-commands
         from . import review
         return review.main(args[1:])
+    if args[:1] == ['place']:                  # filing a drawing into the survey
+        from . import place
+        return place.main(args[1:])
+    if args[:1] == ['zip']:                    # a review zip
+        from . import reviewzip
+        return reviewzip.main(args[1:])
     p = argparse.ArgumentParser(prog='python3 -m tools.sketch2therion', description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='cmd', required=True)
