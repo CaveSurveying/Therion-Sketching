@@ -70,13 +70,46 @@ def _moved_end(seg, p):
     return list(seg[:-2]) + [p[0], p[1]]
 
 
+def doubles_back(p0, seg, slack=0.05):
+    """True if a Bezier segment's control points lie before its start or
+    past its end along it (by more than `slack` of its length): the curve
+    turns back on itself, a zigzag where two strokes overlapped."""
+    if len(seg) != 6:
+        return False
+    p3 = (seg[4], seg[5])
+    dx, dy = p3[0] - p0[0], p3[1] - p0[1]
+    L2 = dx * dx + dy * dy
+    if L2 == 0:
+        return False
+    for c in ((seg[0], seg[1]), (seg[2], seg[3])):
+        t = ((c[0] - p0[0]) * dx + (c[1] - p0[1]) * dy) / L2
+        if t < -slack or t > 1 + slack:
+            return True
+    return False
+
+
+def unzigzag(segs):
+    """Segments that double back made straight; returns how many."""
+    n = 0
+    for k in range(1, len(segs)):
+        p0 = (segs[k - 1][-2], segs[k - 1][-1])
+        if doubles_back(p0, segs[k]):
+            segs[k] = [segs[k][4], segs[k][5]]
+            n += 1
+    return n
+
+
 def join(o, max_len):
-    """Wall `o` with its steps joined through; returns how many."""
+    """Wall `o` with its steps joined through, and any segment doubling
+    back made straight; returns how many."""
     segs = [list(s) for s in o.segments()]
+    zz = unzigzag(segs)
+    if zz:
+        o.rows = [_row(s) for s in segs]
     pts = [(s[-2], s[-1]) for s in segs]
     cut = jogs(pts, max_len)
     if not cut:
-        return 0
+        return zz
     drop = set()
     for i in cut:
         if i == 0:                                   # turned piece at the start
@@ -91,7 +124,7 @@ def join(o, max_len):
     kept = [s for k, s in enumerate(segs) if k not in drop]
     kept[0] = kept[0][-2:]
     o.rows = [_row(s) for s in kept]
-    return len(cut)
+    return len(cut) + zz
 
 
 def join_scrap(objs, K, max_len_m):
@@ -101,4 +134,64 @@ def join_scrap(objs, K, max_len_m):
         if o.kind == 'line' and o.head.split()[:2] == ['line', 'wall'] and '-subtype invisible' not in o.head \
                 and '-close on' not in o.head and '-outline none' not in o.head and len(o.segments()) > 2:
             n += join(o, max_len_m * K)
+    return n
+
+
+# -- borders broken where the sketcher missed the end of a line ------------
+
+BORDER_GAP = 0.3       # m: border pieces with ends this close, carrying on, are one line
+BORDER_TURN = 60.0     # degrees: and the direction changes no more than this across the gap
+
+
+def _is_border(o):
+    w = o.head.split() if o.kind == 'line' else []
+    return w[:2] == ['line', 'border'] and '-subtype invisible' not in o.head and '-close on' not in o.head \
+        and len(o.segments()) > 1
+
+
+def _end_dir(segs, at_end):
+    """Direction leaving the line at its end (or at its start, pointing out of it)."""
+    pts = [(s[-2], s[-1]) for s in segs]
+    if at_end:
+        a, b = pts[-2], pts[-1]
+    else:
+        a, b = pts[1], pts[0]
+    return math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
+
+
+def join_borders(objs, K, gap_m=BORDER_GAP):
+    """Join border pieces that carry on across a small gap; returns how many joins."""
+    from .tidy import reverse_segments
+    n = 0
+    merged = True
+    while merged:
+        merged = False
+        borders = [o for o in objs if _is_border(o)]
+        for a in borders:
+            for b in borders:
+                if a is b:
+                    continue
+                sa, sb = a.segments(), b.segments()
+                for rev in (False, True):
+                    segs_b = reverse_segments(sb) if rev else sb
+                    end_a = (sa[-1][-2], sa[-1][-1])
+                    start_b = (segs_b[0][-2], segs_b[0][-1])
+                    d = math.dist(end_a, start_b)
+                    if d > gap_m * K:
+                        continue
+                    out_a = _end_dir(sa, True)
+                    into_b = _end_dir(segs_b, False) + 180.0
+                    if _diff(out_a, into_b) > BORDER_TURN:
+                        continue
+                    joined = [list(s) for s in sa] + ([[start_b[0], start_b[1]]] if d > 1e-6 else []) + \
+                             [list(s) for s in segs_b[1:]]
+                    a.set_segments(joined)
+                    objs.remove(b)
+                    n += 1
+                    merged = True
+                    break
+                if merged:
+                    break
+            if merged:
+                break
     return n

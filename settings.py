@@ -36,6 +36,8 @@ UPSTREAM = {
     'area_min_area': 0.0,        # m2: smaller areas are dropped (no room for their symbols)
     'green_loops': False,        # True: single green loops are boulders/debris (colour mistaken);
                                  # only nested rings stay a formation
+    'join_local': False,         # True: walls joined end to end are refitted only near the join
+                                 # (smooth.py), so the rest of each wall stays as drawn
 }
 
 SETTINGS = dict(UPSTREAM)

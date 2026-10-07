@@ -316,6 +316,13 @@ def overshoot(a, b, d):
     return LineString([a, (b.x + (b.x - a.x) / L * d, b.y + (b.y - a.y) / L * d)])
 
 
+def _inside_rules():
+    """The Cheddar Catchment rules for walls inside the passage fill
+    ([convert] interior_borders) rather than upstream's."""
+    from .settings import SETTINGS
+    return SETTINGS['interior_borders']
+
+
 def rebuild_outline(objs, ring_obj, K, name=''):
     """Make the walls the scrap's outline, in place of the converter's closed
     invisible fill line (ring_obj).
@@ -347,6 +354,12 @@ def rebuild_outline(objs, ring_obj, K, name=''):
             for p, q in zip(pts, pts[1:]):
                 cum.append(cum[-1] + math.dist(p, q))
             walls.append({'obj': o, 'segs': segs, 'pts': pts, 'idx': idx, 'line': line, 'cum': cum})
+    # walls (almost) all inside the fill take no part in the outline: one
+    # touching it only at an end would pull the outline in to that end
+    def on_ring(w):
+        return sum(1 for p in w['pts'] if rp.exterior.distance(Point(p)) < 0.1 * K) / len(w['pts'])
+    inner_walls = [w for w in walls if _inside_rules() and on_ring(w) < 0.2]
+    walls = [w for w in walls if not _inside_rules() or on_ring(w) >= 0.2]
     stations = [Point(float(o.head.split()[1]), float(o.head.split()[2])) for o in objs
                 if o.kind == 'point' and re.match(r'point \S+ \S+ station\b', o.head)]
     REPORT_ROW = [name, 0.0, sum(w['line'].length for w in walls)]
@@ -361,6 +374,15 @@ def rebuild_outline(objs, ring_obj, K, name=''):
     ring = rp.exterior
     L = ring.length
     cuts, adds = [], []
+
+    def keep_outer(w, g):
+        # where another wall runs through the sliver, that wall is the outer
+        # one (a wall drawn again a little further out): the sliver is not
+        # cut there, so the outline goes on along the outer wall
+        core = g.buffer(-0.02 * K)
+        outer = [v['line'] for v in walls if v is not w and v['line'].intersection(core).length > 0.3 * K]
+        return g.difference(unary_union(outer).buffer(0.3 * K)) if outer else g
+
     for w in walls:
         ta, tb = ring.project(Point(w['pts'][0])), ring.project(Point(w['pts'][-1]))
         lo, hi = min(ta, tb), max(ta, tb)
@@ -379,10 +401,14 @@ def rebuild_outline(objs, ring_obj, K, name=''):
             outer = sliver.difference(rp)
         except Exception:           # degenerate geometry: leave this wall as it is
             continue
+        # thin on average and everywhere: a long wall mostly on the fill
+        # line can have a stretch inside the passage, and that is not a sliver
         if not inner.is_empty and inner.area / w['line'].length < 1.2 * K \
+                and (not _inside_rules() or inner.buffer(-0.6 * K).is_empty) \
                 and not any(inner.contains(st) and w['line'].distance(st) > 0.15 * K for st in stations):
-            cuts.append(inner)
-        if not outer.is_empty and outer.area / w['line'].length < 0.4 * K:
+            cuts.append(keep_outer(w, inner) if _inside_rules() else inner)
+        if not outer.is_empty and outer.area / w['line'].length < 0.4 * K \
+                and (not _inside_rules() or outer.buffer(-0.2 * K).is_empty):
             adds.append(outer)
     F = unary_union([rp] + adds).difference(unary_union(cuts).buffer(0.001 * K)) if cuts else unary_union([rp] + adds)
     # strips thinner than a few centimetres left along a wall go too, but not
@@ -573,6 +599,13 @@ def rebuild_outline(objs, ring_obj, K, name=''):
             if len(o.rows) >= 2:
                 extra.append(o)
         replace[id(w['obj'])] = extra
+    # an inside wall drawn on from the end of one on the outline (the same
+    # stroke) stays wall; any other is the edge of something: a border
+    ends = [p for w in walls for p in (w['pts'][0], w['pts'][-1])]
+    for w in inner_walls:
+        if not any(math.dist(q, p) < 0.05 * K for q in (w['pts'][0], w['pts'][-1]) for p in ends) \
+                and F.buffer(-0.1 * K).contains(w['line'].interpolate(0.5, normalized=True)):
+            w['obj'].head = 'line border'
     res = []
     for o in objs:
         if o is ring_obj:

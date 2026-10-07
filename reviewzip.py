@@ -6,7 +6,7 @@
 
 Holds, at their paths in the repository so the drawing's backdrop path
 still works when unzipped: the plan drawing, the survey's .th, its
-sketches (.xvi), and the cave's master .th; plus every file in DIR
+plan sketches (.xvi; not the elevations), and the cave's master .th; plus every file in DIR
 (PDFs, pictures, NOTES.md) under review/. Files are stored byte for
 byte (line endings unchanged). Fails if the drawing's backdrop sketch
 is missing.
@@ -34,8 +34,9 @@ def contents(survey, p=None):
     plan = p.plan_file(survey)
     folder = os.path.dirname(plan)
     files = [plan, p.survey_file(survey)]
+    # plan sketches only: plans are drawn for now, not elevations
     files += sorted(os.path.relpath(f, p.root) for f in glob.glob(p.path(os.path.join(folder, '**', '*.xvi')),
-                                                                  recursive=True))
+                                                                  recursive=True) if p.is_plan_sketch(f))
     text = open(p.path(plan), 'rb').read().decode('utf-8', errors='replace')
     for b in backdrops(text):
         target = os.path.normpath(os.path.join(folder, b))

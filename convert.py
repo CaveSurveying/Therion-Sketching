@@ -105,24 +105,133 @@ def elevation_fill(walls, legs, extra=(), below=3.0, above=5.0):
 
 # -- th2 pieces ------------------------------------------------------------------
 
-def walls_th2(walls, poly, px, legs=()):
+def splay_supported(run, splay_ends, near=0.25, need=2):
+    """True if at least `need` splay ends lie within `near` m of the stroke:
+    splays are measured to the walls, so it is a wall."""
+    line = LineString(run)
+    return sum(1 for e in splay_ends if line.distance(Point(e)) < near) >= need
+
+
+def traced_outer(run, poly, others, legs, samples=5, reach=20.0, leg_reach=8.0):
+    """(side, width) if, for most of the stroke, tracing out to one side
+    (+1 left, -1 right) reaches the edge of the passage fill without
+    crossing another wall stroke or a survey leg, while the other side has
+    a survey leg (the passage); else None. width: how far the fill goes on
+    beyond the stroke there (median). The fill's closing-up bridges a
+    wall's inward bends, leaving the real wall inside it; a pillar's wall
+    fails, as tracing through the pillar meets its far wall."""
+    line = LineString(run)
+    if line.length < 0.3:
+        return None
+    found = {1: [], -1: []}
+    for k in range(samples):
+        d = line.length * (k + 0.5) / samples
+        p = line.interpolate(d)
+        a, b = line.interpolate(max(0.0, d - 0.1)), line.interpolate(min(line.length, d + 0.1))
+        n = math.hypot(b.x - a.x, b.y - a.y) or 1.0
+        nx, ny = -(b.y - a.y) / n, (b.x - a.x) / n
+        for s in (1, -1):
+            # from 0.3 m out: a stroke drawn again just beside it is the same wall
+            ray = LineString([(p.x + nx * 0.3 * s, p.y + ny * 0.3 * s), (p.x + nx * reach * s, p.y + ny * reach * s)])
+            inside = ray.intersection(poly)
+            parts = [g for g in getattr(inside, 'geoms', [inside]) if g.geom_type == 'LineString' and not g.is_empty]
+            first = min(parts, key=lambda g: g.distance(p), default=None)
+            if first is not None and (first.intersects(others) or first.intersects(legs)):
+                continue
+            back = LineString([(p.x - nx * 0.05 * s, p.y - ny * 0.05 * s),
+                               (p.x - nx * leg_reach * s, p.y - ny * leg_reach * s)])
+            if back.intersects(legs):
+                found[s].append(0.0 if first is None else first.distance(p) + first.length)
+    s = max(found, key=lambda k: len(found[k]))
+    if len(found[s]) * 2 <= samples:
+        return None
+    w = sorted(found[s])[len(found[s]) // 2]
+    return s, w
+
+
+def side_away_from_legs(run, legs):
+    """+1 if the survey legs are on the stroke's right (so its left is outside), else -1."""
+    line = LineString(run)
+    p = line.interpolate(0.5, normalized=True)
+    a, b = line.interpolate(0.45, normalized=True), line.interpolate(0.55, normalized=True)
+    n = math.hypot(b.x - a.x, b.y - a.y) or 1.0
+    nx, ny = -(b.y - a.y) / n, (b.x - a.x) / n
+    left = LineString([(p.x, p.y), (p.x + nx * 8, p.y + ny * 8)]).intersects(legs)
+    return -1 if left else 1
+
+
+def cut_back(poly, walls, legs, splay_ends):
+    """The passage fill cut back to the outer walls it bridged: for each
+    wall piece inside the fill that splays end on, or with nothing between
+    it and the fill's edge on one side, the strip beyond it is removed (if
+    no survey leg or other stroke is in it). Those pieces then lie on the
+    fill's edge and are drawn as wall."""
+    leg_lines = unary_union([LineString(l) for l in legs if len(l) > 1])
+    if leg_lines.is_empty:
+        return poly
+    cuts = []
+    for w in walls:
+        if len(w) < 2 or not LineString(w).intersects(poly):
+            continue
+        others = unary_union([LineString(x) for x in walls if x is not w and len(x) > 1])
+        for edge, run in split_by_edge(w, list(poly.exterior.coords)):
+            if edge or len(run) < 2:
+                continue
+            t = traced_outer(run, poly, others, leg_lines)
+            if t is None and splay_supported(run, splay_ends):
+                t = (side_away_from_legs(run, leg_lines), 1.0)
+            if t is None:
+                continue
+            side, width = t
+            strip = LineString(run).buffer(side * min(3.0, width + 0.1), single_sided=True, cap_style=2)
+            cut = strip.intersection(poly)
+            if cut.is_empty or cut.intersects(leg_lines) or cut.buffer(-0.02).intersects(others):
+                continue
+            cuts.append(cut)
+    if not cuts:
+        return poly
+    g = poly.difference(unary_union(cuts)).buffer(0)
+    if g.geom_type == 'MultiPolygon':
+        g = max(g.geoms, key=lambda q: q.area)
+    return g if g.geom_type == 'Polygon' and not g.is_empty else poly
+
+
+def wall_runs(walls, poly):
+    """[(is_wall, run)] for the wall strokes at this passage fill.
+
+    A run along the fill's edge is wall, one inside it a border, except
+    (with [convert] interior_borders) a run that is outside the fill, or
+    is part of a stroke mostly drawn along the edge: one line, drawn on
+    as the wall, is wall all along (the fill's closing-up can take in a
+    stretch of it, such as a wall with a border drawn off it close by)."""
+    ring = list(poly.exterior.coords)
+    out = []
+    for w in walls:
+        if len(w) < 2 or not LineString(w).intersects(poly.buffer(0.3)):
+            continue
+        runs = [[edge, run] for edge, run in split_by_edge(w, ring) if len(run) > 1]
+        if SETTINGS['interior_borders']:
+            on_edge = sum(LineString(r).length for e, r in runs if e)
+            if on_edge >= sum(LineString(r).length for e, r in runs if not e):
+                runs = [[True, r] for _, r in runs]
+            inner = poly.buffer(-0.05)
+            for r in runs:
+                if not r[0] and not inner.contains(LineString(r[1]).interpolate(0.5, normalized=True)):
+                    r[0] = True          # an outer wall the fill missed
+        out += [(e, r) for e, r in runs]
+    return out
+
+
+def walls_th2(walls, poly, px, legs=(), splay_ends=()):
     ring = list(poly.exterior.coords)
     o = []
-    for w in walls:
-        if not LineString(w).intersects(poly.buffer(0.3)):
+    for edge, run in wall_runs(walls, poly):
+        if not edge and SETTINGS['smooth_lines']:
+            from .marks import smooth_rows
+            o += ["line border -clip off"] + smooth_rows(run, px) + ["endline", ""]
             continue
-        for edge, run in split_by_edge(w, ring):
-            if not edge and SETTINGS['interior_borders'] and len(run) > 1:
-                # outside the passage, or nothing beyond it on one side: an
-                # outer wall the fill missed, not a border
-                if not poly.buffer(-0.05).contains(LineString(run).interpolate(0.5, normalized=True)):
-                    edge = True
-            if not edge and SETTINGS['smooth_lines']:
-                from .marks import smooth_rows
-                o += ["line border -clip off"] + smooth_rows(run, px) + ["endline", ""]
-                continue
-            o += ["line wall -outline none" if edge else "line border -clip off"] + \
-                 bezier_lines(run, px) + ["endline", ""]
+        o += ["line wall -outline none" if edge else "line border -clip off"] + \
+            bezier_lines(run, px) + ["endline", ""]
     o += ["line wall -subtype invisible -close on"] + ["  %.2f %.2f" % px(p) for p in ring[:-1]] + ["endline", ""]
     return o
 
@@ -474,13 +583,16 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
         gset = set(g)
         legs = [[pos[a], pos[b]] for a, b in geo.legs if a in gset and b in gset]
         polys = plan_fill(walls, legs, [pp for c, pp in mine if c == 'BLUE'])
+        if SETTINGS['interior_borders']:      # cut the fill back to the outer walls it bridged
+            ends = [e for _, _, e in sketch.splays()]
+            polys = [cut_back(p, walls, legs, ends) for p in polys]
         for poly in polys:
             name = f"{opt.name}P{len(scraps) + 1}"
             inside = [n for n in g if poly.buffer(1.0).contains(Point(pos[n]))]
             if not inside:
                 inside = [_nearest({n: pos[n] for n in g}, poly.representative_point().coords[0])]
             o = [f"scrap {name} -projection plan{opt.attrs(K)}", ""]
-            o += walls_th2(walls, poly, px, legs)
+            o += walls_th2(walls, poly, px, legs, [e for _, _, e in sketch.splays()])
             o += symbols_th2([b for b in boulders if poly.contains(b.centroid)],
                              [a for a in arrows if poly.contains(Point(a[0]))], px)
             o += water_th2(mine, poly, px, name, [(pos[a], pos[b]) for a, b in geo.legs])
@@ -503,7 +615,7 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
                 if poly.buffer(0.3).intersects(LineString(pp)):
                     from .marks import gour_rows
                     o += ["line rimstone-dam"] + gour_rows(pp, px) + ["endline", ""]
-            if floor:
+            if floor and SETTINGS['elevation_data']:
                 from .floor import th2 as floor_th2
                 o += floor_th2(floor, {n: pos[n] for n in inside}, poly, px, placed,
                                [LineString(p) for k, p, _ in notes if k == 'step'])

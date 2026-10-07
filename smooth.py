@@ -221,6 +221,44 @@ def reversals(segs):
     return n
 
 
+JOIN_REACH = 1.0    # m: with [convert] join_local, a join is refitted this far either side
+
+
+def _join_local(sa, sb, qa, qb, K):
+    """Walls sa and sb (segments) as one, refitted only near the join
+    (qa: where sa is cut, qb: where sb is taken up): from sa's last node
+    at least JOIN_REACH before qa to sb's first node at least JOIN_REACH
+    after qb. The rest of both stays exactly as it was, so joining one
+    wall after another does not add up the refit's error."""
+    la, lb = LineString(bezier_points(sa, 8)), LineString(bezier_points(sb, 8))
+    ta, tb = la.project(Point(qa)), lb.project(Point(qb))
+    na = max([k for k in range(len(sa)) if la.project(Point(sa[k][-2:])) <= ta - JOIN_REACH * K], default=0)
+    nb = min([k for k in range(len(sb)) if lb.project(Point(sb[k][-2:])) >= tb + JOIN_REACH * K],
+             default=len(sb) - 1)
+    pa = bezier_points([[sa[na][-2], sa[na][-1]]] + sa[na + 1:], 8)
+    pb = bezier_points([[sb[0][-2], sb[0][-1]]] + sb[1:nb + 1], 8)
+    pts = [p for p in pa if la.project(Point(p)) <= ta] + [p for p in pb if lb.project(Point(p)) >= tb]
+    mid = _fit_within([[x, y] for x, y in pts], K)
+    mid[0] = [sa[na][-2], sa[na][-1]]
+    if len(mid[-1]) == 6:
+        mid[-1][4:] = [sb[nb][-2], sb[nb][-1]]
+    else:
+        mid[-1] = [sb[nb][-2], sb[nb][-1]]
+    return [list(r) for r in sa[:na + 1]] + mid[1:] + [list(r) for r in sb[nb + 1:]]
+
+
+def _fit_within(rows, K):
+    """fit_wall, at a finer tolerance where the fit strays more than TOL
+    from the points (a long gentle curve fitted as one segment can); in
+    the end the points as they are."""
+    line = LineString([r[-2:] for r in rows])
+    for tol in (TOL, TOL / 2, TOL / 4):
+        segs = fit_wall(rows, K, tol)
+        if all(line.distance(Point(p)) <= TOL * K for p in bezier_points(segs, 20)):
+            return segs
+    return rows
+
+
 def fit_wall(segs, K, tol=TOL):
     """The rows of a wall refitted with fewer, smooth Bezier nodes."""
     d = []
@@ -414,15 +452,22 @@ def smooth_scrap(objs, K):
             if not 2 <= len(o.segments()) <= min(0.75 * n, n - 2):
                 o.rows = old[id(o)]
 
+    old_line = {id(o): LineString(bezier_points(o.segments(), 8)) for o in walls}
+
+    def strays(o):
+        # (the fit's own check misses a long gentle curve made one segment)
+        return any(old_line[id(o)].distance(Point(p)) > TOL * K for p in bezier_points(o.segments(), 20))
+
     for i in range(len(walls)):
         refit(i)
-    # walls that now cross themselves or another wall, or turn right back,
-    # or are part of an outline that Therion would no longer accept, are
+    # walls that now cross themselves or another wall, turn right back,
+    # stray more than TOL from where they were, or are part of an outline that Therion would no longer accept, are
     # fitted more tightly, and in the end left as they were
     while True:
         _, simple, cross, sound = _state(walls, outline)
         bad = {i for i, (s, s0) in enumerate(zip(simple, simple0)) if s0 and not s}
         bad |= {i for i, o in enumerate(walls) if tols[level[i]] is not None and reversals(o.segments())}
+        bad |= {i for i, o in enumerate(walls) if tols[level[i]] is not None and strays(o)}
         bad |= {i for pair in cross - cross0 for i in pair}
         broken = {k // 3 for k, (s, s0) in enumerate(zip(sound, sound0)) if s0 and not s}
         bad |= {i for i, k in enumerate(ring_of) if k in broken}
@@ -501,6 +546,16 @@ def one_line_per_wall(objs, K):
         passage = None
         for g in polys:
             passage = g if passage is None else passage.union(g)
+        from .settings import SETTINGS
+        ends = [tuple(o.segments()[k][-2:]) for o in outline for k in (0, -1)]
+
+        def runs_on(o):
+            # (interior_borders) drawn on from the end of an outline wall,
+            # the same stroke: still the wall
+            sg = o.segments()
+            return SETTINGS['interior_borders'] and any(
+                math.dist(tuple(sg[k][-2:]), p) < 0.05 * K for k in (0, -1) for p in ends)
+
         for o in walls:
             if '-outline none' not in o.head or len(o.segments()) < 2:
                 continue
@@ -513,7 +568,7 @@ def one_line_per_wall(objs, K):
             if along >= 9 or (outside >= 9 and g.length < STUB * K):
                 o.kind = 'drop'
                 dropped += 1
-            elif inside >= 9:
+            elif inside >= 9 and not runs_on(o):
                 o.head = 'line border'
                 bordered += 1
     # join walls that run on from one another: one ends where the next
@@ -597,13 +652,17 @@ def one_line_per_wall(objs, K):
                 pts = pa[:i + 1] + pb[j:]
                 if len(pts) < 3 or not LineString(pts).is_simple:
                     continue
-                segs = fit_wall([[x, y] for x, y in pts], K)
-                # keep the two outer ends exactly where they were
-                segs[0] = [sa[0][-2], sa[0][-1]]
-                if len(segs[-1]) == 6:
-                    segs[-1][4:] = [sb[-1][-2], sb[-1][-1]]
+                from .settings import SETTINGS
+                if SETTINGS['join_local']:
+                    segs = _join_local(sa, sb, pa[i], pb[j], K)
                 else:
-                    segs[-1] = [sb[-1][-2], sb[-1][-1]]
+                    segs = fit_wall([[x, y] for x, y in pts], K)
+                    # keep the two outer ends exactly where they were
+                    segs[0] = [sa[0][-2], sa[0][-1]]
+                    if len(segs[-1]) == 6:
+                        segs[-1][4:] = [sb[-1][-2], sb[-1][-1]]
+                    else:
+                        segs[-1] = [sb[-1][-2], sb[-1][-1]]
             g = LineString(bezier_points(segs, 20))
             ends_ab = [Point(sa[0][-2:]), Point(sb[-1][-2:])]
             others = [LineString(bezier_points(o.segments(), 20)) for o in walls if o is not a and o is not b]
@@ -641,12 +700,15 @@ def redo_file(path, scraps=None):
         objs = parse_scrap(body)
         K = scale_of(header)
         tidy = one_line_per_wall(objs, K)
-        b, a = smooth_scrap(objs, K)
         from .settings import SETTINGS
         stepped = 0
-        if SETTINGS['wall_jog_max'] > 0:        # walls joined through the sketcher's steps (jogs.py)
-            from .jogs import join_scrap
+        if SETTINGS['wall_jog_max'] > 0:        # walls joined through the sketcher's steps (jogs.py),
+            from .jogs import join_scrap        # before the refit so the join is smoothed too
             stepped = join_scrap(objs, K, SETTINGS['wall_jog_max'])
+        b, a = smooth_scrap(objs, K)
+        if SETTINGS['wall_jog_max'] > 0:        # borders broken where the sketcher missed (jogs.py)
+            from .jogs import join_borders
+            stepped += join_borders(objs, K)
         if SETTINGS['end_on_node']:             # lines ending at walls end on a wall node (nodes.py)
             from .nodes import snap_scrap
             stepped += snap_scrap(objs, K)
