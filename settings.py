@@ -36,6 +36,8 @@ UPSTREAM = {
     'area_min_area': 0.0,        # m2: smaller areas are dropped (no room for their symbols)
     'green_loops': False,        # True: single green loops are boulders/debris (colour mistaken);
                                  # only nested rings stay a formation
+    'area_over_walls': 0.0,      # m: areas run out this far over the walls, which clip them (0: cut at the walls)
+    'area_splines': 0.0,         # m: area outlines simplified to this and drawn as splines (0: straight, 0.03 m)
     'hand_scraps': False,        # True: plan scraps from [scraps] in project.toml where a survey has them (scraps.py)
     'join_local': False,         # True: walls joined end to end are refitted only near the join
                                  # (smooth.py), so the rest of each wall stays as drawn

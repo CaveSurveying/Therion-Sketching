@@ -22,7 +22,7 @@ import math
 from shapely.geometry import LineString, MultiPoint, Point, Polygon
 from shapely.ops import unary_union
 
-from .walls import bezier_lines
+from .walls import bezier_closed, bezier_lines
 
 NEAR = 0.6            # m: marks this close are one area
 DOT = 0.12            # m: a stroke shorter than this is a dot
@@ -198,7 +198,18 @@ def brown(strokes, passage, boulder_min, barriers=()):
             if g.geom_type == 'MultiPolygon':
                 g = max(g.geoms, key=lambda q: q.area)
             if g.geom_type == 'Polygon' and g.area > max(0.02, SETTINGS['area_min_area']):
-                areas.append((kind, g.simplify(0.03)))
+                if SETTINGS['area_over_walls']:
+                    # run out over the walls, which clip it, rather than following them point by point
+                    d = SETTINGS['area_over_walls']
+                    g = unary_union([g, g.buffer(d, join_style=1).difference(passage.buffer(-0.02))
+                                     .intersection(passage.buffer(d, join_style=1))]).buffer(0)
+                    if g.geom_type == 'MultiPolygon':
+                        g = max(g.geoms, key=lambda q: q.area)
+                if SETTINGS['area_splines']:
+                    # notches closed up first, so a few spline nodes follow the shape
+                    r = 2 * SETTINGS['area_splines']
+                    g = g.buffer(r, join_style=1).buffer(-r, join_style=1)
+                areas.append((kind, g.simplify(SETTINGS['area_splines'] or 0.03)))
     return sorted_['boulder'], areas, sorted_['line']
 
 
@@ -219,6 +230,7 @@ def interior(lines, passage, wall_colours):
 
 def th2(lines, passage, px, idbase, wall_colours, boulder_min, barriers=()):
     """th2 text for the floor marks and interior lines of one scrap."""
+    from .settings import SETTINGS
     strokes = [pp for c, pp in lines if c == 'BROWN' and pp]
     inner = [LineString(pp) for pp in interior(lines, passage, wall_colours)]
     boulders, areas, brown_lines = brown(strokes, passage, boulder_min, list(barriers) + inner)
@@ -231,8 +243,10 @@ def th2(lines, passage, px, idbase, wall_colours, boulder_min, barriers=()):
             o += ["line rock-border -close on"] + ["  %.2f %.2f" % px(p) for p in ring] + ["endline", ""]
     for i, (kind, g) in enumerate(areas):
         lid = f"{idbase}-{kind}{i + 1}"
-        o += [f"line border -subtype invisible -id {lid} -close on"] + \
-             ["  %.2f %.2f" % px(p) for p in list(g.exterior.coords)[:-1]] + \
+        ring = list(g.exterior.coords)[:-1]
+        rows = bezier_closed(ring, px) if SETTINGS['area_splines'] and len(ring) >= 3 else \
+            ["  %.2f %.2f" % px(p) for p in ring]
+        o += [f"line border -subtype invisible -id {lid} -close on"] + rows + \
              ["endline", "", f"area {kind}", f"  {lid}", "endarea", ""]
     inside = passage.buffer(-0.05)
     for pp in brown_lines:

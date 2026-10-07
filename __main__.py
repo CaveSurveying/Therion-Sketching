@@ -117,8 +117,13 @@ def cmd_plan(a):
         from . import floor as fl
         floor = fl.analyse(load(a.floor, 'elevation'))
         print(f"floor: {len(floor['climbs'])} steps, {len(floor['gradients'])} gradients")
-    text, scraps, sections = convert.plan(sk, _opts(a), a.output, layout(a.layout or PLAN_LAYOUT), floor, a.tol)
-    write_th2(tidy.tidy_text(text, a.map_scale), a.output)
+    opts = _opts(a)
+    text, scraps, sections = convert.plan(sk, opts, a.output, layout(a.layout or PLAN_LAYOUT), floor, a.tol)
+    text = tidy.tidy_text(text, a.map_scale)
+    if opts.scraps and SETTINGS['hand_scraps']:     # walls between scraps chosen by hand meet (after tidy moves them)
+        from .scraps import meet_ends
+        text = meet_ends(text, 0.3 * sk.scale)
+    write_th2(text, a.output)
     print(f"wrote {a.output}: {len(scraps)} plan scraps, {len(sections)} cross-sections")
     _map_hint(a.survey, scraps, 'plan')
 

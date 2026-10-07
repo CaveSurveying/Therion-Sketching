@@ -81,7 +81,7 @@ def _closed(pp):
 def assign(lines, groups, pos, legs):
     """[(scrap index, colour, points)]: each stroke with the scrap of its
     nearest leg (legs within a scrap only; a lone station counts as a leg),
-    long open strokes cut where that changes."""
+    long open strokes cut where that changes (see `meet_ends`)."""
     member = {n: i for i, g in enumerate(groups) for n in g}
     segs = [(member[a], LineString([pos[a], pos[b]])) for a, b in legs
             if a in member and member.get(b) == member[a] and pos[a] != pos[b]]
@@ -134,3 +134,45 @@ def assign(lines, groups, pos, legs):
             if len(piece) > 1:
                 out.append((t, c, piece))
     return out
+
+
+
+def meet_ends(text, near):
+    """th2 text where a wall ending within `near` (drawing units) of a wall
+    end in another scrap ends where that one does (both moved to their
+    midpoint): one wall cut between two scraps, or drawn as two strokes
+    that nearly meet, which the converter's tidying leaves apart."""
+    lines = text.split("\n")
+    ends = []                       # (scrap, line index of the row, (x, y))
+    scrap = None
+    i = 0
+    while i < len(lines):
+        if lines[i].startswith("scrap "):
+            scrap = lines[i].split()[1]
+        if lines[i].startswith("line wall") and "-subtype invisible" not in lines[i]:
+            j = i + 1
+            while j < len(lines) and lines[j].strip() != "endline":
+                j += 1
+            rows = [k for k in range(i + 1, j) if re.match(r"^\s*-?\d", lines[k])]
+            for k in (rows[:1] + rows[-1:]) if rows else []:
+                v = lines[k].split()
+                ends.append((scrap, k, (float(v[-2]), float(v[-1]))))
+            i = j
+        i += 1
+    done = set()
+    for a in range(len(ends)):
+        best = None
+        for b in range(len(ends)):
+            if ends[a][0] == ends[b][0] or a in done or b in done:
+                continue
+            d = math.dist(ends[a][2], ends[b][2])
+            if 0 < d < near and (best is None or d < best[0]):
+                best = (d, b)
+        if best:
+            b = best[1]
+            m = ((ends[a][2][0] + ends[b][2][0]) / 2, (ends[a][2][1] + ends[b][2][1]) / 2)
+            for k in (ends[a][1], ends[b][1]):
+                v = lines[k].split()
+                lines[k] = "  " + " ".join(v[:-2] + ["%.2f" % m[0], "%.2f" % m[1]])
+            done |= {a, b}
+    return "\n".join(lines)
