@@ -27,6 +27,7 @@ line); hand-drawn scraps in the same file are left exactly as they are.
 
     python3 -m tools.sketch2therion tidy FILE.th2 [...] [--scale 500]
 """
+from .settings import inner_wall_head
 import bisect
 import math
 import re
@@ -122,7 +123,11 @@ def parse_scrap(body):
             while i < len(lines) and lines[i].strip() != end:
                 rows.append(lines[i])
                 i += 1
-            objs.append(Obj(kind, s, rows))
+            if kind == 'line' and any(r.strip().startswith('adjust') for r in rows):
+                # a point adjusted to line up (a pool's level surface): left as drawn
+                objs.append(Obj('text', raw='\n'.join([l] + rows + [lines[i] if i < len(lines) else end])))
+            else:
+                objs.append(Obj(kind, s, rows))
         elif s.startswith('point '):
             if text:
                 objs.append(Obj('text', raw='\n'.join(text)))
@@ -594,7 +599,7 @@ def rebuild_outline(objs, ring_obj, K, name=''):
                 # it's the edge of something (a ledge, another level)
                 mid = w['line'].interpolate(0.5, normalized=True)
                 if F.buffer(-0.1 * K).contains(mid):
-                    o.head = 'line border'
+                    o.head = inner_wall_head()
             o.set_segments(piece)
             if len(o.rows) >= 2:
                 extra.append(o)
@@ -605,7 +610,7 @@ def rebuild_outline(objs, ring_obj, K, name=''):
     for w in inner_walls:
         if not any(math.dist(q, p) < 0.05 * K for q in (w['pts'][0], w['pts'][-1]) for p in ends) \
                 and F.buffer(-0.1 * K).contains(w['line'].interpolate(0.5, normalized=True)):
-            w['obj'].head = 'line border'
+            w['obj'].head = inner_wall_head()
     res = []
     for o in objs:
         if o is ring_obj:
@@ -970,8 +975,10 @@ def tidy_scrap(header, body, map_scale=500, elevation=False):
         except (IndexError, ValueError):
             continue
         typ = v[3] if len(v) > 3 else ''
+        # in an elevation water flow is drawn just under the floor (elevation.py)
+        under = 0.6 if typ == 'water-flow' and inner_wall_head() != 'line border' else 0.1
         if outline_poly is not None and typ in ('water-flow', 'flowstone', 'stalagmite', 'stalactite', 'gradient') \
-                and not outline_poly.buffer(0.1 * K).contains(Point(x, y)):
+                and not outline_poly.buffer(under * K).contains(Point(x, y)):
             o.kind = 'drop'
             continue
         if typ == 'gradient':

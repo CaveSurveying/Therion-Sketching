@@ -163,6 +163,8 @@ def cmd_survey_layout(argv):
 
 
 def cmd_extended(a):
+    from .settings import SETTINGS
+    SETTINGS['_elevation'] = True               # inner walls stay walls (settings.inner_wall_head)
     sk = load(a.sketch, 'elevation')
     opts = _opts(a)
     opts.scraps = PROJECT.scraps_extended.get(a.survey) if a.survey else None

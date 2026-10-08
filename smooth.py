@@ -697,8 +697,10 @@ def one_line_per_wall(objs, K):
                 o.kind = 'drop'
                 dropped += 1
             elif inside >= 9 and not runs_on(o):
-                o.head = 'line border'
-                bordered += 1
+                from .settings import inner_wall_head
+                if inner_wall_head() == 'line border':
+                    o.head = 'line border'
+                    bordered += 1
     # join walls that run on from one another: one ends where the next
     # starts, or a little short of it and heading for it
     def end_dir(segs, at_end):
@@ -927,11 +929,12 @@ def wall_subtypes(objs, K, near=0.15):
         if o.kind != 'text':
             continue
         for line in o.raw.split('\n'):
-            m = re.match(r'\s*# wall-subtype (\w+): (.*)', line)
+            m = re.match(r'\s*# wall-subtype (\w+)(?: ([\d.]+))?: (.*)', line)
             if m:
-                v = [float(x) for x in m.group(2).split()]
+                v = [float(x) for x in m.group(3).split()]
+                reach = float(m.group(2)) if m.group(2) else near
                 if len(v) >= 4:
-                    marks.append((m.group(1), LineString(list(zip(v[0::2], v[1::2]))).buffer(near * K)))
+                    marks.append((m.group(1), LineString(list(zip(v[0::2], v[1::2]))).buffer(reach * K)))
     if not marks:
         return 0
     n = 0
@@ -962,8 +965,9 @@ def _redo_scrap(header, body, path):
     Returns (objs, tidy report, points before, after, ends moved)."""
     objs = parse_scrap(body)
     K = scale_of(header)
-    tidy = one_line_per_wall(objs, K)
     from .settings import SETTINGS
+    SETTINGS['_elevation'] = '-projection extended' in header
+    tidy = one_line_per_wall(objs, K)
     stepped = 0
     if SETTINGS['wall_jog_max'] > 0:        # walls joined through the sketcher's steps (jogs.py),
         from .jogs import join_scrap        # before the refit so the join is smoothed too

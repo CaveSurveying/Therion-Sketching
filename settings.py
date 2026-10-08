@@ -11,6 +11,8 @@ from .. import project as _project
 
 UPSTREAM = {
     'wall_colours': ['BLACK', 'BROWN', 'GRAY'],  # strokes that can make the passage outline
+    'elevation_features': False,  # True: pools, water flow, curtains, blocks, rocks and rubble read
+                                  # from an elevation sketch by shape (elevation.py)
     'wall_subtypes': False,      # True: elevation walls drawn brown are mud (-subtype clay), or sand where
                                  # brown dots lie along them
     'elevation_wall_colours': [],  # strokes that can make an elevation's outline, if not wall_colours
@@ -130,3 +132,14 @@ def use(values):
 
 
 load()
+
+
+def inner_wall_head():
+    """What a wall inside the passage (not on the outline) becomes: in a plan
+    the edge of something, a `line border`; in an elevation, with
+    elevation_features, a wall left off the outline. SETTINGS['_elevation']
+    is set while an elevation is converted or smoothed."""
+    if SETTINGS.get('_elevation') and SETTINGS.get('elevation_features'):
+        return 'line wall -outline none'
+    return 'line border'
+

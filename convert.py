@@ -311,10 +311,15 @@ def wall_runs(walls, poly):
     return out
 
 
-def walls_th2(walls, poly, px, legs=(), splay_ends=()):
+def walls_th2(walls, poly, px, legs=(), splay_ends=(), inner=None):
+    """inner: what a wall inside the passage is drawn as (a border, or in an
+    elevation `line wall -outline none`)."""
     ring = list(poly.exterior.coords)
     o = []
     for edge, run in wall_runs(walls, poly):
+        if not edge and inner:
+            o += [inner] + bezier_lines(run, px) + ["endline", ""]
+            continue
         if not edge and SETTINGS['smooth_lines']:
             from .marks import smooth_rows
             o += ["line border -clip off"] + smooth_rows(run, px) + ["endline", ""]
@@ -360,6 +365,9 @@ def water_th2(lines, passage, px, idbase, legs=(), flow=True):
             continue
         if kind == 'flowstone' and flow:
             o += ["point %.2f %.2f flowstone -orientation %.1f" % (*px(c), along(c)), ""]
+        elif not flow and SETTINGS['elevation_features']:      # elevation: flowstone is a wall subtype
+            if kind != 'flowstone':
+                o += ["point %.2f %.2f %s" % (*px(c), 'stalactites' if kind == 'stalactite' else kind), ""]
         else:
             o += ["point %.2f %.2f %s" % (*px(c), kind), ""]
     return o
@@ -764,7 +772,7 @@ def _lumpy(pp, simplify=0.15, ratio=1.3, closed=0.1):
     return L.length > ratio * max(L.simplify(simplify).length, 1e-6)
 
 
-def subtype_marks(lines, px):
+def subtype_marks(lines, px, kinds={}):
     """Comment lines recording where walls are drawn in a colour that means
     a wall subtype (green: `flowstone`, or `blocks` if drawn lumpy; brown: mud, `clay`, or `sand` where
     brown dots lie along it), for smooth.wall_subtypes to apply once the walls are final:
@@ -777,7 +785,9 @@ def subtype_marks(lines, px):
             continue
         L = LineString(pp)
         near = sum(1 for d in dots if L.distance(Point(d[0])) < 0.5)
-        if c == 'GREEN':                         # colour is a hint: shape decides
+        if id(pp) in kinds:
+            kind = kinds[id(pp)]
+        elif c == 'GREEN':                       # colour is a hint: shape decides
             kind = 'blocks' if _lumpy(pp) else 'flowstone'
         else:
             kind = 'sand' if near >= 3 else 'clay'
@@ -808,22 +818,34 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
         if len(g) < 2:
             continue
         mine = [(c, pp) for k, c, pp in pieces if k == gi]
+        feats = None
+        if SETTINGS['elevation_features']:       # pools, flow, curtains, blocks, rocks, rubble (elevation.py)
+            from . import elevation as el
+            feats = el.features(mine, [pos[n] for n in g])
+            mine = feats.lines
         walls, _b, _a = wall_strokes(mine)
         walls = clean(walls)
+        if feats:
+            walls += el.bowls(feats, walls)
         if not walls:
             continue
         gset = set(g)
         legs = [(pos[a], pos[b]) for a, b in legs_all if a in gset and b in gset]
-        for poly in elevation_fill(walls, legs, [pp for c, pp in mine if c == 'BLUE'], below, above):
+        extra = [pp for c, pp in mine if c == 'BLUE'] + \
+            ([[(x0, y), (x1, y)] for x0, x1, y in feats.pools] if feats else [])
+        for poly in elevation_fill(walls, legs, extra, below, above):
             inside = [n for n in g if poly.buffer(1.0).contains(Point(pos[n]))]
             if not inside:
                 continue
             name = f"{opt.name}E{len(scraps) + 1}"
             o = [f"scrap {name} -projection extended{opt.attrs(K)}", ""]
             if SETTINGS['wall_subtypes']:
-                o += subtype_marks(mine, px)
-            o += walls_th2(walls, poly, px)
+                o += (el.debris_marks(feats, px) if feats else []) + \
+                    subtype_marks(mine, px, feats.kinds if feats else {})
+            o += walls_th2(walls, poly, px, inner='line wall -outline none' if feats else None)
             o += water_th2(mine, poly, px, name, flow=False)
+            if feats:
+                o += el.th2(feats, poly, walls, px, name)
             for n in inside:
                 o += ["point %.2f %.2f station -name %s" % (*px(pos[n]), opt.station(n)), ""]
             o += ["endscrap", ""]
