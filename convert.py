@@ -409,7 +409,10 @@ def section_th2(name, attrs, lines, centre, K, comment):
     poly = section_outline(wl)
     if poly is None:
         return None
-    xpx = lambda p: (K * (p[0] - centre[0]) + 1000, K * (p[1] - centre[1]) + 1000)
+    if SETTINGS['sections_in_place']:     # where it was sketched, by its section mark
+        xpx = lambda p: (K * p[0], K * p[1])
+    else:
+        xpx = lambda p: (K * (p[0] - centre[0]) + 1000, K * (p[1] - centre[1]) + 1000)
     o = [f"scrap {name} -projection none{attrs}", "", comment, ""]
     o += ["line wall -close on"] + bezier_closed(list(poly.exterior.coords), xpx) + ["endline", ""]
     # marks inside: boulders, and ledges or other lines as borders
@@ -573,6 +576,8 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
     xs_text, made, used = section_scraps(sketch, opt, K)
     lines = [l for i, l in enumerate(sketch.lines) if i not in used]
     geo = PlanGeometry(pos, sketch.shots)
+    from . import scale                   # the legs nearby set how closely lines follow the sketch
+    scale.use([(pos[a], pos[b]) for a, b in geo.legs])
     if opt.scraps and SETTINGS['hand_scraps']:    # chosen by hand: strokes go with their nearest leg's scrap
         from . import scraps as by_hand
         names = sorted(pos, key=register.natural)

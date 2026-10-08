@@ -43,6 +43,13 @@ def is_closed(pp):
     return L >= 0.2 and math.dist(pp[0], pp[-1]) <= max(0.15, 0.2 * L)
 
 
+def is_curl(pp):
+    """A stroke curled round on itself (a loop not quite closed): at least
+    twice as long as it is wide, its ends within 0.7 of its width."""
+    sp = span(pp)
+    return sp > 0 and length(pp) >= 2.0 * sp and math.dist(pp[0], pp[-1]) <= 0.7 * sp
+
+
 def is_straight(pp, tol=0.08):
     (x1, y1), (x2, y2) = pp[0], pp[-1]
     d = math.dist(pp[0], pp[-1]) or 1e-9
@@ -58,6 +65,11 @@ def smooth_rows(pp, px, tol=0.04, window=0.5):
     from .settings import SETTINGS
     if SETTINGS['smooth_lines'] and len(pp) > 2:
         line = LineString(pp)
+        if SETTINGS['line_tol_rel']:        # in proportion to the legs nearby (scale.py)
+            from . import scale
+            mid = line.interpolate(0.5, normalized=True)
+            t = scale.tol((mid.x, mid.y), SETTINGS['line_tol_rel'], tol)
+            window, tol = window * t / tol, t
         n = max(2, round(line.length / 0.05))
         dense = [line.interpolate(k / n, normalized=True).coords[0] for k in range(n + 1)]
         h = max(1, round(window / 0.05 / 2))
@@ -154,6 +166,8 @@ def brown(strokes, passage, boulder_min, barriers=()):
             continue
         if not passage.buffer(0.3).intersects(LineString(pp) if len(pp) > 1 else Point(pp[0])):
             continue
+        if SETTINGS['curls_closed'] and len(pp) > 3 and not is_closed(pp) and is_curl(pp):
+            pp = list(pp) + [pp[0]]      # a boulder drawn as a curl, not quite closed
         k = kind_of(pp, boulder_min, SETTINGS['mark_max'])
         if k == 'line' and SETTINGS['dash_max'] and length(pp) <= SETTINGS['dash_max'] \
                 and math.dist(pp[0], pp[-1]) >= 0.85 * length(pp):
@@ -289,7 +303,10 @@ def th2(lines, passage, px, idbase, wall_colours, boulder_min, barriers=()):
     boulders, areas, brown_lines = brown(strokes, passage, boulder_min, list(barriers) + inner)
     o = []
     for pp in boulders:
-        ring = list(Polygon(pp).buffer(0).simplify(0.03).exterior.coords) if len(pp) > 2 else pp
+        g = Polygon(pp).buffer(0) if len(pp) > 2 else None
+        if g is not None and g.geom_type == 'MultiPolygon':     # a loop drawn crossing itself
+            g = max(g.geoms, key=lambda q: q.area)
+        ring = list(g.simplify(0.03).exterior.coords) if g is not None and not g.is_empty else pp
         if len(ring) >= 4:
             # straight segments, ending on the first point (tools/Style.md: rocks)
             ring = list(ring[:-1]) + [ring[0]]

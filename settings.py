@@ -42,11 +42,21 @@ UPSTREAM = {
                                  # across (a corner), when cutting the fill back to it (0: straight only)
     'dash_max': 0.0,             # m: brown open strokes up to this long and roughly straight are mud
                                  # dashes too (0: only those under DASH in marks.py, 0.6 m)
+    'curls_closed': False,       # True: a brown stroke curled round on itself is a closed loop (boulder)
     'mud_near': 0.0,             # m: mud/sand marks this close are one patch (0: NEAR in marks.py, 0.6 m)
     'mud_grow': 0.0,             # m: a mud/sand patch is grown this far round its marks, following the
                                  # passage (0: the convex hull of the marks, as upstream)
     'brown_ticks': True,         # False: brown short strokes are never the ticks of a non-brown line
                                  # (they are mud or rocks beside it)
+    'wall_tol_rel': 0.0,         # walls refitted to within this fraction of the local leg length
+                                 # (mean of the 3 nearest legs, scale.py); 0: a fixed 0.10 m (smooth.TOL)
+    'line_tol_rel': 0.0,         # the same for borders, steps and overhangs (0: a fixed 0.04 m, over 0.5 m)
+    'section_tol_rel': 0.0,      # cross-section walls to within this fraction of the section's size
+                                 # (0: as other walls)
+    'sections_in_place': False,  # True: a cross-section scrap's coordinates are where it was sketched,
+                                 # by its section mark, so xTherion shows it there
+    'wall_ends_meet': 0.0,       # m: wall ends this close meet, and an end near another wall's side ends
+                                 # on it, unless the gap crosses a survey leg (nodes.walls_meet; 0: off)
     'presumed_walls': True,      # False: an outline gap Therion might close badly is still left open,
                                  # not drawn as a presumed wall where nothing was sketched
     'area_lines': True,          # False: open brown lines lying mostly inside a boulder/debris area are

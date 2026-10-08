@@ -41,13 +41,18 @@ def split_segment(p0, seg, t):
     return [a[0], a[1], d[0], d[1], m[0], m[1]], [e[0], e[1], c[0], c[1], p3[0], p3[1]]
 
 
-def nearest_on(segs, p, samples=24):
-    """(distance, segment index, t, point) of the nearest point to p on a line."""
+def nearest_on(segs, p, samples=24, step=2.0):
+    """(distance, segment index, t, point) of the nearest point to p on a line.
+    Each segment is sampled at least `samples` times and every `step`
+    drawing units along its control polygon, so a long segment is measured
+    as closely as a short one."""
     best = None
     prev = (segs[0][-2], segs[0][-1])
     for i, seg in enumerate(segs[1:], 1):
-        for k in range(samples + 1):
-            t = k / samples
+        poly = [prev] + ([(seg[0], seg[1]), (seg[2], seg[3])] if len(seg) == 6 else []) + [(seg[-2], seg[-1])]
+        n = max(samples, int(sum(math.dist(a, b) for a, b in zip(poly, poly[1:])) / step))
+        for k in range(n + 1):
+            t = k / n
             q = _lerp(prev, (seg[-2], seg[-1]), t) if len(seg) == 2 else \
                 _bezier(prev, (seg[0], seg[1]), (seg[2], seg[3]), (seg[-2], seg[-1]), t)
             d = math.dist(p, q)
@@ -106,4 +111,87 @@ def snap_scrap(objs, K):
             if math.dist(target, end) > 1e-6:
                 _set_end(o, which, target)
                 n += 1
+    return n
+
+
+def walls_meet(objs, K, near, legs=(), body=REACH, ok=None):
+    """Walls the sketcher did not quite join, joined: two wall ends within
+    `near` m of each other meet at their midpoint, and a wall end within
+    `body` m of another wall's side ends on it (on a node, inserted if
+    need be). A gap that crosses a survey leg runs across the passage
+    (a squeeze) and is left alone. Only a wall that is not part of the
+    outline (-outline none) is ended on another's side. `legs`: [(p, q)]
+    in drawing units. `ok()`, if given, says whether the scrap's outline
+    is still sound: a join that makes it unsound is undone.
+    Returns how many ends moved."""
+    from shapely.geometry import LineString
+    legs = [LineString(l) for l in legs]
+    walls = [o for o in objs if o.kind == 'line' and o.head.startswith('line wall')
+             and '-subtype invisible' not in o.head and '-close on' not in o.head and len(o.segments()) > 1]
+
+    def end(o, which):
+        s = o.segments()[which]
+        return (s[-2], s[-1])
+
+    def across(a, b):
+        g = LineString([a, b])
+        return any(g.intersects(l) for l in legs)
+
+    n = 0
+    ends = [(o, w) for o in walls for w in (0, -1)]
+    done = set()
+    for i, (o, w) in enumerate(ends):
+        if (id(o), w) in done:
+            continue
+        p = end(o, w)
+        best = None
+        for o2, w2 in ends:
+            if o2 is o or (id(o2), w2) in done:
+                continue
+            d = math.dist(p, end(o2, w2))
+            if 1e-6 < d <= near * K and (best is None or d < best[0]):
+                best = (d, o2, w2)
+        if best and not across(p, end(best[1], best[2])):
+            _, o2, w2 = best
+            q = end(o2, w2)
+            m = ((p[0] + q[0]) / 2, (p[1] + q[1]) / 2)
+            rows = (o.rows, o2.rows)
+            _set_end(o, w, m)
+            _set_end(o2, w2, m)
+            if ok is not None and not ok():
+                o.rows, o2.rows = rows
+                continue
+            done |= {(id(o), w), (id(o2), w2)}
+            n += 2
+    # ends left close to another wall's side (not an outline wall: ending
+    # on another's side would make a T in the outline, which Therion
+    # cannot follow)
+    free = [(o, w) for o, w in ends if (id(o), w) not in done and '-outline none' in o.head]
+    for o, w in free:
+        p = end(o, w)
+        if any(math.dist(p, end(o2, w2)) < 1e-6 for o2, w2 in ends if o2 is not o):
+            continue                      # already meets a wall end
+        hits = [(nearest_on(o2.segments(), p), o2) for o2 in walls if o2 is not o]
+        hits = [(h, o2) for h, o2 in hits if h and 1e-6 < h[0] <= body * K]
+        if not hits:
+            continue
+        (d, i, t, q), o2 = min(hits, key=lambda h: h[0][0])
+        if across(p, q):
+            continue
+        nodes = [(s[-2], s[-1]) for s in o2.segments()]
+        node = min(nodes, key=lambda v: math.dist(v, q))
+        if math.dist(node, q) <= SNAP * K:
+            target = node
+        else:
+            ws = [list(s) for s in o2.segments()]
+            a, b = split_segment((ws[i - 1][-2], ws[i - 1][-1]), ws[i], t)
+            ws[i:i + 1] = [a, b]
+            o2.set_segments(ws)
+            target = (a[-2], a[-1])
+        rows = (o.rows, o2.rows)
+        _set_end(o, w, target)
+        if ok is not None and not ok():
+            o.rows, o2.rows = rows
+            continue
+        n += 1
     return n

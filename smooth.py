@@ -424,8 +424,9 @@ def _state(walls, outline):
     return lines, simple, _crossings(lines), sound
 
 
-def smooth_scrap(objs, K):
-    """Refit the scrap's walls. Returns (points before, points after)."""
+def smooth_scrap(objs, K, base=None):
+    """Refit the scrap's walls. Returns (points before, points after).
+    base(wall) gives a wall's tolerance in metres (default TOL)."""
     walls = [o for o in objs if o.kind == 'line' and o.head.startswith('line wall') and len(o.segments()) > 2
              and len(o.segments()) > SPARSE * LineString(bezier_points(o.segments())).length / K]
     if not walls:
@@ -438,14 +439,15 @@ def smooth_scrap(objs, K):
     # which outline each wall is part of
     rings = [set(map(tuple, r)) for r in therion_chain([bezier_points(o.segments(), 20) for o in outline])]
     ring_of = [next((k for k, r in enumerate(rings) if tuple(o.segments()[0][-2:]) in r), None) for o in walls]
-    tols = (TOL, TOL / 2, TOL / 4, None)        # None: as it was
+    tols = (1.0, 0.5, 0.25, None)               # times the wall's tolerance; None: as it was
+    base_of = [base(o) if base else TOL for o in walls]
     level = [0] * len(walls)
 
     def refit(i):
         o = walls[i]
         o.rows = old[id(o)]
         if tols[level[i]] is not None:
-            o.set_segments(fit_wall(o.segments(), K, tols[level[i]]))
+            o.set_segments(fit_wall(o.segments(), K, tols[level[i]] * base_of[i]))
             # fitted away to nothing, or not much better (already smooth:
             # run again, it leaves walls as they are)
             n = len(Obj('line', '', old[id(o)]).segments())
@@ -454,9 +456,10 @@ def smooth_scrap(objs, K):
 
     old_line = {id(o): LineString(bezier_points(o.segments(), 8)) for o in walls}
 
-    def strays(o):
+    def strays(i):
         # (the fit's own check misses a long gentle curve made one segment)
-        return any(old_line[id(o)].distance(Point(p)) > TOL * K for p in bezier_points(o.segments(), 20))
+        o = walls[i]
+        return any(old_line[id(o)].distance(Point(p)) > base_of[i] * K for p in bezier_points(o.segments(), 20))
 
     for i in range(len(walls)):
         refit(i)
@@ -467,7 +470,7 @@ def smooth_scrap(objs, K):
         _, simple, cross, sound = _state(walls, outline)
         bad = {i for i, (s, s0) in enumerate(zip(simple, simple0)) if s0 and not s}
         bad |= {i for i, o in enumerate(walls) if tols[level[i]] is not None and reversals(o.segments())}
-        bad |= {i for i, o in enumerate(walls) if tols[level[i]] is not None and strays(o)}
+        bad |= {i for i, o in enumerate(walls) if tols[level[i]] is not None and strays(i)}
         bad |= {i for pair in cross - cross0 for i in pair}
         broken = {k // 3 for k, (s, s0) in enumerate(zip(sound, sound0)) if s0 and not s}
         bad |= {i for i, k in enumerate(ring_of) if k in broken}
@@ -688,6 +691,54 @@ def one_line_per_wall(objs, K):
     return dropped, bordered, joined
 
 
+def outline_sound_now(objs):
+    """How many of the scrap's outlines (as Therion will join them) are
+    simple and turn once (MetaPost's turning number 1)."""
+    out = [o for o in objs if o.kind == 'line' and len(o.segments()) > 1 and '-close on' not in o.head
+           and o.head.startswith('line wall') and '-outline none' not in o.head and '-subtype invisible' not in o.head]
+    ol = [bezier_points(o.segments(), 20) for o in out]
+    good = 0
+    for ring in therion_rings(ol):
+        pts = [p for i, r in ring for p in (ol[i][::-1] if r else ol[i])]
+        segs = [reverse_segments(out[i].segments()) if r else out[i].segments() for i, r in ring]
+        good += 1 if ring_ok(pts)[0] and abs(mp_turning(segs)) == 1 else 0
+    return good
+
+
+def _wall_tol(header, objs, K, path):
+    """How closely each wall of a scrap is refitted (metres): for a
+    cross-section, in proportion to its size; otherwise, with [convert]
+    wall_tol_rel, in proportion to the legs nearby (scale.py); else TOL."""
+    from .settings import SETTINGS
+    from . import scale
+    if '-projection none' in header and SETTINGS['section_tol_rel']:
+        pts = [p for o in objs if o.kind == 'line' for p in bezier_points(o.segments(), 4)]
+        if pts:
+            size = max(max(x for x, _ in pts) - min(x for x, _ in pts), max(y for _, y in pts) - min(y for _, y in pts)) / K
+            t = min(TOL, SETTINGS['section_tol_rel'] * size)
+            return lambda o: t
+        return None
+    if not SETTINGS['wall_tol_rel']:
+        return None
+    from .survey import survey_of
+    survey = survey_of(path)
+    if not survey:                      # a copy outside the survey's folder: the scrap's name says
+        from .. import project
+        m = re.match(r'scrap (\S+)', header)
+        prefix = project.load().names['scrap_prefix'].replace('{survey}', '(\\w+?)')
+        mm = re.match(prefix + r'[PE]\d', m.group(1)) if m else None
+        survey = mm.group(1) if mm else ''
+    legs = scale.legs_of_scrap(objs, survey)
+    if not legs:
+        return None
+    scale.use(legs, K)
+
+    def tol(o):
+        pts = bezier_points(o.segments(), 4)
+        return scale.tol(pts[len(pts) // 2], SETTINGS['wall_tol_rel'], TOL)
+    return tol
+
+
 def redo_file(path, scraps=None):
     """Refit the walls of the file's scraps (or those named in `scraps`)."""
     raw = open(path, 'rb').read()
@@ -705,10 +756,18 @@ def redo_file(path, scraps=None):
         if SETTINGS['wall_jog_max'] > 0:        # walls joined through the sketcher's steps (jogs.py),
             from .jogs import join_scrap        # before the refit so the join is smoothed too
             stepped = join_scrap(objs, K, SETTINGS['wall_jog_max'])
-        b, a = smooth_scrap(objs, K)
+        b, a = smooth_scrap(objs, K, _wall_tol(header, objs, K, path))
         if SETTINGS['wall_jog_max'] > 0:        # borders broken where the sketcher missed (jogs.py)
             from .jogs import join_borders
             stepped += join_borders(objs, K)
+        if SETTINGS['wall_ends_meet']:          # walls the sketcher did not quite join (nodes.py)
+            from .nodes import walls_meet
+            from . import scale
+            from .survey import survey_of
+            survey = survey_of(path) or (re.match(r'scrap (\S+?)S[PE]\d', header) or [None, ''])[1]
+            sound0 = outline_sound_now(objs)
+            stepped += walls_meet(objs, K, SETTINGS['wall_ends_meet'], scale.legs_of_scrap(objs, survey),
+                                  ok=lambda: outline_sound_now(objs) >= sound0)
         if SETTINGS['end_on_node']:             # lines ending at walls end on a wall node (nodes.py)
             from .nodes import snap_scrap
             stepped += snap_scrap(objs, K)
