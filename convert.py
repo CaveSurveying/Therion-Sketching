@@ -778,12 +778,13 @@ def _plen(pp):
     return sum(math.dist(a, b) for a, b in zip(pp, pp[1:]))
 
 
-def drawn_on(pieces, lines, meet=0.3):
+def drawn_on(pieces, lines, sizes=None, meet=0.3):
     """Scraps by hand, in an elevation: a whole stroke drawn on from the end
-    of another, at least as long, of the same colour in another scrap goes
-    into that scrap (it is the same wall) unless one of its ends also meets
-    a stroke in its own scrap. Decided on the scraps as assigned, so two
-    strokes do not swap. Trident: the roof over 38 to 39, drawn on up past 37."""
+    of another of the same colour, in a scrap with more stations (`sizes`:
+    stations per scrap), goes into that scrap: the same wall, and a small
+    scrap is a passage split off a main one. Not if one of its ends also
+    meets a stroke in its own scrap. Decided on the scraps as assigned.
+    Trident: the roof over 38 to 39, drawn on up past 37 to the peak."""
     key = lambda pp: frozenset([tuple(pp[0]), tuple(pp[-1])])
     whole_keys = {key(pp) for _, pp in lines if len(pp) > 1}
     is_whole = lambda pp: len(pp) > 1 and key(pp) in whole_keys     # not cut by assign
@@ -801,7 +802,7 @@ def drawn_on(pieces, lines, meet=0.3):
                 if min(math.dist(e, q[0]), math.dist(e, q[-1])) < meet:
                     if k2 == k:
                         mine = True
-                    elif _plen(q) >= _plen(pp):
+                    elif sizes is None or sizes[k2] > sizes[k]:
                         theirs.add(k2)
         if not mine and len(theirs) == 1:
             rec[0] = theirs.pop()
@@ -869,7 +870,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
         from . import scraps as by_hand
         names = sorted(pos, key=register.natural)
         groups = by_hand.complete(by_hand.parse(opt.scraps, names), names, legs_all)
-        pieces = drawn_on(by_hand.assign(lines, groups, pos, legs_all), lines)
+        pieces = drawn_on(by_hand.assign(lines, groups, pos, legs_all), lines, [len(g) for g in groups])
     else:
         member = {n: i for i, g in enumerate(groups) for n in g}
         near = lambda p: member.get(_nearest(pos, p), 0) if pos else 0
