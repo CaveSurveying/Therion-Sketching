@@ -11,6 +11,9 @@ from .. import project as _project
 
 UPSTREAM = {
     'wall_colours': ['BLACK', 'BROWN', 'GRAY'],  # strokes that can make the passage outline
+    'layout_split': True,        # True (upstream): a scrap per group of stations that fits Therion's
+                                 # layout with one shift, and a sketch that fits only upside down
+                                 # flipped. False (plan stage 5d): the layout is for `check` only
     'elevation_features': False,  # True: pools, water flow, curtains, blocks, rocks and rubble read
                                   # from an elevation sketch by shape (elevation.py)
     'wall_subtypes': False,      # True: elevation walls drawn brown are mud (-subtype clay), or sand where

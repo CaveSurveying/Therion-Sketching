@@ -634,7 +634,12 @@ def place_sections(geo, made, px, placed):
 # -- whole scraps --------------------------------------------------------------------
 
 def _split(sketch, layout, survey, tol):
-    """Station groups that fit Therion's layout with one shift each."""
+    """Station groups that fit Therion's layout with one shift each.
+
+    Not used for drawing (plan stage 5d): Therion morphs each scrap onto
+    its stations, and stations move as other surveys join, so a drawing is
+    never split or flipped to fit where Therion puts the stations today.
+    The conversion passes no layout; `check` reports the disagreement."""
     pos = sketch.positions()
     if layout is None:
         return sketch, [list(pos)], False
@@ -911,6 +916,9 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
             o += water_th2(mine, poly, px, name, flow=False)
             if feats:
                 o += el.th2(feats, poly, walls, px, name)
+            for n, sname, centre, W, H in made:      # cross-sections where they were sketched
+                if n in inside:
+                    o += ["point %.2f %.2f section -scrap %s" % (*px(centre), sname), ""]
             for n in inside:
                 o += ["point %.2f %.2f station -name %s" % (*px(pos[n]), opt.station(n)), ""]
             o += ["endscrap", ""]
@@ -945,6 +953,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
     head = header(sketch.path if sketch.path.lower().endswith('.xvi') and not flipped else None,
                   out_path, anchor, px(pos[anchor]) if anchor else (0, 0), polys_all, px)
     note = ["# Converted from %s by tools/sketch2therion (extended elevation)." % os.path.basename(sketch.path or 'a sketch'),
-            "# Split into one scrap per group of stations that fits Therion's layout.", ""]
+            ("# Split into one scrap per group of stations that fits Therion's layout." if SETTINGS['layout_split'] else
+             "# One scrap per sketch, or as chosen by hand ([scraps_extended] in tools/project.toml)."), ""]
     plan_scraps = [f"{opt.name}XS"] if xs_plan else []
     return "\n".join(head + note + body + xs_text + xs_plan), scraps, [m[1] for m in made], plan_scraps
