@@ -33,7 +33,9 @@ UPSTREAM = {
     'mark_max': 0.0,             # m: brown loops and strokes smaller than this are marks (dirt):
                                  # ignored alone, sand or mud when three or more are together
     'area_min_width': 0.0,       # m: parts of areas narrower than this are dropped (sand/mud: 0.6 of it)
-    'area_min_area': 0.0,        # m2: smaller areas are dropped (no room for their symbols)
+    'area_min_area': 0.0,
+    'area_inside_min': 0.0,      # share of an area (as drawn, run over the walls) that must be inside the
+                                 # passage, or it is not drawn (0: no check)        # m2: smaller areas are dropped (no room for their symbols)
     'green_loops': False,        # True: single green loops are boulders/debris (colour mistaken);
                                  # only nested rings stay a formation
     'area_over_walls': 0.0,      # m: areas run out this far over the walls, which clip them (0: cut at the walls)
@@ -44,6 +46,9 @@ UPSTREAM = {
                                  # dashes too (0: only those under DASH in marks.py, 0.6 m)
     'rock_faces': False,         # True: the fill is cut along the wall strokes and faces of it with no
                                  # leg or station that reach its edge (rock it took in) dropped
+    'wall_links': 0.0,           # m: a wall piece off the outline at least this long whose ends meet two
+                                 # outline walls' ends is wall (the stroke between them, round a bend),
+                                 # if the outline stays sound (0: off)
     'wall_hooks': False,         # True: a small black loop left open, an end at another black stroke, is
                                  # a hook of the wall, not a boulder
     'curls_closed': False,       # True: a brown stroke curled round on itself is a closed loop (boulder)

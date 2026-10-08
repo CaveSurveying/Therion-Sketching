@@ -201,54 +201,114 @@ def walls_meet(objs, K, near, legs=(), body=REACH, ok=None):
     return n
 
 
-def thin(segs, gap):
+def _points(p0, seg, n=12):
+    """Points along one segment (from p0), including both ends."""
+    p3 = (seg[-2], seg[-1])
+    if len(seg) == 2:
+        return [_lerp(p0, p3, k / n) for k in range(n + 1)]
+    return [_bezier(p0, (seg[0], seg[1]), (seg[2], seg[3]), p3, k / n) for k in range(n + 1)]
+
+
+def _unit(a, b):
+    d = math.dist(a, b)
+    return ((b[0] - a[0]) / d, (b[1] - a[1]) / d) if d > 1e-9 else None
+
+
+def merge(p0, a, b, maxerr=None):
+    """Segments a (from p0) and b (from a's end) as one Bezier segment, fitted
+    (least squares) to the shape of both, leaving and arriving as they did:
+    a single cubic can follow a sweep or a gentle S. None if it strays more
+    than maxerr (drawing units) from them."""
+    from .smooth import _generate, _chord_params, _max_error, _reparam
+    m = (a[-2], a[-1])
+    d = _points(p0, a) + _points(m, b)[1:]
+    p3 = d[-1]
+    chord = math.dist(d[0], p3) or 1.0
+    far = lambda pts: next((q for q in pts if math.dist(q, pts[0]) > 0.02 * chord), pts[-1])
+    t1 = _unit(p0, (a[0], a[1])) if len(a) == 6 and math.dist(p0, (a[0], a[1])) > 0.02 * chord else None
+    t1 = t1 or _unit(p0, far(d))
+    t2 = _unit(p3, (b[2], b[3])) if len(b) == 6 and math.dist(p3, (b[2], b[3])) > 0.02 * chord else None
+    t2 = t2 or _unit(p3, far(d[::-1]))
+    if t1 is None or t2 is None:
+        return None
+    u = _chord_params(d)
+    bz = _generate(d, u, t1, t2)
+    for _ in range(3):                       # a few refinements of where each point falls on the curve
+        u = _reparam(d, bz, u)
+        bz = _generate(d, u, t1, t2)
+    if maxerr is not None and _max_error(d, bz, u)[0] > maxerr:
+        return None
+    return [bz[1][0], bz[1][1], bz[2][0], bz[2][1], p3[0], p3[1]]
+
+
+def thin(segs, gap, maxerr=None, keep=(), hard=0.0):
     """A line's segments with no node within `gap` (drawing units) of the
     node kept before it, so each can be seen and picked when editing. The
-    ends stay; a dropped node's two segments become one, keeping the
-    outer control points. Returns the new segments."""
+    ends stay; a dropped node's two segments become one, refitted to their
+    shape (merge). With maxerr, a node is kept, however close, where one
+    segment cannot follow the shape that closely (a tight S bend needs its
+    nodes; a sweep does not), unless it is within `hard` (no shape needs
+    nodes that close). Nodes in `keep` (points another line ends on) stay.
+    Returns the new segments."""
     if len(segs) < 3:
         return segs
     out = [list(segs[0])]
-    pending = None              # a segment whose end node is being dropped
-    for k, seg in enumerate(segs[1:], 1):
-        seg = list(seg)
-        if pending is not None:  # join pending (prev -> dropped) and seg (dropped -> next)
-            c1 = pending[:2] if len(pending) == 6 else None
-            c2 = seg[2:4] if len(seg) == 6 else None
-            if c1 is None and c2 is None:
-                seg = seg[-2:]
-            else:
-                p0 = out[-1][-2:]
-                seg = list(c1 or p0) + list(c2 or seg[-2:]) + seg[-2:]
-            pending = None
+    k = 1
+    cur = None                               # the segment from out[-1], growing as nodes are dropped
+    while k < len(segs):
+        seg = list(segs[k]) if cur is None else cur
         last = k == len(segs) - 1
-        if not last and math.dist(out[-1][-2:], seg[-2:]) < gap:
-            pending = seg       # this node is too close to the last one kept
-            continue
-        if last and len(out) > 1 and math.dist(out[-1][-2:], seg[-2:]) < gap:
-            # the end stays: drop the node before it instead
-            prev = out.pop()
-            c1 = prev[:2] if len(prev) == 6 else None
-            c2 = seg[2:4] if len(seg) == 6 else None
-            if c1 is not None or c2 is not None:
-                seg = list(c1 or out[-1][-2:]) + list(c2 or seg[-2:]) + seg[-2:]
-            else:
-                seg = seg[-2:]
+        p0 = out[-1][-2:]
+        held = any(math.dist(seg[-2:], q) < 1e-3 for q in keep)
+        if not last and not held and math.dist(p0, seg[-2:]) < gap:
+            joined = merge(p0, seg, segs[k + 1], None if math.dist(p0, seg[-2:]) < hard else maxerr)
+            if joined is not None:           # this node goes; carry on from the joined segment
+                cur = joined
+                k += 1
+                continue
+        if last and len(out) > 1 and math.dist(p0, seg[-2:]) < gap and \
+                not any(math.dist(p0, q) < 1e-3 for q in keep):
+            # the end stays: drop the node before it instead, if the shape allows
+            prev = out[-1]
+            joined = merge(out[-2][-2:], prev, seg, None if math.dist(p0, seg[-2:]) < hard else maxerr)
+            if joined is not None:
+                out[-1] = joined
+                break
         out.append(seg)
+        cur = None
+        k += 1
     return out
 
 
-def thin_scrap(objs, K, gap_of):
-    """Thin every line of a scrap (thin). gap_of(o) gives the gap in metres.
-    Returns how many nodes went."""
+def thin_scrap(objs, K, gap_of, err_of=None, hard=0.0):
+    """Thin every line of a scrap (thin). gap_of(o) gives the gap in metres,
+    err_of(o) how far (metres) the line may move. Returns how many nodes went."""
     n = 0
+    ends = [tuple(o.segments()[k][-2:]) for o in objs if o.kind == 'line' and len(o.segments()) > 1 for k in (0, -1)]
     for o in objs:
         if o.kind != 'line' or '-subtype invisible' in o.head and '-id' not in o.head:
+            continue
+        if o.head.split()[1] in ('rock-border', 'rock-edge'):
+            # rocks stay straight-sided: a point too close to the one before just goes
+            segs = o.segments()
+            if any(len(sg) == 6 for sg in segs) or len(segs) < 4:
+                continue
+            closed = math.dist(segs[0][-2:], segs[-1][-2:]) < 1e-6
+            pts = [segs[0]]
+            for sg in segs[1:-1]:
+                if math.dist(pts[-1][-2:], sg[-2:]) >= hard * K:
+                    pts.append(sg)
+            if closed and len(pts) > 1 and math.dist(pts[-1][-2:], segs[-1][-2:]) < hard * K:
+                pts.pop()                    # (the end is the first point again)
+            pts.append(segs[-1])
+            if len(pts) < len(segs) and len(pts) >= (4 if closed else 2):
+                n += len(segs) - len(pts)
+                o.set_segments(pts)
             continue
         segs = o.segments()
         if len(segs) < 3:
             continue
-        new = thin(segs, gap_of(o) * K)
+        new = thin(segs, gap_of(o) * K, err_of(o) * K if err_of else None, ends, hard * K)
         if len(new) < len(segs):
             closed = '-close on' in o.head and math.dist(segs[0][-2:], segs[-1][-2:]) < 1e-6
             if closed and math.dist(new[0][-2:], new[-1][-2:]) > 1e-6:

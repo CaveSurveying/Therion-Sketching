@@ -69,7 +69,7 @@ def smooth_rows(pp, px, tol=0.04, window=0.5):
             from . import scale
             mid = line.interpolate(0.5, normalized=True)
             t = scale.tol((mid.x, mid.y), SETTINGS['line_tol_rel'], tol)
-            window, tol = window * t / tol, t
+            window, tol = 3 * t, t           # smoothed over 3 times the tolerance, as walls are
         n = max(2, round(line.length / 0.05))
         dense = [line.interpolate(k / n, normalized=True).coords[0] for k in range(n + 1)]
         h = max(1, round(window / 0.05 / 2))
@@ -263,7 +263,9 @@ def brown(strokes, passage, boulder_min, barriers=()):
                         pass
                     if g.geom_type == 'MultiPolygon':
                         g = max(g.geoms, key=lambda q: q.area)
-                if g.geom_type == 'Polygon' and not g.is_empty:
+                if g.geom_type == 'Polygon' and not g.is_empty and \
+                        g.intersection(passage).area >= SETTINGS['area_inside_min'] * g.area:
+                    # (an area mostly outside the walls, its marks drawn along the wall, is not drawn)
                     areas.append((kind, g.simplify(SETTINGS['area_splines'] or 0.03)))
     if SETTINGS['mud_grow']:
         areas = _mud_patches(areas)

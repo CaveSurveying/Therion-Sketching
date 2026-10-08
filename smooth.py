@@ -550,6 +550,30 @@ def _smooth_join(segs, k):
     segs[k + 1][0], segs[k + 1][1] = p[0] + u[0] * lb, p[1] + u[1] * lb
 
 
+LINKS_MADE = []        # the wall links one_line_per_wall made in the scrap being redone
+SKIP_LINKS = set()     # links to leave out (redo_file tries without any that spoil the outline)
+
+
+def _quality(objs):
+    """(outlines that don't cross themselves, outlines that turn once): to compare."""
+    out = [o for o in objs if o.kind == 'line' and len(o.segments()) > 1 and '-close on' not in o.head
+           and o.head.startswith('line wall') and '-outline none' not in o.head and '-subtype invisible' not in o.head]
+    ol = [bezier_points(o.segments(), 20) for o in out]
+    valid = once = 0
+    for ring in therion_rings(ol):
+        pts = [p for i, r in ring for p in (ol[i][::-1] if r else ol[i])]
+        segs = [reverse_segments(out[i].segments()) if r else out[i].segments() for i, r in ring]
+        valid += ring_ok(pts)[0]
+        once += abs(mp_turning(segs)) == 1
+    return valid, once
+
+
+def _rings_now(objs):
+    out = [o for o in objs if o.kind == 'line' and len(o.segments()) > 1 and '-close on' not in o.head
+           and o.head.startswith('line wall') and '-outline none' not in o.head and '-subtype invisible' not in o.head]
+    return therion_rings([bezier_points(o.segments(), 20) for o in out])
+
+
 def one_line_per_wall(objs, K):
     """Walls drawn as one line each, not in pieces:
     - pieces of the sketched walls that didn't end up on the outline
@@ -564,6 +588,7 @@ def one_line_per_wall(objs, K):
     walls = [o for o in objs if o.kind == 'line' and o.head.startswith('line wall')]
     outline = [o for o in walls if '-outline none' not in o.head and '-close on' not in o.head
                and len(o.segments()) > 1]
+    LINKS_MADE.clear()
     dropped = bordered = joined = 0
     if outline:
         lines = [LineString(bezier_points(o.segments())) for o in outline]
@@ -582,9 +607,33 @@ def one_line_per_wall(objs, K):
             return SETTINGS['interior_borders'] and any(
                 math.dist(tuple(sg[k][-2:]), p) < 0.05 * K for k in (0, -1) for p in ends)
 
+        def links(o):
+            # both ends on the ends of two different outline walls: the piece
+            # of the stroke between them (round a bend the fill took in)
+            sg = o.segments()
+            hit = [next((w for w in outline for k in (0, -1)
+                         if math.dist(tuple(sg[e][-2:]), tuple(w.segments()[k][-2:])) < 0.05 * K), None)
+                   for e in (0, -1)]
+            return hit[0] is not None and hit[1] is not None and hit[0] is not hit[1]
+
         for o in walls:
             if '-outline none' not in o.head or len(o.segments()) < 2:
                 continue
+            key = tuple(round(v) for v in o.segments()[0][-2:] + o.segments()[-1][-2:])
+            if SETTINGS['wall_links'] and links(o) and key not in SKIP_LINKS and \
+                    LineString(bezier_points(o.segments())).length >= SETTINGS['wall_links'] * K:
+                before = _outline_score(objs)
+                head, rows = o.head, o.rows
+                o.head = o.head.replace(' -outline none', '')
+                # run on from the wall whose end it starts at (so the walls join into one line)
+                sg = o.segments()
+                if not any(math.dist(tuple(sg[0][-2:]), tuple(w.segments()[-1][-2:])) < 0.05 * K for w in outline):
+                    o.set_segments(reverse_segments(sg))
+                after = _outline_score(objs)
+                if after <= before:     # only if Therion makes the outline as well as before
+                    LINKS_MADE.append(key)
+                    continue
+                o.head, o.rows = head, rows
             g = LineString(bezier_points(o.segments()))
             samples = [g.interpolate(i / 10, normalized=True) for i in range(11)]
             near = [lines[int(j)] for j in tree.query(g.buffer(DOUBLE * K))]
@@ -762,6 +811,60 @@ def _wall_tol(header, objs, K, path):
     return tol
 
 
+def _redo_scrap(header, body, path):
+    """One scrap through the wall refit and the steps after it.
+    Returns (objs, tidy report, points before, after, ends moved)."""
+    objs = parse_scrap(body)
+    K = scale_of(header)
+    tidy = one_line_per_wall(objs, K)
+    from .settings import SETTINGS
+    stepped = 0
+    if SETTINGS['wall_jog_max'] > 0:        # walls joined through the sketcher's steps (jogs.py),
+        from .jogs import join_scrap        # before the refit so the join is smoothed too
+        stepped = join_scrap(objs, K, SETTINGS['wall_jog_max'])
+    b, a = smooth_scrap(objs, K, _wall_tol(header, objs, K, path))
+    if SETTINGS['wall_jog_max'] > 0:        # borders broken where the sketcher missed (jogs.py)
+        from .jogs import join_borders
+        stepped += join_borders(objs, K)
+    from . import scale
+    from .survey import survey_of
+    survey = survey_of(path) or (re.match(r'scrap (\S+?)S[PE]\d', header) or [None, ''])[1]
+    legs = scale.legs_of_scrap(objs, survey)
+    scale.use(legs, K)
+
+    def at_line(o):                         # metres: the local scale at a line's middle, or None
+        pts = bezier_points(o.segments(), 2)
+        return scale.at(pts[len(pts) // 2]) if pts else None
+
+    def rel_abs(rel, absolute, s):          # the larger of an absolute and a relative distance (metres)
+        return max(absolute, rel * s) if rel and s else absolute
+    gap = None
+    if SETTINGS['node_gap'] or SETTINGS['node_gap_rel']:
+        # no two nodes so close that they cannot be told apart and picked when editing (nodes.thin)
+        from .nodes import thin_scrap
+        gap = lambda o: rel_abs(SETTINGS['node_gap_rel'], SETTINGS['node_gap'], at_line(o))
+        # a line may move no more than its own tolerance in losing a node: a sweep loses
+        # its close nodes, a tight S bend keeps them (nodes.thin)
+        wall = lambda o: o.head.startswith('line wall')
+        err = lambda o: scale.tol(bezier_points(o.segments(), 2)[0],
+                                  SETTINGS['wall_tol_rel'] if wall(o) else SETTINGS['line_tol_rel'],
+                                  TOL if wall(o) else 0.04)
+        stepped += thin_scrap(objs, K, gap, err, SETTINGS['node_gap'])
+    if SETTINGS['wall_ends_meet'] or SETTINGS['wall_ends_meet_rel']:
+        # walls the sketcher did not quite join (nodes.walls_meet)
+        from .nodes import walls_meet
+        sound0 = outline_sound_now(objs)
+        near = lambda p: rel_abs(SETTINGS['wall_ends_meet_rel'], SETTINGS['wall_ends_meet'], scale.at(p))
+        stepped += walls_meet(objs, K, near, legs, ok=lambda: outline_sound_now(objs) >= sound0)
+    if SETTINGS['end_on_node']:             # lines ending at walls end on a wall node (nodes.py)
+        from .nodes import snap_scrap, SNAP
+        snap = (lambda o: max(SNAP, gap(o))) if gap else None
+        stepped += snap_scrap(objs, K, snap)
+    if gap:                                     # joins and snaps can leave nodes close again
+        stepped += thin_scrap(objs, K, gap, err, SETTINGS['node_gap'])
+    return objs, tidy, b, a, stepped
+
+
 def redo_file(path, scraps=None):
     """Refit the walls of the file's scraps (or those named in `scraps`)."""
     raw = open(path, 'rb').read()
@@ -771,46 +874,21 @@ def redo_file(path, scraps=None):
         header, name, body = m.group(1), m.group(2), m.group(3)
         if scraps and name not in scraps:
             continue
-        objs = parse_scrap(body)
-        K = scale_of(header)
-        tidy = one_line_per_wall(objs, K)
-        from .settings import SETTINGS
-        stepped = 0
-        if SETTINGS['wall_jog_max'] > 0:        # walls joined through the sketcher's steps (jogs.py),
-            from .jogs import join_scrap        # before the refit so the join is smoothed too
-            stepped = join_scrap(objs, K, SETTINGS['wall_jog_max'])
-        b, a = smooth_scrap(objs, K, _wall_tol(header, objs, K, path))
-        if SETTINGS['wall_jog_max'] > 0:        # borders broken where the sketcher missed (jogs.py)
-            from .jogs import join_borders
-            stepped += join_borders(objs, K)
-        from . import scale
-        from .survey import survey_of
-        survey = survey_of(path) or (re.match(r'scrap (\S+?)S[PE]\d', header) or [None, ''])[1]
-        legs = scale.legs_of_scrap(objs, survey)
-        scale.use(legs, K)
-
-        def at_line(o):                         # metres: the local scale at a line's middle, or None
-            pts = bezier_points(o.segments(), 2)
-            return scale.at(pts[len(pts) // 2]) if pts else None
-
-        def rel_abs(rel, absolute, s):          # the larger of an absolute and a relative distance (metres)
-            return max(absolute, rel * s) if rel and s else absolute
-        gap = None
-        if SETTINGS['node_gap'] or SETTINGS['node_gap_rel']:
-            # no two nodes so close that they cannot be told apart and picked when editing (nodes.thin)
-            from .nodes import thin_scrap
-            gap = lambda o: rel_abs(SETTINGS['node_gap_rel'], SETTINGS['node_gap'], at_line(o))
-            stepped += thin_scrap(objs, K, gap)
-        if SETTINGS['wall_ends_meet'] or SETTINGS['wall_ends_meet_rel']:
-            # walls the sketcher did not quite join (nodes.walls_meet)
-            from .nodes import walls_meet
-            sound0 = outline_sound_now(objs)
-            near = lambda p: rel_abs(SETTINGS['wall_ends_meet_rel'], SETTINGS['wall_ends_meet'], scale.at(p))
-            stepped += walls_meet(objs, K, near, legs, ok=lambda: outline_sound_now(objs) >= sound0)
-        if SETTINGS['end_on_node']:             # lines ending at walls end on a wall node (nodes.py)
-            from .nodes import snap_scrap, SNAP
-            snap = (lambda o: max(SNAP, gap(o))) if gap else None
-            stepped += snap_scrap(objs, K, snap)
+        objs, tidy, b, a, stepped = _redo_scrap(header, body, path)
+        if LINKS_MADE and _quality(objs) < (len(_rings_now(objs)),) * 2:
+            # a wall link (one_line_per_wall) may have spoilt the outline once refitted:
+            # leave out any link whose absence gives a sounder outline
+            made = list(LINKS_MADE)
+            best = _quality(objs)
+            for key in made:
+                SKIP_LINKS.add(key)
+                trial = _redo_scrap(header, body, path)
+                if _quality(trial[0]) > best:
+                    objs, tidy, b, a, stepped = trial
+                    best = _quality(objs)
+                else:
+                    SKIP_LINKS.discard(key)
+            SKIP_LINKS.clear()
         if a == b and not any(tidy) and not stepped:
             report.append((name, b, a) + tidy + (0,))
             continue
