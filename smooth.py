@@ -920,10 +920,14 @@ def _areas_to_outline(objs, K, over, simplify):
     return n
 
 
+MIN_RUN = 0.5       # m: a shorter stretch of one wall subtype goes with its neighbour
+
+
 def wall_subtypes(objs, K, near=0.15):
     """Wall segments lying along a stroke recorded by convert.subtype_marks
-    get that subtype (a `subtype` option on the point they start from, back
-    to `bedrock` where the wall runs on as rock). Returns how many walls."""
+    get that subtype: a wall whose kind changes along it is cut into one
+    line per kind, each `line wall -subtype X` (plain `line wall` for rock),
+    never a `subtype` on a point. Returns how many walls were cut or typed."""
     marks = []
     for o in objs:
         if o.kind != 'text':
@@ -938,25 +942,56 @@ def wall_subtypes(objs, K, near=0.15):
     if not marks:
         return 0
     n = 0
+    out = []
     for o in objs:
         if o.kind != 'line' or not o.head.startswith('line wall') or '-subtype' in o.head or len(o.segments()) < 2:
+            out.append(o)
             continue
         segs = o.segments()
-        kinds = []
+        kinds, lens = [], []
         for i in range(1, len(segs)):
-            mid = bezier_points([segs[i - 1][-2:], segs[i]], 4)[2]
-            k = next((kd for kd, zone in marks if zone.contains(Point(mid))), 'bedrock')
-            kinds.append(k)
+            pts = bezier_points([segs[i - 1][-2:], segs[i]], 4)
+            mid = pts[len(pts) // 2] if len(pts) > 2 else \
+                ((pts[0][0] + pts[-1][0]) / 2, (pts[0][1] + pts[-1][1]) / 2)
+            kinds.append(next((kd for kd, zone in marks if zone.contains(Point(mid))), 'bedrock'))
+            lens.append(math.dist(segs[i - 1][-2:], segs[i][-2:]))
         if all(k == 'bedrock' for k in kinds):
+            out.append(o)
             continue
-        rows, cur = [], 'bedrock'
-        for i, sg in enumerate(segs):
-            rows.append('  ' + ' '.join('%.2f' % x for x in sg))
-            if i < len(kinds) and kinds[i] != cur:
-                rows.append('  subtype %s' % kinds[i])
-                cur = kinds[i]
-        o.rows = rows
+        # runs of one kind; a run shorter than MIN_RUN takes the kind before it (or after, at the start)
+        runs = []
+        for k, L in zip(kinds, lens):
+            if runs and runs[-1][0] == k:
+                runs[-1][1] += 1
+                runs[-1][2] += L
+            else:
+                runs.append([k, 1, L])
+        changed = True
+        while changed and len(runs) > 1:
+            changed = False
+            for j, r in enumerate(runs):
+                if r[2] < MIN_RUN * K:
+                    into = runs[j - 1] if j else runs[j + 1]
+                    into[1] += r[1]
+                    into[2] += r[2]
+                    runs.pop(j)
+                    for a in range(len(runs) - 1, 0, -1):        # neighbours now of one kind
+                        if runs[a][0] == runs[a - 1][0]:
+                            runs[a - 1][1] += runs[a][1]
+                            runs[a - 1][2] += runs[a][2]
+                            runs.pop(a)
+                    changed = True
+                    break
+        # one line per run, the subtype on the line (never on a point: hard to follow when editing)
+        opts = o.head[len('line wall'):]
+        start = 0
+        for k, cnt, _ in runs:
+            piece = Obj('line', 'line wall' + ('' if k == 'bedrock' else f' -subtype {k}') + opts, [])
+            piece.set_segments([list(segs[start][-2:])] + [list(sg) for sg in segs[start + 1:start + cnt + 1]])
+            out.append(piece)
+            start += cnt
         n += 1
+    objs[:] = out
     return n
 
 

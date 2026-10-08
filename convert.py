@@ -89,12 +89,14 @@ def plan_fill(walls, legs, extra=()):
     return _polygons(g.buffer(1.8, join_style=1).buffer(-1.72, join_style=1))
 
 
-def elevation_fill(walls, legs, extra=(), below=3.0, above=5.0):
+def elevation_fill(walls, legs, extra=(), below=3.0, above=5.0, stops=()):
     """As plan_fill, plus a band from floor to roof along each leg: the nearest
     sketch line below (within `below` m) and above (within `above` m), every
     20 cm. Where either is missing no band is drawn, so a gap in the sketch
-    stays a gap instead of filling the space between passages."""
-    segs = [(a, b) for w in walls for a, b in zip(w, w[1:]) if abs(b[0] - a[0]) > 1e-6]
+    stays a gap instead of filling the space between passages. `stops`: walls
+    of other scraps, where a band also stops (a passage above or below this
+    one: its floor is this one's roof)."""
+    segs = [(a, b) for w in list(walls) + list(stops) for a, b in zip(w, w[1:]) if abs(b[0] - a[0]) > 1e-6]
     boxes = []
     for A, B in legs:
         if abs(B[0] - A[0]) < 0.05:
@@ -772,6 +774,40 @@ def _lumpy(pp, simplify=0.15, ratio=1.3, closed=0.1):
     return L.length > ratio * max(L.simplify(simplify).length, 1e-6)
 
 
+def _plen(pp):
+    return sum(math.dist(a, b) for a, b in zip(pp, pp[1:]))
+
+
+def drawn_on(pieces, lines, meet=0.3):
+    """Scraps by hand, in an elevation: a whole stroke drawn on from the end
+    of another, at least as long, of the same colour in another scrap goes
+    into that scrap (it is the same wall) unless one of its ends also meets
+    a stroke in its own scrap. Decided on the scraps as assigned, so two
+    strokes do not swap. Trident: the roof over 38 to 39, drawn on up past 37."""
+    key = lambda pp: frozenset([tuple(pp[0]), tuple(pp[-1])])
+    whole_keys = {key(pp) for _, pp in lines if len(pp) > 1}
+    is_whole = lambda pp: len(pp) > 1 and key(pp) in whole_keys     # not cut by assign
+    out = [list(p) for p in pieces]
+    ends = [(k, c, pp) for k, c, pp in pieces if is_whole(pp)]
+    for rec in out:
+        k, c, pp = rec
+        if not is_whole(pp):
+            continue
+        mine, theirs = False, set()
+        for e in (pp[0], pp[-1]):
+            for k2, c2, q in ends:
+                if q is pp or c2 != c:
+                    continue
+                if min(math.dist(e, q[0]), math.dist(e, q[-1])) < meet:
+                    if k2 == k:
+                        mine = True
+                    elif _plen(q) >= _plen(pp):
+                        theirs.add(k2)
+        if not mine and len(theirs) == 1:
+            rec[0] = theirs.pop()
+    return [tuple(r) for r in out]
+
+
 def subtype_marks(lines, px, kinds={}):
     """Comment lines recording where walls are drawn in a colour that means
     a wall subtype (green: `flowstone`, or `blocks` if drawn lumpy; brown: mud, `clay`, or `sand` where
@@ -795,8 +831,34 @@ def subtype_marks(lines, px, kinds={}):
     return out + ([""] if out else [])
 
 
+def cut_glitches(lines, boxes):
+    """Strokes with their points inside any box (x0, y0, x1, y1) removed,
+    cut into the pieces either side."""
+    if not boxes:
+        return lines
+    inside = lambda p: any(b[0] <= p[0] <= b[2] and b[1] <= p[1] <= b[3] for b in boxes)
+    out = []
+    for c, pp in lines:
+        if not any(inside(p) for p in pp):
+            out.append((c, pp))
+            continue
+        run = []
+        for p in pp:
+            if inside(p):
+                if len(run) > 1:
+                    out.append((c, run))
+                run = []
+            else:
+                run.append(p)
+        if len(run) > 1:
+            out.append((c, run))
+    return out
+
+
 def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, below=3.0, above=5.0):
     K = sketch.scale
+    if getattr(opt, 'glitches', None):        # slips of the pen ([glitches] in project.toml)
+        sketch.lines = cut_glitches(sketch.lines, opt.glitches)
     sketch, groups, flipped = _split(sketch, layout, opt.survey, tol)
     pos = sketch.positions()
     px = lambda p: (K * p[0], K * p[1])
@@ -807,7 +869,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
         from . import scraps as by_hand
         names = sorted(pos, key=register.natural)
         groups = by_hand.complete(by_hand.parse(opt.scraps, names), names, legs_all)
-        pieces = by_hand.assign(lines, groups, pos, legs_all)
+        pieces = drawn_on(by_hand.assign(lines, groups, pos, legs_all), lines)
     else:
         member = {n: i for i, g in enumerate(groups) for n in g}
         near = lambda p: member.get(_nearest(pos, p), 0) if pos else 0
@@ -833,7 +895,9 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
         legs = [(pos[a], pos[b]) for a, b in legs_all if a in gset and b in gset]
         extra = [pp for c, pp in mine if c == 'BLUE'] + \
             ([[(x0, y), (x1, y)] for x0, x1, y in feats.pools] if feats else [])
-        for poly in elevation_fill(walls, legs, extra, below, above):
+        others = [(c, pp) for k, c, pp in pieces if k != gi and pp]
+        stops = clean(wall_strokes(others)[0]) if others else []
+        for poly in elevation_fill(walls, legs, extra, below, above, stops):
             inside = [n for n in g if poly.buffer(1.0).contains(Point(pos[n]))]
             if not inside:
                 continue

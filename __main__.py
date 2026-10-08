@@ -168,6 +168,7 @@ def cmd_extended(a):
     sk = load(a.sketch, 'elevation')
     opts = _opts(a)
     opts.scraps = PROJECT.scraps_extended.get(a.survey) if a.survey else None
+    opts.glitches = PROJECT.glitches.get(a.survey, {}).get(os.path.basename(a.sketch)) if a.survey else None
     if not a.layout and a.survey and os.path.exists(survey_layout_path(a.survey)):
         a.layout = survey_layout_path(a.survey)      # the survey's own layout (as sketched), if made
         print(f"using {a.layout}")
