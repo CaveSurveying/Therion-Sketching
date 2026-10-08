@@ -881,7 +881,11 @@ def close_outline(objs, K):
                 w.set_segments([[x, y] for x, y in pts[:-1]] + [[w.segments()[0][-2], w.segments()[0][-1]]] + w.segments()[1:])
                 o.kind = 'drop'
                 continue
-        o.head = 'line wall -subtype presumed'
+        from .settings import SETTINGS
+        if SETTINGS['presumed_walls']:
+            o.head = 'line wall -subtype presumed'
+        else:                           # nothing was sketched there: leave it open (Therion closes it)
+            o.kind = 'drop'
     return len(presumed), len(skip), len(kept)
 
 

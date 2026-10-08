@@ -188,8 +188,13 @@ def find(lines):
         side = 1 if sum(s for _, s in t) >= 0 else -1
         feats.append(('overhang', _oriented(pts, side), lines[next(iter(tick_ids), 0)][0] if tick_ids else 'GRAY'))
     # ticked lines
+    from .settings import SETTINGS
     for i, pp in longs:
-        t = [(k, s) for k, s in ticks_of(pp, [x for x in shorts if x[0] not in used]) if k not in used]
+        cand = [x for x in shorts if x[0] not in used]
+        if not SETTINGS['brown_ticks']:
+            # brown short strokes are mud or rocks, not ticks, unless the line itself is brown
+            cand = [x for x in cand if lines[x[0]][0] != 'BROWN' or lines[i][0] == 'BROWN']
+        t = [(k, s) for k, s in ticks_of(pp, cand) if k not in used]
         if len(t) >= MIN_TICKS:
             side = 1 if sum(s for _, s in t) >= 0 else -1
             feats.append(('step', _oriented(list(pp), side), lines[i][0]))

@@ -40,6 +40,15 @@ UPSTREAM = {
     'area_splines': 0.0,         # m: area outlines simplified to this and drawn as splines (0: straight, 0.03 m)
     'corner_cone': 0.0,          # degrees: an outer wall's passage leg may be this far off straight
                                  # across (a corner), when cutting the fill back to it (0: straight only)
+    'dash_max': 0.0,             # m: brown open strokes up to this long and roughly straight are mud
+                                 # dashes too (0: only those under DASH in marks.py, 0.6 m)
+    'mud_near': 0.0,             # m: mud/sand marks this close are one patch (0: NEAR in marks.py, 0.6 m)
+    'mud_grow': 0.0,             # m: a mud/sand patch is grown this far round its marks, following the
+                                 # passage (0: the convex hull of the marks, as upstream)
+    'brown_ticks': True,         # False: brown short strokes are never the ticks of a non-brown line
+                                 # (they are mud or rocks beside it)
+    'presumed_walls': True,      # False: an outline gap Therion might close badly is still left open,
+                                 # not drawn as a presumed wall where nothing was sketched
     'area_lines': True,          # False: open brown lines lying mostly inside a boulder/debris area are
                                  # dropped (they are part of the rocks' drawing)
     'hand_scraps': False,        # True: plan scraps from [scraps] in project.toml where a survey has them (scraps.py)

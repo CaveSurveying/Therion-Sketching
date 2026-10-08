@@ -154,7 +154,11 @@ def brown(strokes, passage, boulder_min, barriers=()):
             continue
         if not passage.buffer(0.3).intersects(LineString(pp) if len(pp) > 1 else Point(pp[0])):
             continue
-        sorted_[kind_of(pp, boulder_min, SETTINGS['mark_max'])].append(pp)
+        k = kind_of(pp, boulder_min, SETTINGS['mark_max'])
+        if k == 'line' and SETTINGS['dash_max'] and length(pp) <= SETTINGS['dash_max'] \
+                and math.dist(pp[0], pp[-1]) >= 0.85 * length(pp):
+            k = 'clay'                  # a longer dash, roughly straight: mud too
+        sorted_[k].append(pp)
 
     def shape(kind, pp):
         if kind in ('boulder', 'debris') and len(pp) > 2:
@@ -179,17 +183,41 @@ def brown(strokes, passage, boulder_min, barriers=()):
         sorted_['boulder'] = alone
     else:
         groups.append(('debris', sorted_['debris'], 1))
+    if SETTINGS['mud_grow'] and barriers:
+        # a mark touching a step or other line inside the passage is one of its ticks, not mud
+        bar = unary_union(list(barriers))
+        for k in ('sand', 'clay'):
+            touching = [pp for pp in sorted_[k] if min(bar.distance(Point(pp[0])), bar.distance(Point(pp[-1]))) <= 0.15]
+            sorted_[k] = [pp for pp in sorted_[k] if not any(pp is t for t in touching)]
+            sorted_['line'] += [pp for pp in touching if length(pp) >= DASH]      # a longer one stays a line
+    if SETTINGS['mud_grow'] and groups:
+        # marks among the rocks are the rocks' drawing, not mud or sand
+        rocks = unary_union([MultiPoint([p for pp in ms for p in pp]).convex_hull for _, ms, _ in groups
+                             if len(ms) > 1]).buffer(0.1)
+        for k in ('sand', 'clay'):
+            sorted_[k] = [pp for pp in sorted_[k] if not rocks.contains(Point(pp[len(pp) // 2]))]
     groups += [('sand', sorted_['sand'], 3), ('clay', sorted_['clay'], 3)]
 
     areas = []
     for kind, marks, need in groups:
         mark_kind = 'debris' if kind in ('debris', 'blocks') else kind
         geoms = [shape(mark_kind, pp) for pp in marks]
-        for grp in (cluster(geoms) if kind in ('sand', 'clay') or not SETTINGS['area_marks'] else [set(range(len(marks)))]):
+        mud = kind in ('sand', 'clay') and SETTINGS['mud_grow']
+        groups_ = cluster(geoms, SETTINGS['mud_near'] or NEAR) if kind in ('sand', 'clay') else \
+            (cluster(geoms) if not SETTINGS['area_marks'] else [set(range(len(marks)))])
+        for grp in groups_:
             if len(grp) < need:
+                if kind == 'clay' and SETTINGS['dash_max']:     # a longer dash on its own stays a line
+                    sorted_['line'] += [marks[i] for i in grp if length(marks[i]) >= DASH]
                 continue
             pts = [p for i in grp for p in marks[i]]
-            g = MultiPoint(pts).convex_hull.buffer(0.1, join_style=1).intersection(passage)
+            if mud:
+                # a patch of mud or sand: round its marks, following the passage, not a hull across it
+                r = SETTINGS['mud_grow']
+                g = unary_union([geoms[i].buffer(r, join_style=1) for i in grp]) \
+                    .buffer(r, join_style=1).buffer(-r, join_style=1).intersection(passage)
+            else:
+                g = MultiPoint(pts).convex_hull.buffer(0.1, join_style=1).intersection(passage)
             g = _keep_side(g, [geoms[i] for i in grp], barriers)
             if SETTINGS['area_min_width']:
                 # an area needs room for its symbols: thin parts are dropped
@@ -210,7 +238,32 @@ def brown(strokes, passage, boulder_min, barriers=()):
                     r = 2 * SETTINGS['area_splines']
                     g = g.buffer(r, join_style=1).buffer(-r, join_style=1)
                 areas.append((kind, g.simplify(SETTINGS['area_splines'] or 0.03)))
+    if SETTINGS['mud_grow']:
+        areas = _mud_patches(areas)
     return sorted_['boulder'], areas, sorted_['line']
+
+
+def _mud_patches(areas):
+    """Mud and sand areas that overlap merged into one, and kept off the
+    boulder and debris areas (the rocks are drawn there, not mud)."""
+    from .settings import SETTINGS
+    rocks = unary_union([g for k, g in areas if k in ('blocks', 'debris')])
+    out = [(k, g) for k, g in areas if k not in ('sand', 'clay')]
+    clay = unary_union([g for k, g in areas if k == 'clay'])
+    sand = [g for k, g in areas if k == 'sand']
+    # sand overlapping mud is part of that patch of mud
+    clay = unary_union([clay] + [g for g in sand if g.intersects(clay)])
+    merged = {'clay': clay, 'sand': unary_union([g for g in sand if not g.intersects(clay)])}
+    for kind in ('clay', 'sand'):
+        g = merged[kind]
+        if g.is_empty:
+            continue
+        if not rocks.is_empty:
+            g = g.difference(rocks.buffer(0.05)).buffer(0)
+        for part in getattr(g, 'geoms', [g]):
+            if part.geom_type == 'Polygon' and part.area > max(0.02, SETTINGS['area_min_area']):
+                out.append((kind, Polygon(part.exterior).simplify(SETTINGS['area_splines'] or 0.03)))
+    return out
 
 
 def interior(lines, passage, wall_colours):
