@@ -755,6 +755,24 @@ def extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, belo
     return _extended(sketch, opt, out_path, layout, plan_layout, tol, below, above)
 
 
+def subtype_marks(lines, px):
+    """Comment lines recording where walls are drawn in a colour that means
+    a wall subtype (brown: mud, `clay`, or `sand` where brown dots lie along
+    it), for smooth.wall_subtypes to apply once the walls are final:
+    `# wall-subtype clay: x y x y ...` in drawing units."""
+    from .marks import kind_of
+    out = []
+    dots = [pp for c, pp in lines if c == 'BROWN' and pp and kind_of(pp, 0.3, SETTINGS['mark_max']) == 'sand']
+    for c, pp in lines:
+        if c != 'BROWN' or len(pp) < 2 or not is_outline(pp):
+            continue
+        L = LineString(pp)
+        near = sum(1 for d in dots if L.distance(Point(d[0])) < 0.5)
+        kind = 'sand' if near >= 3 else 'clay'
+        out.append(f"# wall-subtype {kind}: " + " ".join("%.1f %.1f" % px(p) for p in pp))
+    return out + ([""] if out else [])
+
+
 def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, below=3.0, above=5.0):
     K = sketch.scale
     sketch, groups, flipped = _split(sketch, layout, opt.survey, tol)
@@ -783,6 +801,8 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
                 continue
             name = f"{opt.name}E{len(scraps) + 1}"
             o = [f"scrap {name} -projection extended{opt.attrs(K)}", ""]
+            if SETTINGS['wall_subtypes']:
+                o += subtype_marks(mine, px)
             o += walls_th2(walls, poly, px)
             o += water_th2(mine, poly, px, name, flow=False)
             for n in inside:

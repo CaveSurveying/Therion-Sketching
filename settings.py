@@ -11,6 +11,8 @@ from .. import project as _project
 
 UPSTREAM = {
     'wall_colours': ['BLACK', 'BROWN', 'GRAY'],  # strokes that can make the passage outline
+    'wall_subtypes': False,      # True: elevation walls drawn brown are mud (-subtype clay), or sand where
+                                 # brown dots lie along them
     'elevation_wall_colours': [],  # strokes that can make an elevation's outline, if not wall_colours
                                  # (a floor is often drawn brown)
     'interior_borders': False,   # True: lines inside the passage stay borders (no floor-step guessing)

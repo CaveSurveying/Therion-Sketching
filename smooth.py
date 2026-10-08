@@ -918,6 +918,45 @@ def _areas_to_outline(objs, K, over, simplify):
     return n
 
 
+def wall_subtypes(objs, K, near=0.15):
+    """Wall segments lying along a stroke recorded by convert.subtype_marks
+    get that subtype (a `subtype` option on the point they start from, back
+    to `bedrock` where the wall runs on as rock). Returns how many walls."""
+    marks = []
+    for o in objs:
+        if o.kind != 'text':
+            continue
+        for line in o.raw.split('\n'):
+            m = re.match(r'\s*# wall-subtype (\w+): (.*)', line)
+            if m:
+                v = [float(x) for x in m.group(2).split()]
+                if len(v) >= 4:
+                    marks.append((m.group(1), LineString(list(zip(v[0::2], v[1::2]))).buffer(near * K)))
+    if not marks:
+        return 0
+    n = 0
+    for o in objs:
+        if o.kind != 'line' or not o.head.startswith('line wall') or '-subtype' in o.head or len(o.segments()) < 2:
+            continue
+        segs = o.segments()
+        kinds = []
+        for i in range(1, len(segs)):
+            mid = bezier_points([segs[i - 1][-2:], segs[i]], 4)[2]
+            k = next((kd for kd, zone in marks if zone.contains(Point(mid))), 'bedrock')
+            kinds.append(k)
+        if all(k == 'bedrock' for k in kinds):
+            continue
+        rows, cur = [], 'bedrock'
+        for i, sg in enumerate(segs):
+            rows.append('  ' + ' '.join('%.2f' % x for x in sg))
+            if i < len(kinds) and kinds[i] != cur:
+                rows.append('  subtype %s' % kinds[i])
+                cur = kinds[i]
+        o.rows = rows
+        n += 1
+    return n
+
+
 def _redo_scrap(header, body, path):
     """One scrap through the wall refit and the steps after it.
     Returns (objs, tidy report, points before, after, ends moved)."""
@@ -1000,6 +1039,8 @@ def _redo_scrap(header, body, path):
     if SETTINGS['smooth_nodes']:                # control points either side of a node in line with it
         from .nodes import align_scrap
         stepped += align_scrap(objs, SETTINGS['smooth_nodes'])
+    if SETTINGS['wall_subtypes']:               # walls drawn as mud or sand (brown in the sketch)
+        stepped += wall_subtypes(objs, K)
     return objs, tidy, b, a, stepped
 
 
