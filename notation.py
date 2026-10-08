@@ -187,25 +187,56 @@ def find(lines):
         t = ticks_of(pts, [(k, pp_all[k]) for k in tick_ids if k in pp_all])
         side = 1 if sum(s for _, s in t) >= 0 else -1
         feats.append(('overhang', _oriented(pts, side), lines[next(iter(tick_ids), 0)][0] if tick_ids else 'GRAY'))
-    # ticked lines
+    # ticked lines: each line's candidate ticks found first, then every tick
+    # given to the line it is nearest (two step lines side by side share the
+    # ticks between them by distance, not by which was looked at first)
     from .settings import SETTINGS
+    found = {}
     for i, pp in longs:
-        cand = [x for x in shorts if x[0] not in used]
+        if i in used:
+            continue
+        cand = [x for x in shorts if x[0] not in used and x[0] != i]
         if not SETTINGS['brown_ticks']:
             # brown short strokes are mud or rocks, not ticks, unless the line itself is brown
             cand = [x for x in cand if lines[x[0]][0] != 'BROWN' or lines[i][0] == 'BROWN']
-        t = [(k, s) for k, s in ticks_of(pp, cand) if k not in used]
+        t = list(ticks_of(pp, cand))
+        if SETTINGS['mud_ticks'] and lines[i][0] == 'BROWN' and t:
+            # brown "ticks" on a brown line in a field of mud dashes are mud, not a step
+            ln = LineString(pp)
+            got = {k for k, _ in t}
+            mud = sum(1 for k, q in usable if k not in got and k != i and lines[k][0] == 'BROWN'
+                      and _is_short(q, TICK_MIN, SETTINGS['mud_ticks']) and ln.distance(LineString(q)) < 1.0)
+            # sparse ticks (under 0.8 a metre) or many more dashes about than ticks: mud
+            if len(t) / max(ln.length, 1e-9) < 0.8 or mud >= 4 * len(t):
+                t = []
         if SETTINGS['tick_reach'] > TOUCH and lines[i][0] not in ('BLACK', 'BROWN'):
             # ticks drawn a little clear of the line: only of the line's own colour, and never
             # for a black line (wall) or brown (whose dashes beside it are mud)
             got = {k for k, _ in t}
             far = [x for x in cand if x[0] not in got and lines[x[0]][0] == lines[i][0]]
-            t += [(k, s) for k, s in ticks_of(pp, far, SETTINGS['tick_reach']) if k not in used]
-        if len(t) >= MIN_TICKS:
-            side = 1 if sum(s for _, s in t) >= 0 else -1
-            feats.append(('step', _oriented(list(pp), side), lines[i][0]))
-            used.add(i)
-            used |= {k for k, _ in t}
+            t += list(ticks_of(pp, far, SETTINGS['tick_reach']))
+        if t:
+            found[i] = t
+    pp_of = dict(longs)
+    owner = {}
+    for i, t in found.items():
+        L = LineString(pp_of[i])
+        for k, side in t:
+            tick = LineString(pp_all[k])
+            d = L.distance(tick)
+            if k not in owner or d < owner[k][0]:
+                owner[k] = (d, i, side)
+    mine = {}
+    for k, (_, i, side) in owner.items():
+        mine.setdefault(i, []).append((k, side))
+    for i, pp in longs:
+        t = mine.get(i, [])
+        if i in used or len(t) < MIN_TICKS:
+            continue
+        side = 1 if sum(s for _, s in t) >= 0 else -1
+        feats.append(('step', _oriented(list(pp), side), lines[i][0]))
+        used.add(i)
+        used |= {k for k, _ in t}
     return feats, used
 
 

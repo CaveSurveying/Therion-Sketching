@@ -44,6 +44,8 @@ UPSTREAM = {
                                  # across (a corner), when cutting the fill back to it (0: straight only)
     'dash_max': 0.0,             # m: brown open strokes up to this long and roughly straight are mud
                                  # dashes too (0: only those under DASH in marks.py, 0.6 m)
+    'pockets': False,            # True: a wall piece off the outline, outside the passage, with both ends
+                                 # on one outline wall is a pocket (a deliberate bulge): the wall goes round it
     'rock_faces': False,         # True: the fill is cut along the wall strokes and faces of it with no
                                  # leg or station that reach its edge (rock it took in) dropped
     'merge_short': 0,            # nodes: a line of 2 nodes meeting another of its kind end to end is
@@ -68,6 +70,11 @@ UPSTREAM = {
                                  # passage (0: the convex hull of the marks, as upstream)
     'tick_reach': 0.0,           # m: a tick's near end may stand this far from its line (0: TOUCH in
                                  # notation.py, 0.15 m); ticks drawn a little clear of the line
+    'chain_gap': 0.0,            # m: brown line strokes ending this close to the next, and carrying on,
+                                 # are one line (sketched in pieces; 0: off)
+    'mud_ticks': 0.0,            # m: a brown line's brown "ticks" are mud, not a step, where they are
+                                 # sparse (under 0.8 a metre) or four times as many other brown dashes up to
+                                 # this long lie within 1 m of it (0: off)
     'brown_ticks': True,         # False: brown short strokes are never the ticks of a non-brown line
                                  # (they are mud or rocks beside it)
     'wall_tol_rel': 0.0,         # walls refitted to within this fraction of the local leg length

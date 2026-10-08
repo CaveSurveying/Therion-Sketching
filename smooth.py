@@ -287,17 +287,26 @@ def fit_wall(segs, K, tol=TOL):
         return segs
     d = _despur(d, K)
     from .settings import SETTINGS
-    if SETTINGS['wall_presmooth']:
-        # hand wobble smoothed out first (a running mean over a few times the
-        # tolerance), so the nodes go where the wall bends, not where the hand shook
-        d = _running_mean(d, SETTINGS['wall_presmooth'] * tol * K, 0.02 * K)
-    # corners: sharp turns that a coarse simplification still shows
-    idx = _rdp(d, 0.5 * tol * K)
+    # corners: sharp turns that a coarse simplification still shows (with
+    # pre-smoothing, only clear ones: hand wobble is not a corner)
+    presmooth = SETTINGS['wall_presmooth']
+    idx = _rdp(d, (1.5 if presmooth else 0.5) * tol * K)
     corners = [0]
     for a, b, c in zip(idx, idx[1:], idx[2:]):
-        if _turn(_sub(d[b], d[a]), _sub(d[c], d[b])) > CORNER:
+        if _turn(_sub(d[b], d[a]), _sub(d[c], d[b])) > (70 if presmooth else CORNER):
             corners.append(b)
     corners.append(len(d) - 1)
+    if SETTINGS['wall_presmooth']:
+        # hand wobble smoothed out (a running mean over a few times the tolerance)
+        # between the corners, which stay sharp: a deliberate bulge keeps its shape
+        w = SETTINGS['wall_presmooth'] * tol * K
+        nd, nc = [], [0]
+        for i, j in zip(corners, corners[1:]):
+            run = d[i:j + 1]
+            run = _running_mean(run, w, 0.02 * K) if len(run) > 2 and LineString(run).length > 0 else run
+            nd += run if not nd else run[1:]
+            nc.append(len(nd) - 1)
+        d, corners = nd, nc
     step = TANGENT * K
     out = [[d[0][0], d[0][1]]]
     for i, j in zip(corners, corners[1:]):
@@ -607,6 +616,48 @@ def one_line_per_wall(objs, K):
             return SETTINGS['interior_borders'] and any(
                 math.dist(tuple(sg[k][-2:]), p) < 0.05 * K for k in (0, -1) for p in ends)
 
+        def splice_pocket(o):
+            # a piece off the outline, both ends on one outline wall and lying outside the
+            # passage: a pocket the wall goes out round (a deliberate bulge, not a stray
+            # piece). The wall is rerouted round it; the refit smooths the join.
+            from .nodes import nearest_on
+            sg = o.segments()
+            g = LineString(bezier_points(sg))
+            if g.length > 2.0 * K or passage is None or passage.contains(g.interpolate(0.5, normalized=True)):
+                return False
+            e0, e1 = tuple(sg[0][-2:]), tuple(sg[-1][-2:])
+            for w in outline:
+                h0, h1 = nearest_on(w.segments(), e0), nearest_on(w.segments(), e1)
+                if not h0 or not h1 or h0[0] > 0.15 * K or h1[0] > 0.15 * K:
+                    continue
+                from .nodes import split_segment
+                ws = [list(x) for x in w.segments()]
+                (_, i0, u0, _), (_, i1, u1, _) = h0, h1
+                ps = [list(x) for x in sg]
+                if (i0, u0) > (i1, u1):              # the pocket runs the other way round
+                    (i0, u0), (i1, u1) = (i1, u1), (i0, u0)
+                    ps = [list(x) for x in reverse_segments(sg)]
+                line = LineString(bezier_points(ws))
+                mouth = abs(line.project(Point(ps[-1][-2:])) - line.project(Point(ps[0][-2:])))
+                if mouth > 3 * g.length:             # not across a pocket's mouth
+                    continue
+                # the wall cut where the pocket leaves it and where it comes back,
+                # keeping its own curves either side
+                a, _ = split_segment(tuple(ws[i0 - 1][-2:]), ws[i0], u0)
+                _, b = split_segment(tuple(ws[i1 - 1][-2:]), ws[i1], u1)
+                head = ws[:i0] + [a]
+                tail = [b] + ws[i1 + 1:]
+                start = [ps[0][-2], ps[0][-1]]
+                new = head + [start] + ps[1:] + tail
+                before_score, old_rows = _outline_score(objs), w.rows
+                w.set_segments(new)
+                o.kind = 'drop'
+                if _outline_score(objs) <= before_score:
+                    return True
+                w.rows, o.kind = old_rows, 'line'     # it spoilt the outline: not a pocket after all
+                return False
+            return False
+
         def links(o):
             # both ends on the ends of two different outline walls: the piece
             # of the stroke between them (round a bend the fill took in)
@@ -620,6 +671,8 @@ def one_line_per_wall(objs, K):
             if '-outline none' not in o.head or len(o.segments()) < 2:
                 continue
             key = tuple(round(v) for v in o.segments()[0][-2:] + o.segments()[-1][-2:])
+            if SETTINGS['pockets'] and splice_pocket(o):
+                continue
             if SETTINGS['wall_links'] and links(o) and key not in SKIP_LINKS and \
                     LineString(bezier_points(o.segments())).length >= SETTINGS['wall_links'] * K:
                 before = _outline_score(objs)

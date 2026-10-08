@@ -172,7 +172,8 @@ def brown(strokes, passage, boulder_min, barriers=()):
         if k == 'line' and SETTINGS['dash_max'] and length(pp) <= SETTINGS['dash_max'] \
                 and math.dist(pp[0], pp[-1]) >= 0.85 * length(pp):
             k = 'clay'                  # a longer dash, roughly straight: mud too
-        elif k == 'line' and SETTINGS['rock_curves'] and length(pp) <= (SETTINGS['dash_max'] or DASH):
+        elif k == 'line' and SETTINGS['rock_curves'] and length(pp) <= (SETTINGS['dash_max'] or DASH) \
+                and math.dist(pp[0], pp[-1]) < 0.7 * length(pp):
             k = 'boulder' if span(pp) >= boulder_min else 'debris'      # a curved one: part of a rock's outline
         sorted_[k].append(pp)
 
@@ -210,8 +211,9 @@ def brown(strokes, passage, boulder_min, barriers=()):
             sorted_['line'] += [pp for pp in touching if length(pp) >= DASH]      # a longer one stays a line
     if SETTINGS['mud_grow'] and groups:
         # marks among the rocks are the rocks' drawing, not mud or sand
-        rocks = unary_union([MultiPoint([p for pp in ms for p in pp]).convex_hull for _, ms, _ in groups
-                             if len(ms) > 1]).buffer(0.1)
+        # (round the rocks themselves: a hull of them all can take in the mud beside them)
+        rocks = unary_union([LineString(pp).buffer(0.3) if len(pp) > 1 else Point(pp[0]).buffer(0.3)
+                             for _, ms, _ in groups for pp in ms])
         for k in ('sand', 'clay'):
             sorted_[k] = [pp for pp in sorted_[k] if not rocks.contains(Point(pp[len(pp) // 2]))]
     groups += [('sand', sorted_['sand'], 3), ('clay', sorted_['clay'], 3)]
@@ -237,8 +239,21 @@ def brown(strokes, passage, boulder_min, barriers=()):
             elif SETTINGS['area_grow']:
                 # rocks: grown round their marks within the passage; _keep_side stops it at barriers
                 r = SETTINGS['area_grow']
-                g = unary_union([geoms[i].buffer(r, join_style=1) for i in grp]) \
-                    .buffer(r / 2, join_style=1).buffer(-r / 2, join_style=1).intersection(passage)
+                bars = [b for b in barriers if b.length > 0]
+
+                def grown(m):
+                    # the mark's own side of any barrier it would grow across (so an area does
+                    # not wrap round the end of a long line running beside it)
+                    g = m.buffer(r, join_style=1)
+                    near = [b for b in bars if b.intersects(g)]
+                    if not near:
+                        return g
+                    cut = g.difference(unary_union([b.buffer(0.03) for b in near]))
+                    parts = [p for p in getattr(cut, 'geoms', [cut]) if p.geom_type == 'Polygon']
+                    mine = [p for p in parts if p.intersects(m)] or parts[:1]
+                    return unary_union(mine) if mine else g
+                g = unary_union([grown(geoms[i]) for i in grp]) \
+                    .buffer(r / 4, join_style=1).buffer(-r / 4, join_style=1).intersection(passage)
             else:
                 g = MultiPoint(pts).convex_hull.buffer(0.1, join_style=1).intersection(passage)
             g = _keep_side(g, [geoms[i] for i in grp], barriers)
@@ -324,14 +339,66 @@ def interior(lines, passage, wall_colours):
     return out
 
 
+def chain_lines(lines, boulder_min, gap, turn=45.0):
+    """Brown line strokes (not marks) drawn as one line in pieces: where one
+    ends within `gap` m of the next and carries on (turning under `turn`
+    degrees), they are joined into one line."""
+    from .settings import SETTINGS
+    idx = [k for k, (c, pp) in enumerate(lines) if c == 'BROWN' and len(pp) > 1
+           and kind_of(pp, boulder_min, SETTINGS['mark_max']) == 'line' and length(pp) >= 0.6]
+    pieces = {k: list(lines[k][1]) for k in idx}
+
+    def head(pp, at_end):
+        a, b = (pp[-2], pp[-1]) if at_end else (pp[1], pp[0])
+        d = math.dist(a, b) or 1.0
+        return ((b[0] - a[0]) / d, (b[1] - a[1]) / d)
+    joined = True
+    while joined:
+        joined = False
+        keys = list(pieces)
+        for i in keys:
+            for j in keys:
+                if i == j or i not in pieces or j not in pieces:
+                    continue
+                a, b = pieces[i], pieces[j]
+                for ra in (False, True):
+                    for rb in (False, True):
+                        A = a[::-1] if ra else a
+                        B = b[::-1] if rb else b
+                        if math.dist(A[-1], B[0]) > gap:
+                            continue
+                        u, v = head(A, True), head(B, False)
+                        v = (-v[0], -v[1])
+                        if math.degrees(math.acos(max(-1.0, min(1.0, u[0] * v[0] + u[1] * v[1])))) > turn:
+                            continue
+                        pieces[i] = A + B
+                        del pieces[j]
+                        joined = True
+                        break
+                    if joined:
+                        break
+                if joined:
+                    break
+            if joined:
+                break
+    out = [l for k, l in enumerate(lines) if k not in idx]
+    return out + [('BROWN', pp) for pp in pieces.values()]
+
+
 def th2(lines, passage, px, idbase, wall_colours, boulder_min, barriers=()):
     """th2 text for the floor marks and interior lines of one scrap."""
     from .settings import SETTINGS
+    if SETTINGS['chain_gap']:              # a line sketched in pieces is one line
+        lines = chain_lines(lines, boulder_min, SETTINGS['chain_gap'])
     strokes = [pp for c, pp in lines if c == 'BROWN' and pp]
     inner_pp = interior(lines, passage, wall_colours)
     bmin = SETTINGS['barrier_min']
     # a short line inside the passage does not stop an area (it is often part of what is drawn there)
     inner = [LineString(pp) for pp in inner_pp if LineString(pp).length >= bmin]
+    if bmin:
+        # long brown lines (a ledge, a step drawn without ticks) also stop areas
+        inner += [LineString(pp) for c, pp in lines if c == 'BROWN' and len(pp) > 1
+                  and kind_of(pp, boulder_min, SETTINGS['mark_max']) == 'line' and LineString(pp).length >= bmin]
     boulders, areas, brown_lines = brown(strokes, passage, boulder_min, list(barriers) + inner)
     o = []
     for pp in boulders:
@@ -357,6 +424,8 @@ def th2(lines, passage, px, idbase, wall_colours, boulder_min, barriers=()):
         # brown lines mostly inside a boulder or debris area are part of the rocks' drawing
         def in_rocks(pp):
             L = LineString(pp).intersection(inside)        # the part that would be drawn
+            if SETTINGS['barrier_min'] and LineString(pp).length >= SETTINGS['barrier_min']:
+                return False                               # a long line is not rock detail
             return L.length > 0 and max(L.intersection(r).length for r in rocks) >= 0.5 * L.length
         brown_lines = [pp for pp in brown_lines if len(pp) < 2 or not in_rocks(pp)]
     for pp in brown_lines:
