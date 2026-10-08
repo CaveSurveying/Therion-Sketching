@@ -48,6 +48,8 @@ UPSTREAM = {
                                  # leg or station that reach its edge (rock it took in) dropped
     'merge_short': 0,            # nodes: a line of 2 nodes meeting another of its kind end to end is
                                  # merged into it; of up to this many, if the join turns under 90 degrees
+    'ends_meet': False,          # True: lines of different kinds (border, floor step, pit, ...) that end
+                                 # close together share that end (within the wall-join reach)
     'smooth_nodes': 0.0,         # degrees: at a node turning less than this, the control points either
                                  # side are put in line with it (a smooth node; 0: off)
     'wall_links': 0.0,           # m: a wall piece off the outline at least this long whose ends meet two

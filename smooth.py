@@ -922,6 +922,10 @@ def _redo_scrap(header, body, path):
         from .nodes import merge_short
         reach = lambda p: rel_abs(SETTINGS['wall_ends_meet_rel'], max(SETTINGS['wall_ends_meet'], 0.05), scale.at(p))
         stepped += merge_short(objs, K, reach, 2, SETTINGS['merge_short'])
+    if SETTINGS['ends_meet']:                   # lines of different kinds ending close together share the end
+        from .nodes import ends_meet
+        reach2 = lambda p: rel_abs(SETTINGS['wall_ends_meet_rel'], max(SETTINGS['wall_ends_meet'], 0.05), scale.at(p))
+        stepped += ends_meet(objs, K, reach2)
     if SETTINGS['smooth_nodes']:                # control points either side of a node in line with it
         from .nodes import align_scrap
         stepped += align_scrap(objs, SETTINGS['smooth_nodes'])

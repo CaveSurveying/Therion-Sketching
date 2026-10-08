@@ -116,7 +116,7 @@ def snap_scrap(objs, K, snap=None):
     return n
 
 
-def walls_meet(objs, K, near, legs=(), body=REACH, ok=None):
+def walls_meet(objs, K, near, legs=(), body=REACH, ok=None, corner=75.0):
     """Walls the sketcher did not quite join, joined: two wall ends within
     `near` m of each other (a number, or a function of the end's
     position) meet at their midpoint, and a wall end within
@@ -140,6 +140,26 @@ def walls_meet(objs, K, near, legs=(), body=REACH, ok=None):
         g = LineString([a, b])
         return any(g.intersects(l) for l in legs)
 
+    def heading(o, w):
+        # which way the wall runs out of this end (away from the rest of it)
+        sg = o.segments()
+        e = (sg[w][-2], sg[w][-1])
+        if w == 0:
+            h = (sg[1][0], sg[1][1]) if len(sg[1]) == 6 else (sg[1][-2], sg[1][-1])
+        else:
+            h = (sg[-1][2], sg[-1][3]) if len(sg[-1]) == 6 else (sg[-2][-2], sg[-2][-1])
+        return _unit(h, e)
+
+    def sharp(o, w, o2, w2):
+        # the two walls meet at a sharp corner: Therion's straight closing is
+        # better there than moving both ends (that bends their curves into a loop)
+        a, b = heading(o, w), heading(o2, w2)
+        if a is None or b is None:
+            return False
+        # carrying on: one runs out of its end the way the other runs in
+        cos = -(a[0] * b[0] + a[1] * b[1])
+        return math.degrees(math.acos(max(-1.0, min(1.0, cos)))) > corner
+
     n = 0
     ends = [(o, w) for o in walls for w in (0, -1)]
     done = set()
@@ -155,7 +175,7 @@ def walls_meet(objs, K, near, legs=(), body=REACH, ok=None):
             d = math.dist(p, end(o2, w2))
             if 1e-6 < d <= reach and (best is None or d < best[0]):
                 best = (d, o2, w2)
-        if best and not across(p, end(best[1], best[2])):
+        if best and not across(p, end(best[1], best[2])) and not sharp(o, w, best[1], best[2]):
             _, o2, w2 = best
             q = end(o2, w2)
             m = ((p[0] + q[0]) / 2, (p[1] + q[1]) / 2)
@@ -376,12 +396,13 @@ def align_scrap(objs, corner=60.0):
     return n
 
 
-def merge_short(objs, K, near=0.05, few=2, some=4, turn_max=90.0):
+def merge_short(objs, K, near=0.05, few=2, some=4, turn_max=None):
     """Short lines joined into the line of the same kind they run on from:
     a line of `few` nodes whose end meets another's end (within `near` m,
-    a number or a function of the point) is merged into it unless it turns
-    right back; one of up to `some` nodes, if the join turns less than
-    `turn_max` degrees. Gours stay separate. Walls are left to smooth.one_line_per_wall
+    a number or a function of the point) is merged into it, even at a sharp
+    turn (the join keeps its corner: align_handles leaves sharp turns); one
+    of up to `some` nodes likewise (or only if the join turns less than
+    `turn_max` degrees, if given). Gours stay separate. Walls are left to smooth.one_line_per_wall
     (which checks the outline). Returns how many lines were merged."""
     from .tidy import reverse_segments
 
@@ -425,14 +446,20 @@ def merge_short(objs, K, near=0.05, few=2, some=4, turn_max=90.0):
                 continue
             _, w, we, oe = best
             sw = w.segments()
-            # orient: w runs into the join, o runs out of it
+            # orient: w runs into the join, o runs out of it. A step, pitch or overhang has
+            # its ticks on its left: turning one round would move them, so those are only
+            # joined where they already run the same way
+            if kind(o) in ('floor-step', 'pit', 'overhang', 'ceiling-step', 'chimney') and we == oe:
+                continue
+            if we == 0 and oe == -1:
+                w, o, we, oe, sw, so = o, w, -1, 0, so, sw      # o runs into w: join w onto o
             a = sw if we == -1 else reverse_segments(sw)
             b = so if oe == 0 else reverse_segments(so)
             ua, ub = direction(a, True), direction(b, False)
             if ua is None or ub is None:
                 continue
             turn = math.degrees(math.acos(max(-1.0, min(1.0, ua[0] * ub[0] + ua[1] * ub[1]))))
-            if turn > (turn_max if len(so) > few else 120.0):
+            if turn_max is not None and len(so) > few and turn > turn_max:
                 continue
             # o's first point becomes the join: its first segment now runs from w's end
             new = [list(s) for s in a] + [list(s) for s in b[1:]]
@@ -442,4 +469,50 @@ def merge_short(objs, K, near=0.05, few=2, some=4, turn_max=90.0):
             n += 1
             changed = True
             break
+    return n
+
+
+def ends_meet(objs, K, near):
+    """Lines of different kinds that end close together share that end
+    (a border running on as a floor step, then a pitch: the drop changing
+    along the edge). `near` in m, a number or a function of the point. An
+    end already on a wall stays where it is and the other comes to it;
+    otherwise they meet halfway. Walls, boulders and closed lines are not
+    moved. Returns how many ends moved."""
+    def movable(o):
+        return o.kind == 'line' and len(o.segments()) > 1 and not o.head.startswith('line wall') \
+            and o.head.split()[1] not in ('rock-border', 'rock-edge') \
+            and '-close on' not in o.head and '-subtype invisible' not in o.head
+    walls = [o for o in objs if o.kind == 'line' and o.head.startswith('line wall') and len(o.segments()) > 1]
+    wall_nodes = [tuple(s[-2:]) for w in walls for s in w.segments()]
+    lines = [o for o in objs if movable(o)]
+    ends = [(o, k) for o in lines for k in (0, -1)]
+    done, n = set(), 0
+    for i, (o, k) in enumerate(ends):
+        if (id(o), k) in done:
+            continue
+        p = tuple(o.segments()[k][-2:])
+        reach = (near(p) if callable(near) else near) * K
+        best = None
+        for o2, k2 in ends[i + 1:]:
+            if o2 is o or (id(o2), k2) in done:
+                continue
+            q = tuple(o2.segments()[k2][-2:])
+            d = math.dist(p, q)
+            if 1e-6 < d <= reach and (best is None or d < best[0]):
+                best = (d, o2, k2, q)
+        if best is None:
+            continue
+        _, o2, k2, q = best
+        on_p = any(math.dist(p, w) < 1e-3 for w in wall_nodes)
+        on_q = any(math.dist(q, w) < 1e-3 for w in wall_nodes)
+        if on_p and on_q:
+            continue
+        m = p if on_p else q if on_q else ((p[0] + q[0]) / 2, (p[1] + q[1]) / 2)
+        if math.dist(p, m) > 1e-6:
+            _set_end(o, k, m)
+        if math.dist(q, m) > 1e-6:
+            _set_end(o2, k2, m)
+        done |= {(id(o), k), (id(o2), k2)}
+        n += 1
     return n
