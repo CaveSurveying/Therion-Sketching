@@ -744,6 +744,18 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
 def extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, below=3.0, above=5.0):
     """th2 text for an extended-elevation sketch, plus a plan scrap placing
     its cross-sections (if Therion's plan layout is given)."""
+    if SETTINGS['elevation_wall_colours']:
+        # in an elevation the floor is often drawn in another colour (brown) than the roof
+        keep = SETTINGS['wall_colours']
+        SETTINGS['wall_colours'] = SETTINGS['elevation_wall_colours']
+        try:
+            return _extended(sketch, opt, out_path, layout, plan_layout, tol, below, above)
+        finally:
+            SETTINGS['wall_colours'] = keep
+    return _extended(sketch, opt, out_path, layout, plan_layout, tol, below, above)
+
+
+def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, below=3.0, above=5.0):
     K = sketch.scale
     sketch, groups, flipped = _split(sketch, layout, opt.survey, tol)
     pos = sketch.positions()

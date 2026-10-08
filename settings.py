@@ -11,6 +11,8 @@ from .. import project as _project
 
 UPSTREAM = {
     'wall_colours': ['BLACK', 'BROWN', 'GRAY'],  # strokes that can make the passage outline
+    'elevation_wall_colours': [],  # strokes that can make an elevation's outline, if not wall_colours
+                                 # (a floor is often drawn brown)
     'interior_borders': False,   # True: lines inside the passage stay borders (no floor-step guessing)
     'brown': 'level',            # 'level': another level's walls (upstream); 'floor': boulders, debris, sand, mud
     'boulder_min': 0.6,          # m: a closed brown loop at least this wide is a boulder, smaller is debris

@@ -128,8 +128,45 @@ def cmd_plan(a):
     _map_hint(a.survey, scraps, 'plan')
 
 
+def survey_layout_path(survey):
+    """Where `layout --survey X` writes X's own extended layout."""
+    root, ext = os.path.splitext(PROJECT.path(EXT_LAYOUT))
+    return f"{root}-{survey}{ext}"
+
+
+def cmd_survey_layout(argv):
+    """Therion's extended layout of one survey on its own (its own `extend`
+    flags, as the sketch was drawn), for converting its elevation sketch: in
+    the whole cave a survey continues the way the survey before it runs, so
+    it can come out mirrored."""
+    import subprocess
+    p = argparse.ArgumentParser(prog='python3 -m tools.sketch2therion layout')
+    p.add_argument('--survey', required=True)
+    a = p.parse_args(argv)
+    out = survey_layout_path(a.survey)
+    th = PROJECT.path(PROJECT.survey_file(a.survey))
+    cfg = os.path.join(os.path.dirname(out), f"layout-{a.survey}.thcfg")
+    maps = cfg[:-6] + '.th'
+    with open(maps, 'w', encoding='utf-8') as f:
+        f.write(f"encoding  utf-8\nmap LayoutExtended -projection extended\n  {a.survey}\nendmap\n")
+    with open(cfg, 'w', encoding='utf-8') as f:
+        f.write(f"encoding  utf-8\n# {a.survey} alone, for its extended-elevation sketch (tools/sketch2therion layout)\n"
+                f"source {os.path.relpath(th, os.path.dirname(cfg))}\n"
+                f"source {os.path.basename(maps)}\n"
+                f"select LayoutExtended\n"
+                f"export map -projection extended -fmt xvi -o {os.path.basename(out)}\n")
+    r = subprocess.run(['therion', '-l', os.path.basename(cfg)[:-6] + '.log', os.path.basename(cfg)],
+                       cwd=os.path.dirname(cfg), capture_output=True, text=True)
+    if r.returncode or not os.path.exists(out):
+        sys.exit(f"therion failed for {cfg}:\n{r.stdout[-2000:]}{r.stderr[-2000:]}")
+    print(f"wrote {out}")
+
+
 def cmd_extended(a):
     sk = load(a.sketch, 'elevation')
+    if not a.layout and a.survey and os.path.exists(survey_layout_path(a.survey)):
+        a.layout = survey_layout_path(a.survey)      # the survey's own layout (as sketched), if made
+        print(f"using {a.layout}")
     text, scraps, sections, plan_scraps = convert.extended(
         sk, _opts(a), a.output, layout(a.layout or EXT_LAYOUT),
         layout(a.plan_layout or PLAN_LAYOUT), a.tol, a.floor_reach, a.roof_reach)
@@ -242,6 +279,8 @@ def main(argv=None):
     if args[:1] == ['place']:                  # filing a drawing into the survey
         from . import place
         return place.main(args[1:])
+    if args[:1] == ['layout']:                 # one survey's own extended layout
+        return cmd_survey_layout(args[1:])
     if args[:1] == ['zip']:                    # a review zip
         from . import reviewzip
         return reviewzip.main(args[1:])
