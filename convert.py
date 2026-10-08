@@ -755,9 +755,18 @@ def extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, belo
     return _extended(sketch, opt, out_path, layout, plan_layout, tol, below, above)
 
 
+def _lumpy(pp, simplify=0.15, ratio=1.3, closed=0.1):
+    """A stroke drawn as boulders (a closed loop, or one much longer than its
+    outline smoothed at `simplify` m) rather than a smooth drape."""
+    L = LineString(pp)
+    if Point(pp[0]).distance(Point(pp[-1])) < closed:
+        return True
+    return L.length > ratio * max(L.simplify(simplify).length, 1e-6)
+
+
 def subtype_marks(lines, px):
     """Comment lines recording where walls are drawn in a colour that means
-    a wall subtype (green: `flowstone`; brown: mud, `clay`, or `sand` where
+    a wall subtype (green: `flowstone`, or `blocks` if drawn lumpy; brown: mud, `clay`, or `sand` where
     brown dots lie along it), for smooth.wall_subtypes to apply once the walls are final:
     `# wall-subtype clay: x y x y ...` in drawing units."""
     from .marks import kind_of
@@ -768,7 +777,10 @@ def subtype_marks(lines, px):
             continue
         L = LineString(pp)
         near = sum(1 for d in dots if L.distance(Point(d[0])) < 0.5)
-        kind = 'flowstone' if c == 'GREEN' else 'sand' if near >= 3 else 'clay'
+        if c == 'GREEN':                         # colour is a hint: shape decides
+            kind = 'blocks' if _lumpy(pp) else 'flowstone'
+        else:
+            kind = 'sand' if near >= 3 else 'clay'
         out.append(f"# wall-subtype {kind}: " + " ".join("%.1f %.1f" % px(p) for p in pp))
     return out + ([""] if out else [])
 
