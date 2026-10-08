@@ -57,6 +57,10 @@ UPSTREAM = {
                                  # by its section mark, so xTherion shows it there
     'wall_ends_meet': 0.0,       # m: wall ends this close meet, and an end near another wall's side ends
                                  # on it, unless the gap crosses a survey leg (nodes.walls_meet; 0: off)
+    'wall_ends_meet_rel': 0.0,   # ... or within this share of the local leg length, if larger
+    'node_gap': 0.0,             # m: no two nodes of a line closer than this (they cannot be picked apart
+                                 # when editing; nodes.thin) ...
+    'node_gap_rel': 0.0,         # ... or this share of the local leg length, if larger (both 0: off)
     'presumed_walls': True,      # False: an outline gap Therion might close badly is still left open,
                                  # not drawn as a presumed wall where nothing was sketched
     'area_lines': True,          # False: open brown lines lying mostly inside a boulder/debris area are

@@ -760,17 +760,34 @@ def redo_file(path, scraps=None):
         if SETTINGS['wall_jog_max'] > 0:        # borders broken where the sketcher missed (jogs.py)
             from .jogs import join_borders
             stepped += join_borders(objs, K)
-        if SETTINGS['wall_ends_meet']:          # walls the sketcher did not quite join (nodes.py)
+        from . import scale
+        from .survey import survey_of
+        survey = survey_of(path) or (re.match(r'scrap (\S+?)S[PE]\d', header) or [None, ''])[1]
+        legs = scale.legs_of_scrap(objs, survey)
+        scale.use(legs, K)
+
+        def at_line(o):                         # metres: the local scale at a line's middle, or None
+            pts = bezier_points(o.segments(), 2)
+            return scale.at(pts[len(pts) // 2]) if pts else None
+
+        def rel_abs(rel, absolute, s):          # the larger of an absolute and a relative distance (metres)
+            return max(absolute, rel * s) if rel and s else absolute
+        gap = None
+        if SETTINGS['node_gap'] or SETTINGS['node_gap_rel']:
+            # no two nodes so close that they cannot be told apart and picked when editing (nodes.thin)
+            from .nodes import thin_scrap
+            gap = lambda o: rel_abs(SETTINGS['node_gap_rel'], SETTINGS['node_gap'], at_line(o))
+            stepped += thin_scrap(objs, K, gap)
+        if SETTINGS['wall_ends_meet'] or SETTINGS['wall_ends_meet_rel']:
+            # walls the sketcher did not quite join (nodes.walls_meet)
             from .nodes import walls_meet
-            from . import scale
-            from .survey import survey_of
-            survey = survey_of(path) or (re.match(r'scrap (\S+?)S[PE]\d', header) or [None, ''])[1]
             sound0 = outline_sound_now(objs)
-            stepped += walls_meet(objs, K, SETTINGS['wall_ends_meet'], scale.legs_of_scrap(objs, survey),
-                                  ok=lambda: outline_sound_now(objs) >= sound0)
+            near = lambda p: rel_abs(SETTINGS['wall_ends_meet_rel'], SETTINGS['wall_ends_meet'], scale.at(p))
+            stepped += walls_meet(objs, K, near, legs, ok=lambda: outline_sound_now(objs) >= sound0)
         if SETTINGS['end_on_node']:             # lines ending at walls end on a wall node (nodes.py)
-            from .nodes import snap_scrap
-            stepped += snap_scrap(objs, K)
+            from .nodes import snap_scrap, SNAP
+            snap = (lambda o: max(SNAP, gap(o))) if gap else None
+            stepped += snap_scrap(objs, K, snap)
         if a == b and not any(tidy) and not stepped:
             report.append((name, b, a) + tidy + (0,))
             continue

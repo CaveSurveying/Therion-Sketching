@@ -79,8 +79,10 @@ def _set_end(o, which, p):
     o.set_segments(segs)
 
 
-def snap_scrap(objs, K):
-    """Move line ends at walls onto wall nodes; returns how many."""
+def snap_scrap(objs, K, snap=None):
+    """Move line ends at walls onto wall nodes; returns how many. snap(wall),
+    if given, is how near (metres) an existing node is used rather than a
+    new one inserted (default SNAP)."""
     walls = [o for o in objs if o.kind == 'line' and o.head.split()[:2] == ['line', 'wall']
              and '-subtype invisible' not in o.head and len(o.segments()) > 1]
     n = 0
@@ -100,7 +102,7 @@ def snap_scrap(objs, K):
             (d, i, t, q), w = min(hits, key=lambda hw: hw[0][0])
             nodes = [(s[-2], s[-1]) for s in w.segments()]
             node = min(nodes, key=lambda v: math.dist(v, q))
-            if math.dist(node, q) <= SNAP * K:
+            if math.dist(node, q) <= (snap(w) if snap else SNAP) * K:
                 target = node
             else:
                 ws = [list(s) for s in w.segments()]
@@ -116,7 +118,8 @@ def snap_scrap(objs, K):
 
 def walls_meet(objs, K, near, legs=(), body=REACH, ok=None):
     """Walls the sketcher did not quite join, joined: two wall ends within
-    `near` m of each other meet at their midpoint, and a wall end within
+    `near` m of each other (a number, or a function of the end's
+    position) meet at their midpoint, and a wall end within
     `body` m of another wall's side ends on it (on a node, inserted if
     need be). A gap that crosses a survey leg runs across the passage
     (a squeeze) and is left alone. Only a wall that is not part of the
@@ -145,11 +148,12 @@ def walls_meet(objs, K, near, legs=(), body=REACH, ok=None):
             continue
         p = end(o, w)
         best = None
+        reach = (near(p) if callable(near) else near) * K
         for o2, w2 in ends:
             if o2 is o or (id(o2), w2) in done:
                 continue
             d = math.dist(p, end(o2, w2))
-            if 1e-6 < d <= near * K and (best is None or d < best[0]):
+            if 1e-6 < d <= reach and (best is None or d < best[0]):
                 best = (d, o2, w2)
         if best and not across(p, end(best[1], best[2])):
             _, o2, w2 = best
@@ -194,4 +198,61 @@ def walls_meet(objs, K, near, legs=(), body=REACH, ok=None):
             o.rows, o2.rows = rows
             continue
         n += 1
+    return n
+
+
+def thin(segs, gap):
+    """A line's segments with no node within `gap` (drawing units) of the
+    node kept before it, so each can be seen and picked when editing. The
+    ends stay; a dropped node's two segments become one, keeping the
+    outer control points. Returns the new segments."""
+    if len(segs) < 3:
+        return segs
+    out = [list(segs[0])]
+    pending = None              # a segment whose end node is being dropped
+    for k, seg in enumerate(segs[1:], 1):
+        seg = list(seg)
+        if pending is not None:  # join pending (prev -> dropped) and seg (dropped -> next)
+            c1 = pending[:2] if len(pending) == 6 else None
+            c2 = seg[2:4] if len(seg) == 6 else None
+            if c1 is None and c2 is None:
+                seg = seg[-2:]
+            else:
+                p0 = out[-1][-2:]
+                seg = list(c1 or p0) + list(c2 or seg[-2:]) + seg[-2:]
+            pending = None
+        last = k == len(segs) - 1
+        if not last and math.dist(out[-1][-2:], seg[-2:]) < gap:
+            pending = seg       # this node is too close to the last one kept
+            continue
+        if last and len(out) > 1 and math.dist(out[-1][-2:], seg[-2:]) < gap:
+            # the end stays: drop the node before it instead
+            prev = out.pop()
+            c1 = prev[:2] if len(prev) == 6 else None
+            c2 = seg[2:4] if len(seg) == 6 else None
+            if c1 is not None or c2 is not None:
+                seg = list(c1 or out[-1][-2:]) + list(c2 or seg[-2:]) + seg[-2:]
+            else:
+                seg = seg[-2:]
+        out.append(seg)
+    return out
+
+
+def thin_scrap(objs, K, gap_of):
+    """Thin every line of a scrap (thin). gap_of(o) gives the gap in metres.
+    Returns how many nodes went."""
+    n = 0
+    for o in objs:
+        if o.kind != 'line' or '-subtype invisible' in o.head and '-id' not in o.head:
+            continue
+        segs = o.segments()
+        if len(segs) < 3:
+            continue
+        new = thin(segs, gap_of(o) * K)
+        if len(new) < len(segs):
+            closed = '-close on' in o.head and math.dist(segs[0][-2:], segs[-1][-2:]) < 1e-6
+            if closed and math.dist(new[0][-2:], new[-1][-2:]) > 1e-6:
+                continue
+            o.set_segments(new)
+            n += len(segs) - len(new)
     return n
