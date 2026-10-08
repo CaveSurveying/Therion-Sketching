@@ -979,6 +979,24 @@ def _redo_scrap(header, body, path):
         from .nodes import ends_meet
         reach2 = lambda p: rel_abs(SETTINGS['wall_ends_meet_rel'], max(SETTINGS['wall_ends_meet'], 0.05), scale.at(p))
         stepped += ends_meet(objs, K, reach2)
+    if SETTINGS['despike']:
+        # no curve doubling back within a segment (a hook), and no wall turning right
+        # back over a short way (an overshoot where strokes overlap): each fix can show
+        # the next, so until nothing changes. Judged on the outline not crossing itself.
+        from .nodes import fix_handles, despike
+        for _ in range(5):
+            q0 = _quality(objs)
+            saved = [(o, o.rows) for o in objs if o.kind == 'line']
+            k = fix_handles(objs, 0.02 * K)
+            if _quality(objs)[0] < q0[0]:
+                for o, rows in saved:
+                    o.rows = rows
+                k = 0
+            q1 = _quality(objs)[0]
+            k += despike(objs, K, SETTINGS['despike'], ok=lambda: _quality(objs)[0] >= q1)
+            stepped += k
+            if not k:
+                break
     if SETTINGS['smooth_nodes']:                # control points either side of a node in line with it
         from .nodes import align_scrap
         stepped += align_scrap(objs, SETTINGS['smooth_nodes'])

@@ -358,7 +358,17 @@ def align_handles(segs, corner=60.0):
             continue
         cos = max(-1.0, min(1.0, u_in[0] * u_out[0] + u_in[1] * u_out[1]))
         turn = math.degrees(math.acos(cos))
-        if turn < 0.5 or turn > corner:
+        # a corner is where the line itself turns (by its nodes), not just its handles:
+        # handles at odd angles on a line running smoothly through are a kink to remove
+        if turn < 0.5:
+            continue                         # already in line
+        pa, pb = _unit((segs[i - 1][-2], segs[i - 1][-1]), p), _unit(p, (b[-2], b[-1]))
+        sharp = turn
+        if pa is not None and pb is not None:
+            line_turn = math.degrees(math.acos(max(-1.0, min(1.0, pa[0] * pb[0] + pa[1] * pb[1]))))
+            if line_turn < corner / 2:
+                sharp = min(turn, line_turn)
+        if sharp > corner:
             continue
         if len(a) == 6 and len(b) == 6:
             d = (u_in[0] + u_out[0], u_in[1] + u_out[1])
@@ -370,12 +380,27 @@ def align_handles(segs, corner=60.0):
             continue                         # two straight segments: a corner of a polyline
         m = math.hypot(*d) or 1.0
         d = (d[0] / m, d[1] / m)
+        na, nb = list(a), list(b)
         if len(a) == 6:
             L = math.dist(hin, p)
-            a[2], a[3] = p[0] - d[0] * L, p[1] - d[1] * L
+            na[2], na[3] = p[0] - d[0] * L, p[1] - d[1] * L
         if len(b) == 6:
             L = math.dist(p, hout)
-            b[0], b[1] = p[0] + d[0] * L, p[1] + d[1] * L
+            nb[0], nb[1] = p[0] + d[0] * L, p[1] + d[1] * L
+
+        def forward(p0, sg):
+            # both handles of a segment within its span along the chord (no hook)
+            if len(sg) != 6:
+                return True
+            ch = (sg[4] - p0[0], sg[5] - p0[1])
+            L2 = ch[0] ** 2 + ch[1] ** 2 or 1e-9
+            t1 = ((sg[0] - p0[0]) * ch[0] + (sg[1] - p0[1]) * ch[1]) / L2
+            t2 = ((sg[2] - p0[0]) * ch[0] + (sg[3] - p0[1]) * ch[1]) / L2
+            return 0 <= t1 <= 1 and 0 <= t2 <= 1
+        if not (forward(tuple(segs[i - 1][-2:]), na) and forward(p, nb)):
+            continue                         # lining up here would make a hook
+        segs[i], segs[i + 1] = na, nb
+        a, b = na, nb
         n += 1
     return segs, n
 
@@ -515,4 +540,98 @@ def ends_meet(objs, K, near):
             _set_end(o2, k2, m)
         done |= {(id(o), k), (id(o2), k2)}
         n += 1
+    return n
+
+
+def despike(objs, K, short=0.3, turn=110.0, ok=None):
+    """Walls without spikes: a node where the wall turns right back (more
+    than `turn` degrees) beside a segment shorter than `short` m is the
+    sketcher's stroke overshooting, not a corner; it goes and its two
+    segments become one (merge). With ok(), a removal that spoils the
+    outline is undone. Returns how many nodes went."""
+    n = 0
+    for o in objs:
+        if o.kind != 'line' or not o.head.startswith('line wall') or '-subtype invisible' in o.head:
+            continue
+        changed = True
+        while changed:
+            changed = False
+            s = o.segments()
+            for i in range(1, len(s) - 1):
+                p = tuple(s[i][-2:])
+                a = tuple(s[i][2:4]) if len(s[i]) == 6 else tuple(s[i - 1][-2:])
+                b = tuple(s[i + 1][0:2]) if len(s[i + 1]) == 6 else tuple(s[i + 1][-2:])
+                u, v = _unit(a, p), _unit(p, b)
+                if u is None or v is None:
+                    continue
+                ang = math.degrees(math.acos(max(-1.0, min(1.0, u[0] * v[0] + u[1] * v[1]))))
+                # and as the nodes themselves turn (a step can hide behind smooth handles)
+                u2, v2 = _unit(tuple(s[i - 1][-2:]), p), _unit(p, tuple(s[i + 1][-2:]))
+                if u2 is not None and v2 is not None:
+                    ang = max(ang, math.degrees(math.acos(max(-1.0, min(1.0, u2[0] * v2[0] + u2[1] * v2[1])))))
+                near = min(math.dist(s[i - 1][-2:], p), math.dist(p, s[i + 1][-2:]))
+                # turning right back over a short way, or a sharp step over a very short way
+                # (strokes overlapping side by side): not a corner the wall needs
+                if not ((ang > turn and near < short * K) or (ang > 70.0 and near < short * K / 3)):
+                    continue
+                joined = merge(tuple(s[i - 1][-2:]), s[i], s[i + 1])
+                if joined is None:
+                    joined = [s[i + 1][-2], s[i + 1][-1]]
+                rows = o.rows
+                o.set_segments([list(x) for x in s[:i]] + [joined] + [list(x) for x in s[i + 2:]])
+                if ok is not None and not ok():
+                    o.rows = rows
+                    continue
+                n += 1
+                changed = True
+                break
+    return n
+
+
+def fix_handles(objs, back=1.5):
+    """No curve doubling back on itself within a segment: a control point
+    that points backwards along its segment (or reaches past its far end)
+    makes the curve overshoot and come back, a hook in the line. Such a
+    handle is put back to a third of the way along the segment, but only
+    where the curve really runs back along its chord by more than `back`
+    (drawing units). Returns how many were fixed."""
+    n = 0
+    for o in objs:
+        if o.kind != 'line' or len(o.segments()) < 2 or o.head.split()[1] in ('rock-border', 'rock-edge') \
+                or '-subtype invisible' in o.head and '-id' not in o.head:
+            continue
+        segs = [list(x) for x in o.segments()]
+        hit = False
+        for i in range(1, len(segs)):
+            sg = segs[i]
+            if len(sg) != 6:
+                continue
+            p0, p3 = tuple(segs[i - 1][-2:]), (sg[4], sg[5])
+            ch = (p3[0] - p0[0], p3[1] - p0[1])
+            L2 = ch[0] ** 2 + ch[1] ** 2
+            if L2 < 1e-9:
+                continue
+            c1, c2 = (sg[0], sg[1]), (sg[2], sg[3])
+            # only where the curve really runs back along its chord (more than `back`)
+            pts = [_bezier(p0, c1, c2, p3, k / 24) for k in range(25)]
+            along = [((q[0] - p0[0]) * ch[0] + (q[1] - p0[1]) * ch[1]) / math.sqrt(L2) for q in pts]
+            peak, worst = along[0], 0.0
+            for a_ in along:
+                peak = max(peak, a_)
+                worst = max(worst, peak - a_)
+            low = min(along)
+            if worst <= back and low >= -back and max(along) <= math.sqrt(L2) + back:
+                continue
+            # how far along the chord each handle reaches (0 at p0, 1 at p3)
+            t1 = ((c1[0] - p0[0]) * ch[0] + (c1[1] - p0[1]) * ch[1]) / L2
+            t2 = ((c2[0] - p0[0]) * ch[0] + (c2[1] - p0[1]) * ch[1]) / L2
+            if t1 < 0 or t1 > 1:
+                sg[0], sg[1] = p0[0] + ch[0] / 3, p0[1] + ch[1] / 3
+                hit = True
+            if t2 < 0 or t2 > 1:
+                sg[2], sg[3] = p3[0] - ch[0] / 3, p3[1] - ch[1] / 3
+                hit = True
+        if hit:
+            o.set_segments(segs)
+            n += 1
     return n

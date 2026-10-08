@@ -345,7 +345,7 @@ def chain_lines(lines, boulder_min, gap, turn=45.0):
     degrees), they are joined into one line."""
     from .settings import SETTINGS
     idx = [k for k, (c, pp) in enumerate(lines) if c == 'BROWN' and len(pp) > 1
-           and kind_of(pp, boulder_min, SETTINGS['mark_max']) == 'line' and length(pp) >= 0.6]
+           and kind_of(pp, boulder_min, SETTINGS['mark_max']) == 'line' and length(pp) >= (SETTINGS['barrier_min'] or 0.6)]
     pieces = {k: list(lines[k][1]) for k in idx}
 
     def head(pp, at_end):

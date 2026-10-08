@@ -52,6 +52,8 @@ UPSTREAM = {
                                  # merged into it; of up to this many, if the join turns under 90 degrees
     'ends_meet': False,          # True: lines of different kinds (border, floor step, pit, ...) that end
                                  # close together share that end (within the wall-join reach)
+    'despike': 0.0,              # m: a wall node turning right back (over 110 degrees) beside a segment
+                                 # shorter than this is an overshoot and goes (0: off)
     'smooth_nodes': 0.0,         # degrees: at a node turning less than this, the control points either
                                  # side are put in line with it (a smooth node; 0: off)
     'wall_links': 0.0,           # m: a wall piece off the outline at least this long whose ends meet two
@@ -68,6 +70,8 @@ UPSTREAM = {
     'mud_near': 0.0,             # m: mud/sand marks this close are one patch (0: NEAR in marks.py, 0.6 m)
     'mud_grow': 0.0,             # m: a mud/sand patch is grown this far round its marks, following the
                                  # passage (0: the convex hull of the marks, as upstream)
+    'notation_rel': 0.0,         # m: ticks and dashes may be drawn bigger in proportion to the legs'
+                                 # length over this (up to twice); an overhang may be two ticked dashes (0: off)
     'tick_reach': 0.0,           # m: a tick's near end may stand this far from its line (0: TOUCH in
                                  # notation.py, 0.15 m); ticks drawn a little clear of the line
     'chain_gap': 0.0,            # m: brown line strokes ending this close to the next, and carrying on,

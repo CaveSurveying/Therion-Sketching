@@ -26,6 +26,8 @@ TICK_MIN = 0.06
 LINE_MIN = 0.6       # m: a ticked line is at least this long
 TOUCH = 0.15         # m: a tick's end is this close to its line
 MIN_TICKS = 2
+SHORT_LINE = 0.4     # m: a ticked line this short is a step only with SHORT_TICKS ticks or more
+SHORT_TICKS = 3
 DASH_MIN, DASH_MAX = 0.08, 0.5
 DASH_GAP = 0.55      # m: dashes of one line are at most this far apart
 MIN_DASHES = 3
@@ -83,7 +85,7 @@ def ticks_of(line_pp, shorts, reach=TOUCH):
     return out
 
 
-def dash_chains(cands):
+def dash_chains(cands, dash_gap=DASH_GAP, min_dashes=MIN_DASHES):
     """Groups (lists of indices, in order) of short straight strokes in a row."""
     idx = [i for i, _ in cands]
     pp_of = dict(cands)
@@ -98,7 +100,7 @@ def dash_chains(cands):
                 continue
             ends = min(((p, q) for p in (pa[0], pa[-1]) for q in (pb[0], pb[-1])), key=lambda pq: math.dist(*pq))
             gap = math.dist(*ends)
-            if gap > DASH_GAP or gap < 0.02:
+            if gap > dash_gap or gap < 0.02:
                 continue
             ca = ((pa[0][0] + pa[-1][0]) / 2, (pa[0][1] + pa[-1][1]) / 2)
             cb = ((pb[0][0] + pb[-1][0]) / 2, (pb[0][1] + pb[-1][1]) / 2)
@@ -118,7 +120,7 @@ def dash_chains(cands):
             seen.add(k)
             comp.append(k)
             todo += list(link[k])
-        if len(comp) >= MIN_DASHES:
+        if len(comp) >= min_dashes:
             u = _axis(pp_of[comp[0]])
             comp.sort(key=lambda k: pp_of[k][0][0] * u[0] + pp_of[k][0][1] * u[1])
             chains.append(comp)
@@ -135,25 +137,43 @@ def find(lines):
 
     Returns (features [(kind, points, colour)], consumed {indices into lines}),
     kind 'step' (floor step or pitch, decided later) or 'overhang'."""
+    from .settings import SETTINGS
     usable = [(i, pp) for i, (c, pp) in enumerate(lines) if c not in SKIP and len(pp) > 1]
-    longs = [(i, pp) for i, pp in usable if length(pp) >= LINE_MIN]
-    shorts = [(i, pp) for i, pp in usable if _is_short(pp, TICK_MIN, TICK_MAX)]
+    # ticks and dashes are drawn bigger where the legs are longer (the sketch is zoomed out)
+    f = 1.0
+    if SETTINGS['notation_rel']:
+        from . import scale
+        import statistics
+        sc = [scale.at(pp[len(pp) // 2]) for _, pp in usable]
+        sc = [x for x in sc if x]
+        if sc:
+            f = min(2.0, max(1.0, statistics.median(sc) / SETTINGS['notation_rel']))
+    # a short step (down to SHORT_LINE) counts if it has at least SHORT_TICKS ticks
+    longs = [(i, pp) for i, pp in usable if length(pp) >= (SHORT_LINE if SETTINGS['notation_rel'] else LINE_MIN)]
+    shorts = [(i, pp) for i, pp in usable if _is_short(pp, TICK_MIN, TICK_MAX * f)]
     feats, used = [], set()
     # dashed lines with a tick on each dash (first, so their ticks are
     # not taken for the ticks of a nearby line)
-    cands = [(i, pp) for i, pp in usable if _is_short(pp, DASH_MIN, DASH_MAX)]
+    cands = [(i, pp) for i, pp in usable if _is_short(pp, DASH_MIN, DASH_MAX * f)]
+    if not SETTINGS['brown_ticks']:          # brown dashes are mud, not an overhang
+        cands = [(i, pp) for i, pp in cands if lines[i][0] != 'BROWN']
     pp_all = dict(usable)
     pieces = []                          # [points in order, tick indices]
-    for chain in dash_chains(cands):
+    two = 2 if SETTINGS['notation_rel'] else MIN_DASHES
+    for chain in dash_chains(cands, DASH_GAP * f, two):
         pts = []
         for k in chain:
             pts += [pp_all[k][0], pp_all[k][-1]]
         u = _axis(pts)
         pts.sort(key=lambda p: p[0] * u[0] + p[1] * u[1])
+        if len({lines[k][0] for k in chain}) > 1:
+            continue                       # one overhang is drawn in one colour
         others = [x for x in shorts if x[0] not in used and x[0] not in chain]
+        if not SETTINGS['brown_ticks']:
+            others = [x for x in others if lines[x[0]][0] != 'BROWN']
         t = ticks_of(pts, others)
-        if len(t) < max(2, len(chain) // 2):
-            continue                       # dashes without ticks: not this notation
+        if len(t) < max(2, len(chain) // 2) or (len(chain) < MIN_DASHES and len(t) < len(chain)):
+            continue                       # dashes without ticks (two dashes: a tick on each)
         pieces.append([pts, {k for k, _ in t}])
         used |= set(chain) | {k for k, _ in t}
     # pieces of one overhang: ends close together are joined through any
@@ -231,7 +251,7 @@ def find(lines):
         mine.setdefault(i, []).append((k, side))
     for i, pp in longs:
         t = mine.get(i, [])
-        if i in used or len(t) < MIN_TICKS:
+        if i in used or len(t) < MIN_TICKS or (length(pp) < LINE_MIN and len(t) < SHORT_TICKS):
             continue
         side = 1 if sum(s for _, s in t) >= 0 else -1
         feats.append(('step', _oriented(list(pp), side), lines[i][0]))
