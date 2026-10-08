@@ -793,14 +793,21 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
     xs_text, made, used = section_scraps(sketch, opt, K)
     lines = [l for i, l in enumerate(sketch.lines) if i not in used]
     legs_all = [(a, b) for a, b, *_ in sketch.legs()]
-    member = {n: i for i, g in enumerate(groups) for n in g}
-    near = lambda p: member.get(_nearest(pos, p), 0) if pos else 0
+    if opt.scraps and SETTINGS['hand_scraps']:    # chosen by hand ([scraps_extended]), as in plan
+        from . import scraps as by_hand
+        names = sorted(pos, key=register.natural)
+        groups = by_hand.complete(by_hand.parse(opt.scraps, names), names, legs_all)
+        pieces = by_hand.assign(lines, groups, pos, legs_all)
+    else:
+        member = {n: i for i, g in enumerate(groups) for n in g}
+        near = lambda p: member.get(_nearest(pos, p), 0) if pos else 0
+        pieces = [(near(pp[len(pp) // 2]), c, pp) for c, pp in lines if pp]
 
     body, scraps, polys_all = [], [], []
     for gi, g in enumerate(groups):
         if len(g) < 2:
             continue
-        mine = [(c, pp) for c, pp in lines if pp and near(pp[len(pp) // 2]) == gi]
+        mine = [(c, pp) for k, c, pp in pieces if k == gi]
         walls, _b, _a = wall_strokes(mine)
         walls = clean(walls)
         if not walls:

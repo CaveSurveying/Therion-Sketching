@@ -164,13 +164,20 @@ def cmd_survey_layout(argv):
 
 def cmd_extended(a):
     sk = load(a.sketch, 'elevation')
+    opts = _opts(a)
+    opts.scraps = PROJECT.scraps_extended.get(a.survey) if a.survey else None
     if not a.layout and a.survey and os.path.exists(survey_layout_path(a.survey)):
         a.layout = survey_layout_path(a.survey)      # the survey's own layout (as sketched), if made
         print(f"using {a.layout}")
     text, scraps, sections, plan_scraps = convert.extended(
-        sk, _opts(a), a.output, layout(a.layout or EXT_LAYOUT),
+        sk, opts, a.output, layout(a.layout or EXT_LAYOUT),
         layout(a.plan_layout or PLAN_LAYOUT), a.tol, a.floor_reach, a.roof_reach)
-    write_th2(tidy.tidy_text(text, a.map_scale), a.output)
+    text = tidy.tidy_text(text, a.map_scale)
+    from .settings import SETTINGS
+    if opts.scraps and SETTINGS['hand_scraps']:     # walls between scraps chosen by hand meet
+        from .scraps import meet_ends
+        text = meet_ends(text, 0.3 * sk.scale)
+    write_th2(text, a.output)
     print(f"wrote {a.output}: {len(scraps)} elevation scraps, {len(sections)} cross-sections")
     _map_hint(a.survey, scraps, 'extended')
     if plan_scraps:
