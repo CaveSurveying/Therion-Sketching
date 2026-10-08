@@ -259,6 +259,24 @@ def _fit_within(rows, K):
     return rows
 
 
+def _running_mean(d, window, step):
+    """Points every `step` along d, each the mean of those within window / 2
+    either side along the line; the ends stay where they are."""
+    line = LineString(d)
+    n = max(2, int(line.length / step))
+    pts = [line.interpolate(k / n, normalized=True).coords[0] for k in range(n + 1)]
+    h = max(1, int(window / step / 2))
+    out = [pts[0]]
+    for k in range(1, n):
+        a, b = max(0, k - h), min(n, k + h)
+        # near the ends the window shrinks evenly, so the ends do not drift
+        r = min(k - a, b - k)
+        win = pts[k - r:k + r + 1]
+        out.append((sum(p[0] for p in win) / len(win), sum(p[1] for p in win) / len(win)))
+    out.append(pts[-1])
+    return out
+
+
 def fit_wall(segs, K, tol=TOL):
     """The rows of a wall refitted with fewer, smooth Bezier nodes."""
     d = []
@@ -268,6 +286,11 @@ def fit_wall(segs, K, tol=TOL):
     if len(d) < 3:
         return segs
     d = _despur(d, K)
+    from .settings import SETTINGS
+    if SETTINGS['wall_presmooth']:
+        # hand wobble smoothed out first (a running mean over a few times the
+        # tolerance), so the nodes go where the wall bends, not where the hand shook
+        d = _running_mean(d, SETTINGS['wall_presmooth'] * tol * K, 0.02 * K)
     # corners: sharp turns that a coarse simplification still shows
     idx = _rdp(d, 0.5 * tol * K)
     corners = [0]

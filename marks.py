@@ -247,11 +247,24 @@ def brown(strokes, passage, boulder_min, barriers=()):
                                      .intersection(passage.buffer(d, join_style=1))]).buffer(0)
                     if g.geom_type == 'MultiPolygon':
                         g = max(g.geoms, key=lambda q: q.area)
+                own = g
                 if SETTINGS['area_splines']:
                     # notches closed up first, so a few spline nodes follow the shape
                     r = 2 * SETTINGS['area_splines']
                     g = g.buffer(r, join_style=1).buffer(-r, join_style=1)
-                areas.append((kind, g.simplify(SETTINGS['area_splines'] or 0.03)))
+                if SETTINGS['area_over_walls']:
+                    # but never into another part of the passage, beyond a wall or pillar (the
+                    # walls clip an area only to the scrap's outline, which holds that passage too)
+                    from shapely import make_valid
+                    try:
+                        others = make_valid(passage).difference(make_valid(own).buffer(0.05)).buffer(-0.05)
+                        g = make_valid(g).difference(others.buffer(SETTINGS['area_splines'] or 0.0)).buffer(0)
+                    except Exception:           # (a degenerate shape: leave the area as it is)
+                        pass
+                    if g.geom_type == 'MultiPolygon':
+                        g = max(g.geoms, key=lambda q: q.area)
+                if g.geom_type == 'Polygon' and not g.is_empty:
+                    areas.append((kind, g.simplify(SETTINGS['area_splines'] or 0.03)))
     if SETTINGS['mud_grow']:
         areas = _mud_patches(areas)
     return sorted_['boulder'], areas, sorted_['line']

@@ -42,6 +42,10 @@ UPSTREAM = {
                                  # across (a corner), when cutting the fill back to it (0: straight only)
     'dash_max': 0.0,             # m: brown open strokes up to this long and roughly straight are mud
                                  # dashes too (0: only those under DASH in marks.py, 0.6 m)
+    'rock_faces': False,         # True: the fill is cut along the wall strokes and faces of it with no
+                                 # leg or station that reach its edge (rock it took in) dropped
+    'wall_hooks': False,         # True: a small black loop left open, an end at another black stroke, is
+                                 # a hook of the wall, not a boulder
     'curls_closed': False,       # True: a brown stroke curled round on itself is a closed loop (boulder)
     'mud_near': 0.0,             # m: mud/sand marks this close are one patch (0: NEAR in marks.py, 0.6 m)
     'mud_grow': 0.0,             # m: a mud/sand patch is grown this far round its marks, following the
@@ -50,6 +54,8 @@ UPSTREAM = {
                                  # (they are mud or rocks beside it)
     'wall_tol_rel': 0.0,         # walls refitted to within this fraction of the local leg length
                                  # (mean of the 3 nearest legs, scale.py); 0: a fixed 0.10 m (smooth.TOL)
+    'wall_presmooth': 0.0,       # walls smoothed (running mean over this many times the tolerance)
+                                 # before refitting, so nodes follow bends, not hand wobble (0: off)
     'line_tol_rel': 0.0,         # the same for borders, steps and overhangs (0: a fixed 0.04 m, over 0.5 m)
     'section_tol_rel': 0.0,      # cross-section walls to within this fraction of the section's size
                                  # (0: as other walls)

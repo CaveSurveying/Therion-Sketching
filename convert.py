@@ -51,7 +51,21 @@ def wall_strokes(lines):
     """(wall strokes, boulders, slope arrows) from the sketch lines."""
     black = [pp for c, pp in lines if c == 'BLACK' and len(pp) > 1
              and sum(math.dist(a, b) for a, b in zip(pp, pp[1:])) >= 0.15]
+    hooks = []
+    if SETTINGS['wall_hooks']:
+        # a small loop left open with an end at another black stroke is a hook
+        # of the wall (a projection the wall goes round), not a boulder
+        from .symbols import shape_of
+        lines_ = [LineString(pp) for pp in black]
+        for k, pp in enumerate(black):
+            if shape_of(pp)[0] != 'boulder' or math.dist(pp[0], pp[-1]) < 0.05:
+                continue
+            others = [l for j, l in enumerate(lines_) if j != k]
+            if any(l.distance(Point(e)) < 0.15 for e in (pp[0], pp[-1]) for l in others):
+                hooks.append(pp)
+        black = [pp for pp in black if not any(pp is h for h in hooks)]
     black, boulders, arrows = split_symbols(black)
+    black += hooks
     cols = [c for c in SETTINGS['wall_colours'] if c != 'BLACK']
     other = [pp for c, pp in lines if c in cols and len(pp) > 1 and is_outline(pp)]
     return black + other, boulders, arrows
@@ -206,6 +220,58 @@ def cut_back(poly, walls, legs, splay_ends):
     if not cuts:
         return poly
     g = poly.difference(unary_union(cuts)).buffer(0)
+    if g.geom_type == 'MultiPolygon':
+        g = max(g.geoms, key=lambda q: q.area)
+    return g if g.geom_type == 'Polygon' and not g.is_empty else poly
+
+
+def drop_rock_faces(poly, walls, legs, stations, seal=0.3, edge_seal=0.5, away=0.3, bridged_min=0.5):
+    """The passage fill without the rock its closing-up took in. The fill is
+    cut into faces along the wall strokes (gaps the sketcher left, up to
+    `seal` m between stroke ends, and up to `edge_seal` m from a stroke's
+    end to the fill's edge, closed first); a face with no survey leg or
+    station in it whose stretch along the fill's edge has at least `bridged_min` m more than
+    `away` m from any stroke (the edge there was made by closing up, not
+    sketched) is rock (the inside of a bend, a tongue between two
+    branches, round a hook in the wall) and goes. A face wholly inside,
+    such as a pillar, stays as before."""
+    from shapely.ops import polygonize
+    strokes = [LineString(w) for w in walls if len(w) > 1]
+    if not strokes:
+        return poly
+    ends = [Point(w[i]) for w in walls if len(w) > 1 for i in (0, -1)]
+    seals = []
+    edge = poly.exterior
+    for e in ends:
+        for st in strokes:
+            d = st.distance(e)
+            if 1e-9 < d <= seal:
+                q = st.interpolate(st.project(e))
+                seals.append(LineString([(e.x, e.y), (q.x, q.y)]))
+        d = edge.distance(e)               # a stroke ending just short of the fill's edge reaches it
+        if 1e-9 < d <= edge_seal:
+            q = edge.interpolate(edge.project(e))
+            seals.append(LineString([(e.x, e.y), (q.x, q.y)]))
+    net = unary_union([poly.exterior] + [st.intersection(poly.buffer(0.01)) for st in strokes] + seals)
+    faces = [f for f in polygonize(net) if f.area > 1e-6 and poly.buffer(0.01).contains(f.representative_point())]
+    if len(faces) < 2:
+        return poly
+    leg_lines = unary_union([LineString(l) for l in legs if len(l) > 1])
+    keep = []
+    near_strokes = unary_union(strokes).buffer(away)
+    for f in faces:
+        has_leg = (not leg_lines.is_empty and f.buffer(-0.02).intersects(leg_lines)) or \
+            any(f.contains(Point(p)) for p in stations)
+        along = f.boundary.intersection(edge.buffer(0.02))
+        bridged = along.difference(near_strokes).length
+        if has_leg or along.length < 0.05 or bridged < bridged_min:
+            keep.append(f)
+    g = unary_union(keep).buffer(0.01).buffer(-0.01)
+    if g.geom_type == 'MultiPolygon':
+        g = max(g.geoms, key=lambda q: q.area)
+    if g.geom_type != 'Polygon' or g.is_empty or g.area < 0.5 * poly.area:
+        return poly
+    g = Polygon(g.exterior).buffer(0)
     if g.geom_type == 'MultiPolygon':
         g = max(g.geoms, key=lambda q: q.area)
     return g if g.geom_type == 'Polygon' and not g.is_empty else poly
@@ -614,6 +680,8 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
         if SETTINGS['interior_borders']:      # cut the fill back to the outer walls it bridged
             ends = [e for _, _, e in sketch.splays()]
             polys = [cut_back(p, walls, legs, ends) for p in polys]
+        if SETTINGS['rock_faces']:            # and drop the rock it took in (bends, tongues, hooks)
+            polys = [drop_rock_faces(p, walls, legs, [pos[n] for n in g]) for p in polys]
         for poly in polys:
             name = f"{opt.name}P{len(scraps) + 1}"
             inside = [n for n in g if poly.buffer(1.0).contains(Point(pos[n]))]
