@@ -316,3 +316,130 @@ def thin_scrap(objs, K, gap_of, err_of=None, hard=0.0):
             o.set_segments(new)
             n += len(segs) - len(new)
     return n
+
+
+def align_handles(segs, corner=60.0):
+    """Segments with the control points either side of each node in line
+    with it (a smooth node), unless the line turns there by more than
+    `corner` degrees (a sharp corner the line needs). A straight segment's
+    direction is kept and the other handle turned to match; otherwise both
+    turn to the mean direction, keeping their lengths. Returns (segments,
+    how many nodes changed)."""
+    segs = [list(s) for s in segs]
+    n = 0
+    for i in range(1, len(segs) - 1):
+        a, b = segs[i], segs[i + 1]
+        p = (a[-2], a[-1])
+        hin = (a[2], a[3]) if len(a) == 6 else (segs[i - 1][-2], segs[i - 1][-1])
+        hout = (b[0], b[1]) if len(b) == 6 else (b[-2], b[-1])
+        u_in = _unit(hin, p)                 # arriving direction
+        u_out = _unit(p, hout)               # leaving direction
+        if u_in is None or u_out is None:
+            continue
+        cos = max(-1.0, min(1.0, u_in[0] * u_out[0] + u_in[1] * u_out[1]))
+        turn = math.degrees(math.acos(cos))
+        if turn < 0.5 or turn > corner:
+            continue
+        if len(a) == 6 and len(b) == 6:
+            d = (u_in[0] + u_out[0], u_in[1] + u_out[1])
+        elif len(a) == 6:                    # the segment after is straight: follow it
+            d = u_out
+        elif len(b) == 6:
+            d = u_in
+        else:
+            continue                         # two straight segments: a corner of a polyline
+        m = math.hypot(*d) or 1.0
+        d = (d[0] / m, d[1] / m)
+        if len(a) == 6:
+            L = math.dist(hin, p)
+            a[2], a[3] = p[0] - d[0] * L, p[1] - d[1] * L
+        if len(b) == 6:
+            L = math.dist(p, hout)
+            b[0], b[1] = p[0] + d[0] * L, p[1] + d[1] * L
+        n += 1
+    return segs, n
+
+
+def align_scrap(objs, corner=60.0):
+    """align_handles on every line of a scrap except boulders (straight-sided).
+    Returns how many nodes changed."""
+    n = 0
+    for o in objs:
+        if o.kind != 'line' or len(o.segments()) < 3:
+            continue
+        if o.head.split()[1] in ('rock-border', 'rock-edge') or '-subtype invisible' in o.head and '-id' not in o.head:
+            continue
+        segs, k = align_handles(o.segments(), corner)
+        if k:
+            o.set_segments(segs)
+            n += k
+    return n
+
+
+def merge_short(objs, K, near=0.05, few=2, some=4, turn_max=90.0):
+    """Short lines joined into the line of the same kind they run on from:
+    a line of `few` nodes whose end meets another's end (within `near` m,
+    a number or a function of the point) is merged into it unless it turns
+    right back; one of up to `some` nodes, if the join turns less than
+    `turn_max` degrees. Gours stay separate. Walls are left to smooth.one_line_per_wall
+    (which checks the outline). Returns how many lines were merged."""
+    from .tidy import reverse_segments
+
+    def kind(o):
+        return o.head.split()[1] if len(o.head.split()) > 1 else ''
+
+    def ok(o):
+        return o.kind == 'line' and len(o.segments()) > 1 \
+            and kind(o) not in ('wall', 'rock-border', 'rock-edge', 'rimstone-dam') \
+            and '-close on' not in o.head and '-subtype invisible' not in o.head      # (each gour is its own arc)
+
+    def direction(segs, at_end):
+        pts = [(s[-2], s[-1]) for s in segs]
+        if at_end:
+            a = (segs[-1][2], segs[-1][3]) if len(segs[-1]) == 6 else pts[-2]
+            return _unit(a, pts[-1])
+        b = (segs[1][0], segs[1][1]) if len(segs[1]) == 6 else pts[1]
+        return _unit(pts[0], b)
+
+    n = 0
+    changed = True
+    while changed:
+        changed = False
+        lines = [o for o in objs if ok(o)]
+        for o in sorted(lines, key=lambda o: len(o.segments())):
+            so = o.segments()
+            if len(so) > some:
+                continue
+            best = None
+            for w in lines:
+                if w is o or w.head != o.head:
+                    continue
+                sw = w.segments()
+                for we in (0, -1):
+                    for oe in (0, -1):
+                        d = math.dist(sw[we][-2:], so[oe][-2:])
+                        reach = (near(so[oe][-2:]) if callable(near) else near) * K
+                        if d <= reach and (best is None or d < best[0]):
+                            best = (d, w, we, oe)
+            if best is None:
+                continue
+            _, w, we, oe = best
+            sw = w.segments()
+            # orient: w runs into the join, o runs out of it
+            a = sw if we == -1 else reverse_segments(sw)
+            b = so if oe == 0 else reverse_segments(so)
+            ua, ub = direction(a, True), direction(b, False)
+            if ua is None or ub is None:
+                continue
+            turn = math.degrees(math.acos(max(-1.0, min(1.0, ua[0] * ub[0] + ua[1] * ub[1]))))
+            if turn > (turn_max if len(so) > few else 120.0):
+                continue
+            # o's first point becomes the join: its first segment now runs from w's end
+            new = [list(s) for s in a] + [list(s) for s in b[1:]]
+            w.set_segments(new)
+            o.kind = 'drop'
+            objs[:] = [x for x in objs if x.kind != 'drop']
+            n += 1
+            changed = True
+            break
+    return n

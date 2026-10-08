@@ -46,15 +46,26 @@ UPSTREAM = {
                                  # dashes too (0: only those under DASH in marks.py, 0.6 m)
     'rock_faces': False,         # True: the fill is cut along the wall strokes and faces of it with no
                                  # leg or station that reach its edge (rock it took in) dropped
+    'merge_short': 0,            # nodes: a line of 2 nodes meeting another of its kind end to end is
+                                 # merged into it; of up to this many, if the join turns under 90 degrees
+    'smooth_nodes': 0.0,         # degrees: at a node turning less than this, the control points either
+                                 # side are put in line with it (a smooth node; 0: off)
     'wall_links': 0.0,           # m: a wall piece off the outline at least this long whose ends meet two
                                  # outline walls' ends is wall (the stroke between them, round a bend),
                                  # if the outline stays sound (0: off)
     'wall_hooks': False,         # True: a small black loop left open, an end at another black stroke, is
                                  # a hook of the wall, not a boulder
     'curls_closed': False,       # True: a brown stroke curled round on itself is a closed loop (boulder)
+    'rock_curves': False,        # True: curved brown strokes (up to dash_max long) are rock outlines
+    'area_grow': 0.0,            # m: rock areas grown this far round their marks within the passage, up to
+                                 # walls, steps and other barriers (0: the hull of the marks, as upstream)
+    'barrier_min': 0.0,          # m: lines inside the passage shorter than this do not stop an area, and
+                                 # go if mostly inside a rock area (0: every line is a barrier)
     'mud_near': 0.0,             # m: mud/sand marks this close are one patch (0: NEAR in marks.py, 0.6 m)
     'mud_grow': 0.0,             # m: a mud/sand patch is grown this far round its marks, following the
                                  # passage (0: the convex hull of the marks, as upstream)
+    'tick_reach': 0.0,           # m: a tick's near end may stand this far from its line (0: TOUCH in
+                                 # notation.py, 0.15 m); ticks drawn a little clear of the line
     'brown_ticks': True,         # False: brown short strokes are never the ticks of a non-brown line
                                  # (they are mud or rocks beside it)
     'wall_tol_rel': 0.0,         # walls refitted to within this fraction of the local leg length

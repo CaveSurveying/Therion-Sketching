@@ -172,10 +172,14 @@ def brown(strokes, passage, boulder_min, barriers=()):
         if k == 'line' and SETTINGS['dash_max'] and length(pp) <= SETTINGS['dash_max'] \
                 and math.dist(pp[0], pp[-1]) >= 0.85 * length(pp):
             k = 'clay'                  # a longer dash, roughly straight: mud too
+        elif k == 'line' and SETTINGS['rock_curves'] and length(pp) <= (SETTINGS['dash_max'] or DASH):
+            k = 'boulder' if span(pp) >= boulder_min else 'debris'      # a curved one: part of a rock's outline
         sorted_[k].append(pp)
 
     def shape(kind, pp):
         if kind in ('boulder', 'debris') and len(pp) > 2:
+            if not is_closed(pp):                # an open rock outline
+                return LineString(pp).buffer(0.05)
             return Polygon(pp).buffer(0)
         return LineString(pp) if len(pp) > 1 else Point(pp[0])
 
@@ -230,6 +234,11 @@ def brown(strokes, passage, boulder_min, barriers=()):
                 r = SETTINGS['mud_grow']
                 g = unary_union([geoms[i].buffer(r, join_style=1) for i in grp]) \
                     .buffer(r, join_style=1).buffer(-r, join_style=1).intersection(passage)
+            elif SETTINGS['area_grow']:
+                # rocks: grown round their marks within the passage; _keep_side stops it at barriers
+                r = SETTINGS['area_grow']
+                g = unary_union([geoms[i].buffer(r, join_style=1) for i in grp]) \
+                    .buffer(r / 2, join_style=1).buffer(-r / 2, join_style=1).intersection(passage)
             else:
                 g = MultiPoint(pts).convex_hull.buffer(0.1, join_style=1).intersection(passage)
             g = _keep_side(g, [geoms[i] for i in grp], barriers)
@@ -277,7 +286,12 @@ def _mud_patches(areas):
     boulder and debris areas (the rocks are drawn there, not mud)."""
     from .settings import SETTINGS
     rocks = unary_union([g for k, g in areas if k in ('blocks', 'debris')])
-    out = [(k, g) for k, g in areas if k not in ('sand', 'clay')]
+    out = [(k, g) for k, g in areas if k not in ('sand', 'clay', 'blocks', 'debris')]
+    for kind in ('blocks', 'debris'):        # rock areas that overlap are one
+        g = unary_union([g for k, g in areas if k == kind])
+        for part in getattr(g, 'geoms', [g]):
+            if part.geom_type == 'Polygon' and not part.is_empty:
+                out.append((kind, Polygon(part.exterior).simplify(SETTINGS['area_splines'] or 0.03)))
     clay = unary_union([g for k, g in areas if k == 'clay'])
     sand = [g for k, g in areas if k == 'sand']
     # sand overlapping mud is part of that patch of mud
@@ -314,7 +328,10 @@ def th2(lines, passage, px, idbase, wall_colours, boulder_min, barriers=()):
     """th2 text for the floor marks and interior lines of one scrap."""
     from .settings import SETTINGS
     strokes = [pp for c, pp in lines if c == 'BROWN' and pp]
-    inner = [LineString(pp) for pp in interior(lines, passage, wall_colours)]
+    inner_pp = interior(lines, passage, wall_colours)
+    bmin = SETTINGS['barrier_min']
+    # a short line inside the passage does not stop an area (it is often part of what is drawn there)
+    inner = [LineString(pp) for pp in inner_pp if LineString(pp).length >= bmin]
     boulders, areas, brown_lines = brown(strokes, passage, boulder_min, list(barriers) + inner)
     o = []
     for pp in boulders:
@@ -347,6 +364,11 @@ def th2(lines, passage, px, idbase, wall_colours, boulder_min, barriers=()):
         for part in getattr(g, 'geoms', [g]):
             if part.geom_type == 'LineString' and part.length >= 0.3:
                 o += ["line border"] + smooth_rows(list(part.coords), px) + ["endline", ""]
-    for pp in interior(lines, passage, wall_colours):
+    rock_areas = unary_union([g for k, g in areas if k in ('blocks', 'debris')]) if bmin else None
+    for pp in inner_pp:
+        L = LineString(pp)
+        if rock_areas is not None and not rock_areas.is_empty and L.length < bmin \
+                and L.intersection(rock_areas).length >= 0.5 * L.length:
+            continue                     # a short line among the rocks: part of their drawing
         o += ["line border"] + smooth_rows(pp, px) + ["endline", ""]
     return o

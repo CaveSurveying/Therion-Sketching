@@ -63,7 +63,7 @@ def _is_short(pp, lo, hi):
     return lo <= L <= hi and math.dist(pp[0], pp[-1]) >= 0.6 * L
 
 
-def ticks_of(line_pp, shorts):
+def ticks_of(line_pp, shorts, reach=TOUCH):
     """[(index into shorts, side +1 left / -1 right)] of strokes ticking this line."""
     line = LineString(line_pp)
     out = []
@@ -71,7 +71,7 @@ def ticks_of(line_pp, shorts):
         ends = [Point(pp[0]), Point(pp[-1])]
         dist = [line.distance(e) for e in ends]
         k = 0 if dist[0] <= dist[1] else 1
-        if dist[k] > TOUCH or dist[1 - k] < dist[k] + 0.04:
+        if dist[k] > reach or dist[1 - k] < dist[k] + 0.04:
             continue
         att, free = (pp[0], pp[-1]) if k == 0 else (pp[-1], pp[0])
         ld = _local_dir(line, line.project(Point(att)))
@@ -195,6 +195,12 @@ def find(lines):
             # brown short strokes are mud or rocks, not ticks, unless the line itself is brown
             cand = [x for x in cand if lines[x[0]][0] != 'BROWN' or lines[i][0] == 'BROWN']
         t = [(k, s) for k, s in ticks_of(pp, cand) if k not in used]
+        if SETTINGS['tick_reach'] > TOUCH and lines[i][0] not in ('BLACK', 'BROWN'):
+            # ticks drawn a little clear of the line: only of the line's own colour, and never
+            # for a black line (wall) or brown (whose dashes beside it are mud)
+            got = {k for k, _ in t}
+            far = [x for x in cand if x[0] not in got and lines[x[0]][0] == lines[i][0]]
+            t += [(k, s) for k, s in ticks_of(pp, far, SETTINGS['tick_reach']) if k not in used]
         if len(t) >= MIN_TICKS:
             side = 1 if sum(s for _, s in t) >= 0 else -1
             feats.append(('step', _oriented(list(pp), side), lines[i][0]))

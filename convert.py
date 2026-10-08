@@ -256,7 +256,15 @@ def drop_rock_faces(poly, walls, legs, stations, seal=0.3, edge_seal=0.5, away=0
     faces = [f for f in polygonize(net) if f.area > 1e-6 and poly.buffer(0.01).contains(f.representative_point())]
     if len(faces) < 2:
         return poly
-    leg_lines = unary_union([LineString(l) for l in legs if len(l) > 1])
+    # a leg that leaves through a sketched wall (to a station beyond the
+    # drawing) does not make the rock it crosses passage; nor does a station
+    # reached only by such legs
+    allst = unary_union(strokes)
+    inside_legs = [l for l in legs if len(l) > 1 and not LineString(l).crosses(allst)]
+    out_legs = [l for l in legs if len(l) > 1 and LineString(l).crosses(allst)]
+    reached = {tuple(p) for l in inside_legs for p in l}
+    stations = [p for p in stations if tuple(p) in reached or not any(tuple(p) in map(tuple, l) for l in out_legs)]
+    leg_lines = unary_union([LineString(l) for l in inside_legs])
     keep = []
     near_strokes = unary_union(strokes).buffer(away)
     for f in faces:

@@ -811,6 +811,60 @@ def _wall_tol(header, objs, K, path):
     return tol
 
 
+def _areas_to_outline(objs, K, over, simplify):
+    """Areas (not water) kept to the outline the walls make, run `over` m over
+    it at most: the fill they were made in can reach past the walls, and the
+    bit outside only makes odd shapes. Returns how many changed."""
+    from .walls import bezier_closed
+    out = [o for o in objs if o.kind == 'line' and len(o.segments()) > 1 and '-close on' not in o.head
+           and o.head.startswith('line wall') and '-outline none' not in o.head and '-subtype invisible' not in o.head]
+    ol = [bezier_points(o.segments(), 12) for o in out]
+    polys = []
+    for ring in therion_rings(ol):
+        pts = [p for i, r in ring for p in (ol[i][::-1] if r else ol[i])]
+        if len(pts) > 3:
+            polys.append(Polygon(pts).buffer(0))
+    if not polys:
+        return 0
+    from shapely.ops import unary_union
+    room = unary_union(polys).buffer(over * K, join_style=1)
+    n = 0
+    for o in objs:
+        if o.kind != 'line' or '-id' not in o.head or '-close on' not in o.head or '-water' in o.head:
+            continue
+        pts = bezier_points(o.segments(), 8)
+        if len(pts) < 4:
+            continue
+        a = Polygon(pts).buffer(0)
+        b = a.intersection(room).buffer(0)
+        if b.is_empty:
+            continue
+        if b.area > 0.98 * a.area and a.difference(room).area < 0.01 * a.area:
+            continue
+        if b.geom_type == 'MultiPolygon':
+            b = max(b.geoms, key=lambda q: q.area)
+        r = 2 * simplify * K                 # notches closed, few nodes, a spline (as marks.py)
+        b = b.buffer(r, join_style=1).buffer(-r, join_style=1).intersection(room).buffer(0)
+        if b.geom_type == 'MultiPolygon':
+            b = max(b.geoms, key=lambda q: q.area)
+        if b.geom_type != 'Polygon' or b.is_empty:
+            continue
+        rows = None
+        for f in (1.0, 0.5, 0.25, 0.12):     # a spline bulges between its points: more points until it fits
+            ring = list(b.simplify(f * simplify * K).exterior.coords)[:-1]
+            if len(ring) < 3:
+                continue
+            rows = bezier_closed(ring, lambda p: p)
+            spline = Polygon(bezier_points(Obj('line', '', rows).segments(), 12)).buffer(0)
+            if spline.difference(room.buffer(0.05 * K)).area < 0.01 * spline.area:
+                break
+        if rows is None:
+            continue
+        o.rows = rows
+        n += 1
+    return n
+
+
 def _redo_scrap(header, body, path):
     """One scrap through the wall refit and the steps after it.
     Returns (objs, tidy report, points before, after, ends moved)."""
@@ -862,6 +916,15 @@ def _redo_scrap(header, body, path):
         stepped += snap_scrap(objs, K, snap)
     if gap:                                     # joins and snaps can leave nodes close again
         stepped += thin_scrap(objs, K, gap, err, SETTINGS['node_gap'])
+    if SETTINGS['area_over_walls'] and SETTINGS['area_splines']:
+        stepped += _areas_to_outline(objs, K, SETTINGS['area_over_walls'], SETTINGS['area_splines'])
+    if SETTINGS['merge_short']:                 # short lines run into the line of their kind they meet
+        from .nodes import merge_short
+        reach = lambda p: rel_abs(SETTINGS['wall_ends_meet_rel'], max(SETTINGS['wall_ends_meet'], 0.05), scale.at(p))
+        stepped += merge_short(objs, K, reach, 2, SETTINGS['merge_short'])
+    if SETTINGS['smooth_nodes']:                # control points either side of a node in line with it
+        from .nodes import align_scrap
+        stepped += align_scrap(objs, SETTINGS['smooth_nodes'])
     return objs, tidy, b, a, stepped
 
 
