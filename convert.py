@@ -757,18 +757,18 @@ def extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, belo
 
 def subtype_marks(lines, px):
     """Comment lines recording where walls are drawn in a colour that means
-    a wall subtype (brown: mud, `clay`, or `sand` where brown dots lie along
-    it), for smooth.wall_subtypes to apply once the walls are final:
+    a wall subtype (green: `flowstone`; brown: mud, `clay`, or `sand` where
+    brown dots lie along it), for smooth.wall_subtypes to apply once the walls are final:
     `# wall-subtype clay: x y x y ...` in drawing units."""
     from .marks import kind_of
     out = []
     dots = [pp for c, pp in lines if c == 'BROWN' and pp and kind_of(pp, 0.3, SETTINGS['mark_max']) == 'sand']
     for c, pp in lines:
-        if c != 'BROWN' or len(pp) < 2 or not is_outline(pp):
+        if c not in ('BROWN', 'GREEN') or len(pp) < 2 or not is_outline(pp):
             continue
         L = LineString(pp)
         near = sum(1 for d in dots if L.distance(Point(d[0])) < 0.5)
-        kind = 'sand' if near >= 3 else 'clay'
+        kind = 'flowstone' if c == 'GREEN' else 'sand' if near >= 3 else 'clay'
         out.append(f"# wall-subtype {kind}: " + " ".join("%.1f %.1f" % px(p) for p in pp))
     return out + ([""] if out else [])
 
