@@ -845,10 +845,13 @@ def drawn_on(pieces, lines, sizes=None, meet=0.3):
     is_whole = lambda pp: len(pp) > 1 and key(pp) in whole_keys     # not cut by assign
     out = [list(p) for p in pieces]
     ends = [(k, c, pp) for k, c, pp in pieces if is_whole(pp)]
+    copies = {}
+    for k, c, pp in pieces:
+        copies[key(pp)] = copies.get(key(pp), 0) + 1
     for rec in out:
         k, c, pp = rec
-        if not is_whole(pp):
-            continue
+        if not is_whole(pp) or copies[key(pp)] > 1:
+            continue                                 # a wall shared by two scraps (scraps.shared_with) stays in both
         mine, theirs = False, set()
         for e in (pp[0], pp[-1]):
             for k2, c2, q in ends:
@@ -866,6 +869,64 @@ def drawn_on(pieces, lines, sizes=None, meet=0.3):
 
 JOIN_REACH = 3.0    # m: wall ends this near a join (a station of a leg between scraps) are at the join
 IN_LINE = 0.3       # m: a wall end further out than the opposite wall's end by more than this is cut back
+
+
+LINE_REACH = 1.5    # m: wall ends this near the line through a junction are taken to it
+LINE_HEIGHT = 2.0   # m: only walls within this above or below the junction (the passage there)
+
+
+def walls_to_line(walls, j, side):
+    """The walls of a passage starting at a junction j, on its `side` (+1:
+    larger x), end on the vertical line through j (Style.md, Scraps; Trident
+    10 to 13): a wall running past the line is cut on it, a free end short
+    of it by up to LINE_REACH is drawn on to it."""
+    x = j[0]
+    out = []
+    for w in walls:
+        if len(w) < 2:
+            out.append(w)
+            continue
+        w = list(w)
+        # cut where it crosses to the other side near the junction, keeping this side
+        cross = [p[1] + (q[1] - p[1]) * (x - p[0]) / (q[0] - p[0]) for p, q in zip(w, w[1:])
+                 if q[0] != p[0] and min(p[0], q[0]) <= x <= max(p[0], q[0])]
+        if cross and all(abs(y - j[1]) > LINE_HEIGHT for y in cross):
+            out.append(w)                            # it passes well above or below the junction
+            continue
+        if any((p[0] - x) * side < 0 for p in w) and any((p[0] - x) * side > 0 for p in w):
+            keep, run = [], []
+            for p, q in zip(w, w[1:]):
+                if (p[0] - x) * side >= 0:
+                    run.append(p)
+                if ((p[0] - x) * side >= 0) != ((q[0] - x) * side >= 0) and q[0] != p[0]:
+                    t = (x - p[0]) / (q[0] - p[0])
+                    c = (x, p[1] + t * (q[1] - p[1]))
+                    run.append(c)
+                    if (q[0] - x) * side < 0:
+                        keep.append(run)
+                        run = []
+                    else:
+                        run = [c]
+            if (w[-1][0] - x) * side >= 0:
+                run.append(w[-1])
+            keep.append(run)
+            out += [r for r in keep if len(r) > 1 and LineString(r).length > 0.05]
+            continue
+        if all((p[0] - x) * side < 0 for p in w):
+            out.append(w)                            # wholly on the other side: not this passage's to move
+            continue
+        for k in (0, -1):                            # a free end just short of the line: drawn on to it
+            e = w[k]
+            gap = (e[0] - x) * side
+            if 0 < gap <= LINE_REACH and abs(e[1] - j[1]) < LINE_HEIGHT:
+                inward = w[1] if k == 0 else w[-2]
+                if (inward[0] - x) * side > gap:     # the wall runs away from the line here
+                    if k == 0:
+                        w.insert(0, (x, e[1]))
+                    else:
+                        w.append((x, e[1]))
+        out.append(w)
+    return out
 
 
 def trim_at_joins(walls, joins, stations, others=()):
@@ -997,7 +1058,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
         from . import scraps as by_hand
         names = sorted(pos, key=register.natural)
         groups = by_hand.complete(by_hand.parse(opt.scraps, names), names, legs_all)
-        pieces = drawn_on(by_hand.assign(lines, groups, pos, legs_all), lines, [len(g) for g in groups])
+        pieces = drawn_on(by_hand.assign(lines, groups, pos, legs_all, share=True), lines, [len(g) for g in groups])
     else:
         member = {n: i for i, g in enumerate(groups) for n in g}
         near = lambda p: member.get(_nearest(pos, p), 0) if pos else 0
@@ -1018,9 +1079,15 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
         walls = clean(walls)
         gset = set(g)
         if len(groups) > 1:                      # where this scrap meets the next, its walls end in line
-            joins = [pos[x] for a, b in legs_all for x in (a, b) if (a in gset) != (b in gset) and x in pos]
-            theirs = clean(wall_strokes([(c, pp) for k, c, pp in pieces if k != gi and pp])[0])
-            walls = trim_at_joins(walls, joins, [pos[n] for n in g if n in pos], theirs)
+            from .scraps import junction_joins
+            at = [(j, o) for k, j, o in junction_joins(groups, legs_all) if k == gi and j in pos and o in pos]
+            if at:                               # a passage from a junction: its walls start on a line up through it
+                for j, o in at:
+                    walls = walls_to_line(walls, pos[j], 1 if pos[o][0] > pos[j][0] else -1)
+            else:
+                joins = [pos[x] for a, b in legs_all for x in (a, b) if (a in gset) != (b in gset) and x in pos]
+                theirs = clean(wall_strokes([(c, pp) for k, c, pp in pieces if k != gi and pp])[0])
+                walls = trim_at_joins(walls, joins, [pos[n] for n in g if n in pos], theirs)
         if feats:
             walls += el.bowls(feats, walls)
         if not walls:

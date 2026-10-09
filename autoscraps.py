@@ -90,7 +90,9 @@ def extended_positions(th, survey):
 
 ZRANGE = {}          # leg -> (lowest, highest) of its passage, from the last footprints()
 SOLID = {}           # leg -> (from, to, radius): the leg in 3D and how far its walls are from it
-LEVEL_GAP = 0.5      # m: in plan, passages clash only with this much rock between them, one above the other
+LEVEL_GAP = 0.0      # m: in plan, passages clash only one above the other, this much rock between (`scraps --calibrate`)
+PLAN_OVERLAP = 0.3   # plan: share of the smaller passage (`scraps --calibrate`, from the older plans)
+PLAN_MIN_AREA = 0.3  # m2
 
 
 def footprints(m, view, ext=None):
@@ -166,7 +168,8 @@ def clashes(fp, zr=None, solid=None, alone=None):
                     continue
             inter = fp[a].intersection(fp[b]).area
             small = min(fp[a].area, fp[b].area)
-            if inter >= MIN_AREA and (inter / max(small, 1e-6) > OVERLAP or (alone and inter >= alone)):
+            ov, least = (PLAN_OVERLAP, PLAN_MIN_AREA) if zr is not None else (OVERLAP, MIN_AREA)
+            if inter >= least and (inter / max(small, 1e-6) > ov or (alone and inter >= alone)):
                 out.append((a, b, inter / small))
     return out
 
@@ -333,8 +336,11 @@ def check_split(groups, fp, length, degree, zr=None, solid=None, view='extended'
     for a, b, o in clashes(fp, zr, solid):
         if a in where and where.get(a) == where.get(b):
             out.append(('overlap', f"{a[0]}-{a[1]} over {b[0]}-{b[1]} ({o:.0%}) in one scrap"))
+    drawn = {n for g in groups for n in g}
     at = defaultdict(list)
     for l in legs:
+        if l[0] not in drawn or l[1] not in drawn:
+            continue                             # to a station no scrap draws: not a join
         for n in l:
             at[n].append(where.get(l))           # None: a leg between scraps, in neither
     for n, sc in at.items():                     # scraps meet at a station whose legs are in different scraps
@@ -378,13 +384,15 @@ def survey_data(th, survey, view, source):
     return fp, length, degree, (zr if view == 'plan' else None), solid
 
 
+NEW = ('GoSouth', 'Trident', 'TridentCentre', 'TridentLeft', 'IDontCare', 'BoldStep', 'TritonNorth',
+       'TritonSouth', 'Connection', 'FairyChimneys', 'GoWest', 'TickleRift')   # 2026, or not built: not examples
 REFERENCES = ('CJPitch', 'CrossRoads', 'WestPassage', 'Century', 'RoundTheBend', 'CrystalPitch',
               'TickleWest', 'NorthRift', 'Cyclops')    # older surveys with 315 scraps drawn by hand
 
 
 def references(proj):
     """[(survey, view, station groups)]: splits made by hand, each one right:
-    the pre-2026 315 drawings."""
+    the pre-2026 315 drawings and plans."""
     import re
     from . import scraps as by_hand
     out = []
@@ -395,43 +403,76 @@ def references(proj):
             g = [sorted(set(re.findall(r'station -name (\S+)', m.group(2))))
                  for m in re.finditer(r'(?ms)^scrap (\S+)[^\n]*\n(.*?)^endscrap', t)]
             out.append((x, '315', [h for h in g if h]))
+    root = os.path.dirname(proj.path(proj.cave['master']))
+    for x in sorted(os.listdir(root)):
+        if x in NEW or not os.path.isdir(os.path.join(root, x)):
+            continue
+        for name in (f"{x}.plan.th2", f"{x}P.th2") + tuple(f for f in os.listdir(os.path.join(root, x))
+                                                           if f.endswith('.plan.th2')):
+            path = os.path.join(root, x, name)
+            if os.path.exists(path):
+                t = open(path, encoding='utf-8', errors='replace').read()
+                g = [sorted(set(re.findall(r'station -name (\S+)', m.group(2))))
+                     for m in re.finditer(r'(?ms)^scrap (\S+) [^\n]*-projection plan[^\n]*\n(.*?)^endscrap', t)]
+                g = [h for h in g if len(h) >= 2]
+                if g:
+                    out.append((x, 'plan', g))
+                break
     return out          # the 2026 splits ([scraps], [scraps_extended]) are ours, not examples
 
 
-def calibrate(proj, grid=((0.2, 0.3, 0.4, 0.5, 0.7), (0.3, 0.5, 1.0, 2.0, 3.0), (0.0, 0.25, 0.5, 1.0))):
-    """OVERLAP, MIN_AREA and ROCK from the splits made by hand (more than
-    one split can be right: each of these is one): the fewest hand scraps
-    holding a clash, then the most hand splits explained (a clash across
-    them), then the most sensitive. Returns ((overlap, area, rock), [(survey, view, findings
-    of the hand split, findings of ours)])."""
-    global OVERLAP, MIN_AREA, ROCK
+def _set(view, a, b, c):
+    global OVERLAP, MIN_AREA, ROCK, PLAN_OVERLAP, PLAN_MIN_AREA, LEVEL_GAP
+    if view == 'plan':
+        PLAN_OVERLAP, PLAN_MIN_AREA, LEVEL_GAP = a, b, c
+    else:
+        OVERLAP, MIN_AREA, ROCK = a, b, c
+
+
+GRIDS = {'plan': ((0.3, 0.5, 0.7, 0.9), (0.3, 1.0, 2.0, 4.0), (0.0, 0.5, 1.0, 2.0)),
+         'elevation': ((0.2, 0.3, 0.4, 0.5, 0.7), (0.3, 0.5, 1.0, 2.0, 3.0), (0.0, 0.25, 0.5, 1.0))}
+
+
+def calibrate(proj, grids=GRIDS):
+    """Thresholds from the splits made by hand, plans and elevations apart
+    (more than one split can be right: each of these is one): the fewest
+    hand scraps holding a clash, then the most hand splits explained (a
+    clash across them), then the most sensitive. Returns ({kind: (a, b,
+    c)}, [(survey, view, scraps by hand, findings, our scraps, findings)])."""
     from . import scraps as by_hand
     data = []
     for x, view, hand in references(proj):
         th = proj.path(proj.survey_file(x))
-        fp, length, degree, zr, solid = survey_data(th, x, view, 'splays' if view == 'plan' else 'both')
+        try:
+            fp, length, degree, zr, solid = survey_data(th, x, view, 'splays' if view == 'plan' else 'both')
+        except RuntimeError:
+            continue
+        if not fp:
+            continue
         names = sorted({n for l in fp for n in l})
         if hand and isinstance(hand[0], str):
             hand = by_hand.parse(hand, names)
         data.append((x, view, hand, fp, length, degree, zr, solid))
-    ok = []
-    for ov in grid[0]:
-        for area in grid[1]:
-            for rock in grid[2]:
-                OVERLAP, MIN_AREA, ROCK = ov, area, rock
-                bad = sum(1 for d in data for r, _ in check_split(d[2], *d[3:], view=d[1]) if r == 'overlap')
-                # and the hand splits explained: a clash across scraps where a split was made
-                explained = 0
-                for x, view, hand, fp, length, degree, zr, solid in data:
-                    if len(hand) < 2:
-                        continue
-                    where = leg_scrap(hand, list(fp))
-                    if any(a in where and b in where and where[a] != where[b] for a, b, _ in clashes(fp, zr, solid)):
-                        explained += 1
-                ok.append((bad, -explained, ov, area, rock))
-    _, _, *best = min(ok)
-    best = tuple(best)
-    OVERLAP, MIN_AREA, ROCK = best
+    best = {}
+    for kind in ('plan', 'elevation'):
+        mine = [d for d in data if (d[1] == 'plan') == (kind == 'plan')]
+        tried = []
+        for a in grids[kind][0]:
+            for b in grids[kind][1]:
+                for c in grids[kind][2]:
+                    _set(kind, a, b, c)
+                    bad = sum(1 for d in mine for r, _ in check_split(d[2], *d[3:], view=d[1]) if r == 'overlap')
+                    explained = 0
+                    for x, view, hand, fp, length, degree, zr, solid in mine:
+                        if len(hand) < 2:
+                            continue
+                        where = leg_scrap(hand, list(fp))
+                        if any(p in where and q in where and where[p] != where[q] for p, q, _ in clashes(fp, zr, solid)):
+                            explained += 1
+                    tried.append((bad, -explained, a, b, c))
+        _, _, *t = min(tried)
+        best[kind] = tuple(t)
+        _set(kind, *t)
     report = []
     for x, view, hand, fp, length, degree, zr, solid in data:
         legs = list(fp)
@@ -461,7 +502,10 @@ def main(argv):
     proj = load()
     if a.calibrate:
         best, report = calibrate(proj)
-        print(f"thresholds from the hand splits: overlap {best[0]}, area {best[1]} m2, rock {best[2]} m")
+        a, b, c = best['plan']
+        print(f"plan thresholds from the hand splits: overlap {a}, area {b} m2, rock between levels {c} m")
+        a, b, c = best['elevation']
+        print(f"elevation thresholds from the hand splits: overlap {a}, area {b} m2, rock {c} m")
         for x, view, nh, fh, no, fo in report:
             print(f"  {x} {view}: hand {nh} scraps, " + (", ".join(sorted({r for r, _ in fh})) or "keeps the rules")
                   + f"; ours {no} scraps, " + (", ".join(sorted({r for r, _ in fo})) or "keeps the rules"))

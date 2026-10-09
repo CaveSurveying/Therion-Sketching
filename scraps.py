@@ -78,13 +78,35 @@ def _closed(pp):
     return len(pp) > 3 and math.dist(pp[0], pp[-1]) < 0.1
 
 
-def assign(lines, groups, pos, legs):
+def junction_joins(groups, legs):
+    """[(scrap, junction, other station)]: legs between two scraps with a
+    junction (three legs or more) at one end. The passage the leg starts
+    belongs to the scrap at its other end: it starts at the junction
+    (Style.md, Scraps: each scrap a passage)."""
+    member = {n: i for i, g in enumerate(groups) for n in g}
+    degree = {}
+    for a, b in legs:
+        degree[a] = degree.get(a, 0) + 1
+        degree[b] = degree.get(b, 0) + 1
+    out = []
+    for a, b in legs:
+        if a in member and b in member and member[a] != member[b]:
+            for j, o in ((a, b), (b, a)):
+                if degree[j] > 2 and degree[o] <= 2:
+                    out.append((member[o], j, o))
+    return out
+
+
+def assign(lines, groups, pos, legs, share=False):
     """[(scrap index, colour, points)]: each stroke with the scrap of its
-    nearest leg (legs within a scrap only; a lone station counts as a leg),
-    long open strokes cut where that changes (see `meet_ends`)."""
+    nearest leg (legs within a scrap only; a lone station counts as a leg;
+    a leg between scraps starting at a junction goes with the scrap at its
+    other end), long open strokes cut where that changes (see `meet_ends`)."""
     member = {n: i for i, g in enumerate(groups) for n in g}
     segs = [(member[a], LineString([pos[a], pos[b]])) for a, b in legs
             if a in member and member.get(b) == member[a] and pos[a] != pos[b]]
+    segs += [(gi, LineString([pos[j], pos[o]])) for gi, j, o in junction_joins(groups, legs)
+             if j in pos and o in pos and pos[j] != pos[o]]
     have = {i for i, _ in segs}
     segs += [(i, Point(pos[n])) for n, i in member.items() if i not in have]
     if not segs:
@@ -133,7 +155,41 @@ def assign(lines, groups, pos, legs):
             piece = pp[max(0, a - 1):b + 1]       # starts where the previous piece ended
             if len(piece) > 1:
                 out.append((t, c, piece))
+                u = shared_with(piece, t, segs) if share and c in ('BLACK', 'BROWN') else None
+                if u is not None:                 # the wall between two scraps' passages: each draws it
+                    out.append((u, c, piece))
     return out
+
+
+SHARED = 1.5        # m: a wall between two passages this near it, one either side, is a wall of each
+
+
+def shared_with(piece, t, segs):
+    """The other scrap whose passage is on the far side of this wall piece,
+    as near it as scrap t's (Style.md, Scraps: each scrap a passage, the
+    wall between two of them drawn in both), or None."""
+    line = LineString(piece)
+    if line.length < 1.0:
+        return None
+    mid = line.interpolate(0.5, normalized=True)
+    a, b = line.interpolate(0.45, normalized=True), line.interpolate(0.55, normalized=True)
+
+    def side(g):                                  # by the leg's end furthest from the wall (a leg may cross it)
+        ends = [Point(g.coords[0]), Point(g.coords[-1])]
+        q = max(ends, key=lambda e: line.distance(e))
+        return (b.x - a.x) * (q.y - a.y) - (b.y - a.y) * (q.x - a.x) > 0
+    best = {}
+    for k, g in segs:
+        d = g.distance(mid)
+        if k not in best or d < best[k][0]:
+            best[k] = (d, g)
+    if t not in best:
+        return None
+    dt, gt = best[t]
+    for k, (d, g) in sorted(best.items(), key=lambda x: x[1][0]):
+        if k != t and d < SHARED and d < 2 * dt + 0.3 and side(g) != side(gt):
+            return k
+    return None
 
 
 

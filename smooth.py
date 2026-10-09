@@ -1029,6 +1029,55 @@ ON_LINE = 0.6       # m: a station this close to a line doesn't say which side t
 BEYOND = 0.5        # m: a splay reaching further than this past a line shows passage beyond it
 
 
+SIDE_RUN = 1.0      # m: a line is split where its nearest leg changes side for at least this far
+
+
+def split_by_side(objs, K, st, legs):
+    """A border, or a wall with -outline none, that is the roof of one
+    passage and then the floor of the next (Trident: the roof from 8 to 10
+    drawn on as the floor of the ramp to 12) is split where its nearest leg
+    goes from one side of it to the other, so each piece is judged alone."""
+    if not legs:
+        return
+    segs = [((a, b), LineString([st[a], st[b]])) for a, b in legs if st[a] != st[b]]
+    new = []
+    for o in objs:
+        if o.kind != 'line' or len(o.segments()) < 3 or not (
+                o.head.strip() in ('line border', 'line border -clip off')
+                or (o.head.startswith('line wall') and '-outline none' in o.head)):
+            new.append(o)
+            continue
+        rows = o.segments()
+        nodes = [tuple(r[-2:]) for r in rows]
+        sides = []
+        for i, p in enumerate(nodes):
+            a, b = nodes[max(0, i - 1)], nodes[min(len(nodes) - 1, i + 1)]
+            q = min(segs, key=lambda sg: sg[1].distance(Point(p)))[1]
+            far = max((Point(q.coords[0]), Point(q.coords[-1])), key=lambda e: e.distance(Point(p)))
+            sides.append(1 if (b[0] - a[0]) * (far.y - a[1]) - (b[1] - a[1]) * (far.x - a[0]) > 0 else -1)
+        cuts = [0]
+        for i in range(1, len(nodes)):
+            if sides[i] != sides[cuts[-1]]:
+                # a change that lasts: the next SIDE_RUN of the line keeps the new side
+                j = i
+                while j < len(nodes) and sides[j] == sides[i]:
+                    j += 1
+                run = sum(math.dist(nodes[k], nodes[k + 1]) for k in range(i, min(j, len(nodes) - 1)))
+                if run >= SIDE_RUN * K and i - cuts[-1] >= 2:
+                    cuts.append(i)
+        if len(cuts) == 1:
+            new.append(o)
+            continue
+        cuts.append(len(rows) - 1)
+        for a, b in zip(cuts, cuts[1:]):
+            piece = [list(rows[a][-2:])] + [list(r) for r in rows[a + 1:b + 1]]
+            if len(piece) > 1:
+                x = Obj('line', o.head, [])
+                x.set_segments(piece)
+                new.append(x)
+    objs[:] = new
+
+
 def outer_lines(objs, K, survey):
     """Style.md: every outer line is a wall. A line the converter made a
     border, or a wall with `-outline none`, is judged by the legs it
@@ -1043,6 +1092,9 @@ def outer_lines(objs, K, survey):
         return 0
     st, legs, ends = survey
     n = 0
+    from .settings import SETTINGS
+    if SETTINGS.get('_elevation'):              # (the roof of one passage drawn on as the floor of the next)
+        split_by_side(objs, K, st, legs)
     for o in objs:
         if o.kind != 'line' or len(o.segments()) < 2:
             continue
