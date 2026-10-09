@@ -428,7 +428,7 @@ def merge_short(objs, K, near=0.05, few=2, some=4, turn_max=None):
     turn (the join keeps its corner: align_handles leaves sharp turns); one
     of up to `some` nodes likewise (or only if the join turns less than
     `turn_max` degrees, if given). Gours stay separate. Walls are left to smooth.one_line_per_wall
-    (which checks the outline). Returns how many lines were merged."""
+    (which checks the outline), and section lines are each their own. Returns how many lines were merged."""
     from .tidy import reverse_segments
 
     def kind(o):
@@ -436,7 +436,7 @@ def merge_short(objs, K, near=0.05, few=2, some=4, turn_max=None):
 
     def ok(o):
         return o.kind == 'line' and len(o.segments()) > 1 \
-            and kind(o) not in ('wall', 'rock-border', 'rock-edge', 'rimstone-dam') \
+            and kind(o) not in ('wall', 'rock-border', 'rock-edge', 'rimstone-dam', 'section') \
             and '-close on' not in o.head and '-subtype invisible' not in o.head      # (each gour is its own arc)
 
     def direction(segs, at_end):
@@ -506,7 +506,7 @@ def ends_meet(objs, K, near):
     moved. Returns how many ends moved."""
     def movable(o):
         return o.kind == 'line' and len(o.segments()) > 1 and not o.head.startswith('line wall') \
-            and o.head.split()[1] not in ('rock-border', 'rock-edge') \
+            and o.head.split()[1] not in ('rock-border', 'rock-edge', 'section') \
             and '-close on' not in o.head and '-subtype invisible' not in o.head
     walls = [o for o in objs if o.kind == 'line' and o.head.startswith('line wall') and len(o.segments()) > 1]
     wall_nodes = [tuple(s[-2:]) for w in walls for s in w.segments()]

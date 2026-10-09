@@ -995,6 +995,164 @@ def wall_subtypes(objs, K, near=0.15):
     return n
 
 
+def survey_shots(objs, K, survey, elevation):
+    """The survey round a scrap, in its units: ({station: (x, y)}, [(a, b)]
+    legs, {station: [splay end (x, y)]}). In an elevation the splay ends are
+    those straight up and down. None where there is no survey data."""
+    import os
+    from .roofs import Splays, SQL
+    from .. import project
+    path = project.load().path(SQL)
+    if not survey or not os.path.exists(path):
+        return None
+    splays = Splays(path)
+    st = {}
+    for o in objs:
+        m = re.match(r'point (\S+) (\S+) station\b.*-name (\S+)', o.head) if o.kind == 'point' else None
+        if m:
+            n = m.group(3)
+            st[n if '@' in n else f'{n}@{survey}'] = (float(m.group(1)), float(m.group(2)))
+    legs = sorted({tuple(sorted((a, b))) for a in st for b in splays.legs.get(a, ()) if b in st})
+    ends = {}
+    for n, (x, y) in st.items():
+        if elevation:
+            ends[n] = ([(x, y + K * splays.up[n])] if n in splays.up else []) + \
+                ([(x, y - K * splays.down[n])] if n in splays.down else [])
+        else:
+            ends[n] = [(x + K * dx, y + K * dy) for dx, dy in splays.ends.get(n, ())]
+    return st, legs, ends
+
+
+LEG_REACH = 6.0     # m: the legs a line belongs to are within this of it
+LEG_BAND = 1.5      # m: legs this much further from a line than the nearest are another passage's
+ON_LINE = 0.6       # m: a station this close to a line doesn't say which side the passage is
+BEYOND = 0.5        # m: a splay reaching further than this past a line shows passage beyond it
+
+
+def outer_lines(objs, K, survey):
+    """Style.md: every outer line is a wall. A line the converter made a
+    border, or a wall with `-outline none`, is judged by the legs it
+    belongs to (within LEG_REACH): it is inner (a border) only where legs
+    lie on both sides of it, or splays from those legs' stations reach
+    more than BEYOND past it; otherwise it is the edge of that passage, a
+    wall, drawn with the passage (the legs) on its left (its points
+    reversed, not -reverse on). Passages drawn over one another in one
+    scrap don't count as passage beyond each other. Returns how many
+    became walls."""
+    if survey is None:
+        return 0
+    st, legs, ends = survey
+    n = 0
+    for o in objs:
+        if o.kind != 'line' or len(o.segments()) < 2:
+            continue
+        if not (o.head.strip() in ('line border', 'line border -clip off')
+                or (o.head.startswith('line wall') and '-outline none' in o.head)):
+            continue
+        pts = bezier_points(o.segments())
+        g = LineString(pts)
+        if g.length < 0.05 * K:
+            continue
+        from shapely.ops import nearest_points, unary_union
+        others = unary_union([LineString(bezier_points(x.segments())) for x in objs
+                              if x is not o and x.kind == 'line' and len(x.segments()) > 1
+                              and x.head.split()[1] in ('wall', 'border') and '-subtype invisible' not in x.head])
+
+        def sees(a, b):                              # no other wall or border between the leg and the line
+            p, q = nearest_points(LineString([st[a], st[b]]), g)
+            if p.distance(q) < 0.05 * K:
+                return True
+            gap = LineString([p, q])
+            cut = gap.intersection(others)
+            return cut.is_empty or all(c.distance(q) < 0.1 * K for c in getattr(cut, 'geoms', [cut]))
+        dist = {(a, b): LineString([st[a], st[b]]).distance(g) for a, b in legs}
+        mine = [(a, b) for a, b in legs if dist[(a, b)] < LEG_REACH * K and sees(a, b)]
+        if not mine:
+            continue
+        nearest = min(dist[l] for l in mine)
+        mine = [l for l in mine if dist[l] <= nearest + LEG_BAND * K]     # its own passage, not one beyond
+
+        def side(q):                                 # +1 left of the line, -1 right, at its nearest part
+            d = g.project(Point(q))
+            a, b = g.interpolate(max(0, d - 0.05 * K)), g.interpolate(min(g.length, d + 0.05 * K))
+            c = (b.x - a.x) * (q[1] - a.y) - (b.y - a.y) * (q[0] - a.x)
+            return 1 if c > 0 else -1
+
+        def foot_on(q):                              # q lies across the line, not off its ends
+            d = g.project(Point(q))
+            return 0.02 * g.length < d < 0.98 * g.length
+        # stations clearly to one side (a station the line was sketched just over doesn't count)
+        near = {x for a, b in mine for x in (a, b)}
+        votes = [side(st[x]) for x in near if foot_on(st[x]) and g.distance(Point(st[x])) > ON_LINE * K]
+        if not votes:
+            votes = [side(LineString([st[a], st[b]]).interpolate(0.5, normalized=True).coords[0]) for a, b in mine]
+        left, right = votes.count(1), votes.count(-1)
+        if min(left, right) >= max(1, 0.3 * len(votes)):
+            if o.head.startswith('line wall'):
+                o.head = 'line border'
+            continue
+        here = 1 if left >= right else -1
+        beyond = [e for a, b in mine for x in (a, b) for e in ends.get(x, ())
+                  if foot_on(e) and side(e) != here and g.distance(Point(e)) > BEYOND * K]
+        if beyond:
+            if o.head.startswith('line wall'):
+                o.head = 'line border'
+            continue
+        rows, before = o.rows, _outline_score(objs)
+        o.head = 'line wall'
+        if here < 0:                                 # the passage on its right: drawn the other way
+            o.set_segments(reverse_segments(o.segments()))
+        if _outline_score(objs) > before:            # the other way round, the passage on the other side?
+            o.set_segments(reverse_segments(o.segments()))
+            if _outline_score(objs) > before:        # the outline would cross itself either way: passages
+                o.head, o.rows = 'line border', rows     # over one another in one scrap (they want their own)
+                OUTER_KEPT.append(tuple(round(v) for v in o.segments()[0][-2:]))
+                continue
+        n += 1
+    return n
+
+
+OUTER_KEPT = []     # first points of outer lines left as borders: as walls the outline crossed itself
+
+
+def no_outline_none(objs, K=1.0):
+    """No wall with `-outline none` (Style.md): every outer line is a wall,
+    and an inner line is drawn as what it is. Each left inside the passage
+    becomes a `line border`; one that isn't becomes an outline wall where
+    Therion still makes the outline as well as before, and a border where
+    not. Returns the number changed."""
+    n = 0
+    rings = _rings_now(objs)
+    outline = [bezier_points(o.segments(), 20) for o in objs if o.kind == 'line' and len(o.segments()) > 1
+               and '-close on' not in o.head and o.head.startswith('line wall')
+               and '-outline none' not in o.head and '-subtype invisible' not in o.head]
+    passage = None
+    for ring in rings:
+        pts = [p for i, rev in ring for p in (outline[i][::-1] if rev else outline[i])]
+        if len(pts) > 3:
+            g = Polygon(pts).buffer(0)
+            passage = g if passage is None else passage.union(g)
+    for o in objs:
+        if o.kind != 'line' or not o.head.startswith('line wall') or '-outline none' not in o.head:
+            continue
+        n += 1
+        if len(o.segments()) < 2:
+            o.kind = 'drop'
+            continue
+        g = LineString(bezier_points(o.segments()))
+        inside = passage is not None and sum(passage.buffer(-0.05 * K).contains(g.interpolate(i / 10, normalized=True))
+                                             for i in range(11)) >= 9
+        if inside:
+            o.head = 'line border'
+            continue
+        before = _outline_score(objs)
+        o.head = o.head.replace(' -outline none', '')
+        if _outline_score(objs) > before:
+            o.head = 'line border'
+    objs[:] = [o for o in objs if o.kind != 'drop']
+    return n
+
+
 def _redo_scrap(header, body, path):
     """One scrap through the wall refit and the steps after it.
     Returns (objs, tidy report, points before, after, ends moved)."""
@@ -1004,6 +1162,17 @@ def _redo_scrap(header, body, path):
     SETTINGS['_elevation'] = '-projection extended' in header
     tidy = one_line_per_wall(objs, K)
     stepped = 0
+    if SETTINGS['outer_walls'] and '-projection none' not in header:
+        from .survey import survey_of
+        sv = survey_of(path) or (re.match(r'scrap (\S+?)S[PE]\d', header) or [None, ''])[1]
+        OUTER_KEPT.clear()
+        stepped += outer_lines(objs, K, survey_shots(objs, K, sv, SETTINGS['_elevation']))
+        if OUTER_KEPT:
+            import sys
+            print(f"  {header.split()[1]}: {len(OUTER_KEPT)} outer line(s) left as borders, as walls the outline "
+                  f"crosses itself (passages over one another: separate scraps?) at "
+                  + ", ".join("%d %d" % p for p in OUTER_KEPT), file=sys.stderr)
+    stepped += no_outline_none(objs, K)
     if SETTINGS['wall_jog_max'] > 0:        # walls joined through the sketcher's steps (jogs.py),
         from .jogs import join_scrap        # before the refit so the join is smoothed too
         stepped = join_scrap(objs, K, SETTINGS['wall_jog_max'])
@@ -1080,6 +1249,10 @@ def _redo_scrap(header, body, path):
         stepped += align_scrap(objs, SETTINGS['smooth_nodes'])
     if SETTINGS['wall_subtypes']:               # walls drawn as mud or sand (brown in the sketch)
         stepped += wall_subtypes(objs, K)
+    # every line has at least two points (Style.md, lint line-points): a step above may leave one
+    short = [o for o in objs if o.kind == 'line' and len(o.segments()) < 2]
+    objs[:] = [o for o in objs if not any(o is x for x in short)]
+    stepped += len(short)
     return objs, tidy, b, a, stepped
 
 
@@ -1115,6 +1288,8 @@ def redo_file(path, scraps=None):
         report.append((name, b, a) + tidy + (stepped,))
     out.append(t[pos:])
     t = ''.join(out)
+    # the converter's fill line, left where a scrap had no wall to refit: never written (lint wall-invisible)
+    t = re.sub(r'(?m)^line wall -subtype invisible -close on\n(?:(?!endline).*\n)*?endline\n\n?', '', t)
     if b'\r\n' in raw:
         t = t.replace('\n', '\r\n')
     open(path, 'wb').write(t.encode('utf-8'))

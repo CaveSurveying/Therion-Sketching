@@ -27,7 +27,7 @@ line); hand-drawn scraps in the same file are left exactly as they are.
 
     python3 -m tools.sketch2therion tidy FILE.th2 [...] [--scale 500]
 """
-from .settings import inner_wall_head
+from .settings import SETTINGS, inner_wall_head
 import bisect
 import math
 import re
@@ -976,7 +976,7 @@ def tidy_scrap(header, body, map_scale=500, elevation=False):
             continue
         typ = v[3] if len(v) > 3 else ''
         # in an elevation water flow is drawn just under the floor (elevation.py)
-        under = 0.6 if typ == 'water-flow' and inner_wall_head() != 'line border' else 0.1
+        under = 0.6 if typ == 'water-flow' and SETTINGS.get('_elevation') else 0.1
         if outline_poly is not None and typ in ('water-flow', 'flowstone', 'stalagmite', 'stalactite', 'gradient') \
                 and not outline_poly.buffer(under * K).contains(Point(x, y)):
             o.kind = 'drop'

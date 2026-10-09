@@ -21,6 +21,7 @@ also a band from the floor to the roof along the survey legs.
 """
 import math
 import os
+import sys
 
 from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import unary_union
@@ -415,19 +416,20 @@ def _nearest(pos, p):
 
 # -- cross-sections ----------------------------------------------------------------
 
-def gather_section(centre, lines, used, stations, near=1.2, reach=6.0):
+def gather_section(centre, lines, used, stations, near=1.2, reach=6.0, avoid=()):
     """Indices of the sketch lines making up the cross-section drawn around
     `centre`: lines within `near` of it or around it, then lines touching those,
     keeping only lines wholly within `reach` of the centre and clear of the
     survey stations (which are on the main drawing, not the section)."""
     C = Point(centre)
     stp = [Point(p) for p in stations]
+    far = [Point(p) for p in avoid if math.dist(p, centre) <= reach + 1.0]     # the main drawing's shot ends
 
     def ok(pp):
         if any(math.dist(p, centre) > reach for p in pp):
             return False
         ls = LineString(pp)
-        return all(ls.distance(q) > 0.3 for q in stp)
+        return all(ls.distance(q) > 0.3 for q in stp) and all(ls.distance(q) > 0.25 for q in far)
 
     cand = [i for i, (c, pp) in enumerate(lines) if i not in used and c in WALLS + ('BLUE', 'GREEN')
             and len(pp) > 1 and ok(pp)]
@@ -516,25 +518,48 @@ def section_th2(name, attrs, lines, centre, K, comment):
     o += water_th2(lines, poly, xpx, name, flow=False)
     o += ["endscrap", ""]
     b = poly.bounds
-    return o, b[2] - b[0], b[3] - b[1]
+    return o, b[2] - b[0], b[3] - b[1], poly
 
 
-def section_scraps(sketch, opt, K):
-    """Cross-section scraps for every connect line in the sketch.
+SECTION_SPLAY_OUT = 0.5    # m: a section's splay end further outside its outline than this is reported
+
+
+def section_scraps(sketch, opt, K, view='P'):
+    """Cross-section scraps for every connect line in the sketch, one scrap
+    each, named survey + PX (plan) or EX (elevation) + station (Style.md:
+    FairyChimneysPX5). A section's strokes are those around its own copy
+    of the station and clear of the main drawing's shots (a stroke near
+    one of them is the plan's, not the section's); its station and splay ends must be inside its outline
+    (the leg and splay rule), and where they are not it is reported.
     Returns (th2 lines, [(station, scrap name, centre, width, height)], used line indices)."""
     pos = sketch.positions()
     used = set()
     o, made = [], []
+    survey = opt.survey or opt.name.rstrip('S')
     for n, spos, centre in sketch.sections():
-        idx = gather_section(centre, sketch.lines, used, list(pos.values()))
+        ends = [b if math.dist(a, centre) < 0.01 else a for a, b in sketch.shots
+                if math.dist(a, centre) < 0.01 or math.dist(b, centre) < 0.01]
+        reach = 8.0
+        main = [e for a, b in sketch.shots if math.dist(a, centre) >= 0.01 and math.dist(b, centre) >= 0.01
+                for e in (a, b)]
+        idx = gather_section(centre, sketch.lines, used, list(pos.values()), reach=reach, avoid=main)
         used |= set(idx)
         mine = [sketch.lines[i] for i in idx]
-        name = f"{opt.name}_xs_{n}".replace('.', '_')
+        name = (f"{survey}{view}X{n}" if SETTINGS['section_names'] else f"{opt.name}_xs_{n}").replace('.', '_')
         r = section_th2(name, opt.attrs(K), mine, centre, K, f"# Cross-section at station {n}.")
         if r is None:
+            print(f"  cross-section {name}: no walls drawn round station {n}", file=sys.stderr)
             continue
         o += r[0]
         W, H = r[1], r[2]
+        poly = r[3]
+        if poly is not None:
+            if not poly.buffer(0.1).contains(Point(centre)):
+                print(f"  cross-section {name}: station {n} outside its outline: check", file=sys.stderr)
+            far = [e for e in ends if poly.distance(Point(e)) > SECTION_SPLAY_OUT]
+            if far:
+                print(f"  cross-section {name}: {len(far)} of {len(ends)} splay ends more than "
+                      f"{SECTION_SPLAY_OUT} m outside: check", file=sys.stderr)
         made.append((n, name, centre, W, H))
     return o, made, used
 
@@ -583,15 +608,38 @@ class PlanGeometry:
                             for a, b in self.legs if math.dist(self.pos[a], self.pos[b]) > 0.01])
 
 
+SECTION_MARGIN = 0.5    # m: a section line goes this far past the passage, so its arrows are clear of it
+
+
 def section_line(geo, n, px):
-    """`line section` across the passage at station n."""
+    """`line section -direction both` right across the passage at station n
+    (Style.md, Cross-sections). Therion draws the arrows on the line's left,
+    so the line runs with the view direction, along the survey from n
+    towards the next station, on its left. Returns (rows, perp, half width)."""
     P = geo.pos[n]
     u = geo.direction(n)
-    perp = (-u[1], u[0])
+    if not SETTINGS['section_arrows']:          # upstream: no arrows, either way round
+        perp = (-u[1], u[0])
+        hw = geo.half_width(n, perp)
+        a = (P[0] - perp[0] * hw, P[1] - perp[1] * hw)
+        b = (P[0] + perp[0] * hw, P[1] + perp[1] * hw)
+        return ["line section", "  %.2f %.2f" % px(a), "  %.2f %.2f" % px(b), "endline", ""], perp, hw
+    ahead = [b for a, b in geo.legs if a == n and math.dist(P, geo.pos[b]) > 0.3]
+    behind = [a for a, b in geo.legs if b == n and math.dist(P, geo.pos[a]) > 0.3]
+    if ahead:
+        v = (geo.pos[ahead[0]][0] - P[0], geo.pos[ahead[0]][1] - P[1])
+    elif behind:
+        v = (P[0] - geo.pos[behind[0]][0], P[1] - geo.pos[behind[0]][1])
+    else:
+        v = u
+    if u[0] * v[0] + u[1] * v[1] < 0:
+        u = (-u[0], -u[1])
+    perp = (-u[1], u[0])                 # u's left
     hw = geo.half_width(n, perp)
-    a = (P[0] - perp[0] * hw, P[1] - perp[1] * hw)
-    b = (P[0] + perp[0] * hw, P[1] + perp[1] * hw)
-    return ["line section", "  %.2f %.2f" % px(a), "  %.2f %.2f" % px(b), "endline", ""], perp, hw
+    h = hw + SECTION_MARGIN
+    a = (P[0] + perp[0] * h, P[1] + perp[1] * h)
+    b = (P[0] - perp[0] * h, P[1] - perp[1] * h)    # from u's left to its right: u on the line's left
+    return ["line section -direction both", "  %.2f %.2f" % px(a), "  %.2f %.2f" % px(b), "endline", ""], perp, hw
 
 
 def place_sections(geo, made, px, placed):
@@ -662,7 +710,7 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
     sketch, groups, flipped = _split(sketch, layout, opt.survey, tol)
     pos = sketch.positions()
     px = lambda p: (K * p[0], K * p[1])
-    xs_text, made, used = section_scraps(sketch, opt, K)
+    xs_text, made, used = section_scraps(sketch, opt, K, 'P')
     lines = [l for i, l in enumerate(sketch.lines) if i not in used]
     geo = PlanGeometry(pos, sketch.shots)
     from . import scale                   # the legs nearby set how closely lines follow the sketch
@@ -686,6 +734,7 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
             from . import notation
             notes, used_n = notation.find(mine)
             mine = [l for k, l in enumerate(mine) if k not in used_n]
+        mine, presumed = presumed_strokes(mine)
         gours = []
         if SETTINGS['gours']:             # solid green lines: gours
             from .marks import is_gour
@@ -711,6 +760,7 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
             if not inside:
                 inside = [_nearest({n: pos[n] for n in g}, poly.representative_point().coords[0])]
             o = [f"scrap {name} -projection plan{opt.attrs(K)}", ""]
+            o += presumed_marks(presumed, poly, px)
             o += walls_th2(walls, poly, px, legs, [e for _, _, e in sketch.splays()])
             o += symbols_th2([b for b in boulders if poly.contains(b.centroid)],
                              [a for a in arrows if poly.contains(Point(a[0]))], px)
@@ -814,14 +864,84 @@ def drawn_on(pieces, lines, sizes=None, meet=0.3):
     return [tuple(r) for r in out]
 
 
+JOIN_REACH = 3.0    # m: wall ends this near a join (a station of a leg between scraps) are at the join
+IN_LINE = 0.3       # m: a wall end further out than the opposite wall's end by more than this is cut back
+
+
+def trim_at_joins(walls, joins, stations, others=()):
+    """Elevation walls where a scrap meets the next end in line: a wall end
+    near the join that runs further out (away from the scrap's stations)
+    than the nearest end of the wall opposite it (floor and ceiling) is
+    cut back to it (Style.md, Scraps; TritonSouth, log row 137)."""
+    if not joins or not stations:
+        return walls
+    cx = sum(p[0] for p in stations) / len(stations)
+    pts = [(i, k) for i, w in enumerate(walls) if len(w) > 1 for k in (0, -1)]
+
+    def free(i, k):
+        e = walls[i][k]
+        return not any(j != i and LineString(w).distance(Point(e)) < 0.3 for j, w in enumerate(walls) if len(w) > 1)
+    near_join = lambda p: min(abs(p[0] - j[0]) for j in joins) < JOIN_REACH      # along the passage: roofs are high
+    ends = [(i, k) for i, k in pts if free(i, k) and near_join(walls[i][k])]
+    # the opposite wall may be this scrap's or the next one's (the short bit of ceiling closest)
+    theirs = [w[k] for w in others if len(w) > 1 for k in (0, -1) if near_join(w[k])]
+    out = [list(w) for w in walls]
+    for i, k in ends:
+        e = walls[i][k]
+        side = 1 if e[0] > cx else -1                # the join's side of the scrap
+        opp = [walls[j][m] for j, m in ends if j != i] + theirs
+        opp = [q for q in opp if abs(q[1] - e[1]) > 0.5 and abs(q[0] - e[0]) < JOIN_REACH]
+        if not opp:
+            continue
+        f = min(opp, key=lambda q: abs(q[0] - e[0]))
+        if (e[0] - f[0]) * side <= IN_LINE:
+            continue
+        x = f[0]
+        w = out[i] if k == 0 else out[i][::-1]       # from the end being cut
+        keep = [p for p in w if (p[0] - x) * side <= 0]
+        if len(keep) < 2:
+            continue
+        # where the wall crosses x, then the rest
+        first = next(n for n, p in enumerate(w) if (p[0] - x) * side <= 0)
+        if first > 0:
+            a, b = w[first - 1], w[first]
+            t = (x - a[0]) / (b[0] - a[0]) if b[0] != a[0] else 0.0
+            keep = [(x, a[1] + t * (b[1] - a[1]))] + w[first:]
+        else:
+            keep = w[first:]
+        out[i] = keep if k == 0 else keep[::-1]
+    return out
+
+
+def presumed_strokes(lines):
+    """(lines with each black dashed line as one stroke, [those strokes]) with
+    dashed_presumed; the dashes themselves are gone."""
+    if not SETTINGS['dashed_presumed']:
+        return lines, []
+    from . import notation
+    found, used = notation.presumed(lines)
+    return [l for k, l in enumerate(lines) if k not in used] + [('BLACK', pp) for pp in found], found
+
+
+def presumed_marks(presumed, poly, px):
+    """`# wall-subtype presumed: ...` for the dashed lines at this scrap's
+    passage, for smooth.wall_subtypes to apply to the walls made from them."""
+    out = ["# wall-subtype presumed: " + " ".join("%.1f %.1f" % px(p) for p in pp)
+           for pp in presumed if LineString(pp).distance(poly) < 0.5]
+    return out + ([""] if out else [])
+
+
 def subtype_marks(lines, px, kinds={}):
     """Comment lines recording where walls are drawn in a colour that means
-    a wall subtype (green: `flowstone`, or `blocks` if drawn lumpy; brown: mud, `clay`, or `sand` where
-    brown dots lie along it), for smooth.wall_subtypes to apply once the walls are final:
+    a wall subtype (green: `flowstone`, or `blocks` if drawn lumpy; brown: `debris` where
+    boulders lie along it, `sand` where brown dots do, else mud, `clay`), for smooth.wall_subtypes to apply once the walls are final:
     `# wall-subtype clay: x y x y ...` in drawing units."""
     from .marks import kind_of
     out = []
     dots = [pp for c, pp in lines if c == 'BROWN' and pp and kind_of(pp, 0.3, SETTINGS['mark_max']) == 'sand']
+    from .elevation import _closed, BOULDER_MAX
+    rocks = [LineString(pp) for c, pp in lines if len(pp) > 3 and _closed(pp)
+             and sum(math.dist(a, b) for a, b in zip(pp, pp[1:])) <= BOULDER_MAX]
     for c, pp in lines:
         if c not in ('BROWN', 'GREEN') or len(pp) < 2 or not is_outline(pp):
             continue
@@ -831,6 +951,8 @@ def subtype_marks(lines, px, kinds={}):
             kind = kinds[id(pp)]
         elif c == 'GREEN':                       # colour is a hint: shape decides
             kind = 'blocks' if _lumpy(pp) else 'flowstone'
+        elif sum(1 for r in rocks if L.distance(r) < 0.3) >= max(2, L.length / 2.0):
+            kind = 'debris'                      # boulders along it: a floor of debris
         else:
             kind = 'sand' if near >= 3 else 'clay'
         out.append(f"# wall-subtype {kind}: " + " ".join("%.1f %.1f" % px(p) for p in pp))
@@ -868,7 +990,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
     sketch, groups, flipped = _split(sketch, layout, opt.survey, tol)
     pos = sketch.positions()
     px = lambda p: (K * p[0], K * p[1])
-    xs_text, made, used = section_scraps(sketch, opt, K)
+    xs_text, made, used = section_scraps(sketch, opt, K, 'E')
     lines = [l for i, l in enumerate(sketch.lines) if i not in used]
     legs_all = [(a, b) for a, b, *_ in sketch.legs()]
     if opt.scraps and SETTINGS['hand_scraps']:    # chosen by hand ([scraps_extended]), as in plan
@@ -886,6 +1008,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
         if len(g) < 2:
             continue
         mine = [(c, pp) for k, c, pp in pieces if k == gi]
+        mine, presumed = presumed_strokes(mine)
         feats = None
         if SETTINGS['elevation_features']:       # pools, flow, curtains, blocks, rocks, rubble (elevation.py)
             from . import elevation as el
@@ -893,11 +1016,15 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
             mine = feats.lines
         walls, _b, _a = wall_strokes(mine)
         walls = clean(walls)
+        gset = set(g)
+        if len(groups) > 1:                      # where this scrap meets the next, its walls end in line
+            joins = [pos[x] for a, b in legs_all for x in (a, b) if (a in gset) != (b in gset) and x in pos]
+            theirs = clean(wall_strokes([(c, pp) for k, c, pp in pieces if k != gi and pp])[0])
+            walls = trim_at_joins(walls, joins, [pos[n] for n in g if n in pos], theirs)
         if feats:
             walls += el.bowls(feats, walls)
         if not walls:
             continue
-        gset = set(g)
         legs = [(pos[a], pos[b]) for a, b in legs_all if a in gset and b in gset]
         extra = [pp for c, pp in mine if c == 'BLUE'] + \
             ([[(x0, y), (x1, y)] for x0, x1, y in feats.pools] if feats else [])
@@ -909,6 +1036,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
                 continue
             name = f"{opt.name}E{len(scraps) + 1}"
             o = [f"scrap {name} -projection extended{opt.attrs(K)}", ""]
+            o += presumed_marks(presumed, poly, px)
             if SETTINGS['wall_subtypes']:
                 o += (el.debris_marks(feats, px) if feats else []) + \
                     subtype_marks(mine, px, feats.kinds if feats else {})

@@ -11,6 +11,11 @@ from .. import project as _project
 
 UPSTREAM = {
     'wall_colours': ['BLACK', 'BROWN', 'GRAY'],  # strokes that can make the passage outline
+    'auto_scraps': False,        # True: scraps from the 3D model where [scraps]/[scraps_extended] list none (autoscraps.py)
+    'section_names': False,      # True: cross-sections named survey + PX/EX + station (FairyChimneysPX5); upstream X_xs_n
+    'outer_walls': False,        # True: a border or `-outline none` wall with passage (by the splays) on one side only is a wall
+    'dashed_presumed': False,    # True: black dashed lines (no ticks) are `line wall -subtype presumed`
+    'section_arrows': False,     # True: section lines `-direction both`, view direction on the left, 0.5 m past the passage (Style.md)
     'layout_split': True,        # True (upstream): a scrap per group of stations that fits Therion's
                                  # layout with one shift, and a sketch that fits only upside down
                                  # flipped. False (plan stage 5d): the layout is for `check` only
@@ -138,11 +143,9 @@ load()
 
 
 def inner_wall_head():
-    """What a wall inside the passage (not on the outline) becomes: in a plan
-    the edge of something, a `line border`; in an elevation, with
-    elevation_features, a wall left off the outline. SETTINGS['_elevation']
-    is set while an elevation is converted or smoothed."""
-    if SETTINGS.get('_elevation') and SETTINGS.get('elevation_features'):
-        return 'line wall -outline none'
+    """What a wall inside the passage (not on the outline) becomes: the edge
+    of something, a `line border`, in plans and elevations alike. Never a
+    wall with `-outline none` (Style.md: every outer line is a wall, an
+    inner line is drawn as what it is)."""
     return 'line border'
 

@@ -100,6 +100,63 @@ def _top(pps, step=0.1):
     return LineString(out).simplify(0.05).coords[:] if len(out) > 1 else []
 
 
+def _bottom(pps, step=0.1):
+    """The lower outline of a group of strokes, sampled every `step` m."""
+    flip = lambda pp: [(x, -y) for x, y in pp]
+    return [(x, -y) for x, y in _top([flip(pp) for pp in pps], step)]
+
+
+BOULDER_MAX = 1.5       # m: a closed stroke up to this long is a boulder
+FLOOR_GAP = 1.0         # m: boulders this close are one row
+FLOOR_ROW = 4           # boulders in a row along the floor make a floor
+FLOOR_COVER = 1.0       # m: a floor line drawn within this under the row is the floor already
+
+
+def _curled(pp):
+    """A mark that bends back on itself (a curl or a loop), not a straight dash."""
+    return _closed(pp) or (len(pp) > 2 and length(pp) > 1.3 * math.dist(pp[0], pp[-1]))
+
+
+def boulder_floor(lines):
+    """A floor drawn only as a row of marks (boulders, small closed loops,
+    or short brown curls and dashes; no line under them) is a floor: a line
+    along the bottom of the row, where no line is drawn under it. Returns
+    [(points, 'debris')]: only where most marks are curled (straight dashes
+    are mud marked on a floor drawn elsewhere)."""
+    loops = [pp for c, pp in lines if len(pp) > 1 and length(pp) <= BOULDER_MAX and (
+             (c in ('BROWN', 'BLACK', 'GREEN') and len(pp) > 3 and _closed(pp)) or c == 'BROWN')]
+    rows = []
+    for pp in loops:
+        L = LineString(pp)
+        hit = [r for r in rows if any(L.distance(LineString(q)) < FLOOR_GAP for q in r)]
+        for r in hit:
+            rows.remove(r)
+        rows.append(sum(hit, []) + [pp])
+    marks = {id(pp) for pp in loops}
+    drawn = [LineString(pp) for c, pp in lines if len(pp) > 1 and not _closed(pp) and length(pp) >= 0.5
+             and id(pp) not in marks]
+    out = []
+    for r in rows:
+        xs = [p[0] for pp in r for p in pp]
+        if len(r) < FLOOR_ROW or max(xs) - min(xs) < 2.0:
+            continue
+        if sum(_curled(pp) for pp in r) * 2 < len(r):
+            continue                    # straight dashes: mud marked on a floor, not a floor
+        kind = 'debris'
+        run = []
+        for q in _bottom(r):
+            below = LineString([q, (q[0], q[1] - FLOOR_COVER)])
+            if any(d.intersects(below) or d.distance(Point(q)) < 0.1 for d in drawn):
+                if length(run) >= 1.0:
+                    out.append((run, kind))
+                run = []
+            else:
+                run.append(q)
+        if length(run) >= 1.0:
+            out.append((run, kind))
+    return out
+
+
 class Features:
     def __init__(self):
         self.lines = []         # [(colour, points)] left for walls and marks
@@ -169,6 +226,10 @@ def features(lines, stations=()):
             top = list(top)
             f.lines.append(('GREEN', top))
             f.kinds[id(top)] = 'blocks'
+    for pp, kind in boulder_floor(f.lines + [('BLACK', r) for r in f.rocks] + [('BROWN', d) for d in f.debris]):
+        pp = list(pp)
+        f.lines.append(('BROWN', pp))
+        f.kinds[id(pp)] = kind
     return f
 
 

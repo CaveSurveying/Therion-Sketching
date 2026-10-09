@@ -317,6 +317,71 @@ def split_walls(walls, pr, group_of):
     return out
 
 
+NODE_GAP = 0.06      # m: no two nodes closer than this (lint node-gap is 0.05 m)
+
+
+def _spaced(q):
+    """The points with none closer than NODE_GAP to the one before (the ends kept)."""
+    out = [q[0]]
+    for p in q[1:-1]:
+        if math.dist(p, out[-1]) >= NODE_GAP:
+            out.append(p)
+    if len(q) > 1:
+        if len(out) > 1 and math.dist(q[-1], out[-1]) < NODE_GAP:
+            out.pop()
+        out.append(q[-1])
+    return out
+
+
+def stations_only(survey, angle=315, file_it=False, author=None, copyright=None):
+    """One scrap with the survey's stations on the dots of its projected
+    centreline (Notes/XE315.xvi), as tools/ElevationsExx.py lays it out:
+    in the xvi's own units, offset from its lowest station, with the xvi
+    as the backdrop. The walls are drawn round them by hand for now (log
+    row 125: projected walls parked)."""
+    folder = os.path.dirname(PROJECT.path(PROJECT.survey_file(survey)))
+    tag = f"E{angle:03d}"
+    name = f"{survey}S{tag}_1"
+    if file_it:            # first, so the survey's map names only this scrap when Therion reads it
+        file_into(survey, tag, [name])
+    xvi_path = os.path.join(folder, 'Notes', f"{survey}{tag}.xvi")
+    os.makedirs(os.path.dirname(xvi_path), exist_ok=True)
+    export_centreline(survey, angle, xvi_path)
+    t = open(xvi_path, encoding='utf-8').read()
+    part = t.split('XVIstations', 1)[1].split('XVIshots', 1)[0]
+    st = []
+    for m in re.finditer(r'\{\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(\S+?)\s*\}', part):
+        n, sv = (m.group(3).split('@') + [''])[:2]
+        if sv.split('.')[0] in (survey, ''):
+            st.append((float(m.group(1)), float(m.group(2)), n))
+    if not st:
+        sys.exit(f"{survey}: no stations in {xvi_path}")
+    unit = float(re.search(r'XVIgrid\s+\{\s*\S+\s+\S+\s+(\S+)', t).group(1))     # xvi units a metre
+    x0, y0 = min(x for x, _, _ in st), min(y for _, y, _ in st)
+    W, H = max(x for x, _, _ in st) - x0, max(y for _, y, _ in st) - y0
+    x1, y1, first = st[0]
+    a = ''
+    if author:
+        a += ' -author %s "%s"' % tuple(author)
+    if copyright:
+        a += ' -copyright %s "%s"' % tuple(copyright)
+    rel = os.path.relpath(xvi_path, folder)
+    o = ["encoding  utf-8", PROJECT.licence_comment,
+         f"##XTHERION## xth_me_area_adjust -128.0 -128.0 {W + 128:.2f} {H + 128:.2f}",
+         "##XTHERION## xth_me_area_zoom_to 100",
+         f"##XTHERION## xth_me_image_insert {{{x1 - x0:.2f} 1 1.0}} {{{y1 - y0:.2f} {first}}} {rel} 0 {{}}", "",
+         f"# Projected elevation, facing {angle}: the stations on the dots of {rel}",
+         "# (tools/sketch2therion projected). Walls to be drawn round them.", "",
+         f"scrap {name} -projection [elevation {angle}]{a} -scale [0 0 {10 * unit:.3f} 0 0.0 0.0 10 0 m]", ""]
+    for x, y, n in sorted(st, key=lambda s: register.natural(s[2])):
+        o += ["point %.2f %.2f station -name %s" % (x - x0, y - y0, n), ""]
+    o += ["endscrap", ""]
+    out = os.path.join(folder, f"{survey}{tag}.th2")
+    open(out, 'wb').write(("\n".join(o)).replace('\n', PROJECT.newline).encode('utf-8'))
+    print(f"wrote {out}: {len(st)} stations on the dots of {xvi_path}")
+    return out, [name]
+
+
 def projected(survey, angle=315, file_it=False, author=None, copyright=None):
     from . import convert
     from .roofs import Splays, SQL
@@ -370,6 +435,7 @@ def projected(survey, angle=315, file_it=False, author=None, copyright=None):
                 if sum(pr.s[l] for l in used) < 0:
                     q.reverse()                 # mirrored across the view: the passage stays on the same side
                 q = LineString(q).simplify(0.01).coords[:]
+                q = _spaced(q)
                 if len(q) >= 2 and LineString(q).length >= MIN_PIECE:     # a scrap of wall only confuses the outline
                     lines.append((k, list(q)))
             for k, q in lines:
@@ -471,5 +537,7 @@ def main(argv):
     p.add_argument('--file', action='store_true', help="input it in the survey and the cave's 315 map")
     p.add_argument('--author', nargs=2, metavar=('DATE', 'NAME'))
     p.add_argument('--copyright', nargs=2, metavar=('YEAR', 'HOLDER'))
+    p.add_argument('--walls', action='store_true',
+                   help='also project the extended drawing\'s walls (parked: log row 125)')
     a = p.parse_args(argv)
-    projected(a.survey, a.angle, a.file, a.author, a.copyright)
+    (projected if a.walls else stations_only)(a.survey, a.angle, a.file, a.author, a.copyright)

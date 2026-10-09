@@ -85,6 +85,26 @@ def ticks_of(line_pp, shorts, reach=TOUCH):
     return out
 
 
+def presumed(lines, dash_gap=DASH_GAP):
+    """Black dashed lines with no ticks: a wall the surveyors could not see
+    all of, where the passage carries on (`line wall -subtype presumed`).
+    lines: [(colour, points)], what notation.find left. Returns
+    ([points of each dashed line, in order], {indices of the dashes used})."""
+    cands = [(i, pp) for i, (c, pp) in enumerate(lines) if c == 'BLACK' and len(pp) > 1
+             and 0.02 <= length(pp) <= DASH_MAX and math.dist(pp[0], pp[-1]) >= 0.5 * length(pp)]
+    pp_of = dict(cands)
+    out, used = [], set()
+    for chain in dash_chains(cands, dash_gap, MIN_DASHES):
+        pts = [p for k in chain for p in (pp_of[k][0], pp_of[k][-1])]
+        u = _axis(pts)
+        pts.sort(key=lambda p: p[0] * u[0] + p[1] * u[1])
+        if length(pts) < 0.5:
+            continue
+        out.append(pts)
+        used |= set(chain)
+    return out, used
+
+
 def dash_chains(cands, dash_gap=DASH_GAP, min_dashes=MIN_DASHES):
     """Groups (lists of indices, in order) of short straight strokes in a row."""
     idx = [i for i, _ in cands]

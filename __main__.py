@@ -106,7 +106,30 @@ def _opts(a):
         re.sub(r'[^A-Za-z0-9]', '', a.survey or os.path.splitext(os.path.basename(a.output))[0]))
     return convert.Options(name, a.survey, tuple(a.author) if a.author else None,
                            tuple(a.copyright) if a.copyright else None, a.qualify,
-                           PROJECT.scraps.get(a.survey) if a.survey else None)
+                           (PROJECT.scraps.get(a.survey) or _auto_scraps(a.survey, 'plan')) if a.survey else None)
+
+
+def _auto_scraps(survey, view):
+    """Scraps from the 3D model (autoscraps.py), where [scraps] doesn't list
+    them by hand and auto_scraps is on: plans from the splays, elevations
+    (after the plans are drawn) from the drawn plans and the splays.
+    None for a single scrap."""
+    from .settings import SETTINGS
+    if not SETTINGS.get('auto_scraps'):
+        return None
+    from . import autoscraps
+    try:
+        groups, cut, left, cl = autoscraps.scraps_for(PROJECT.path(PROJECT.survey_file(survey)), survey, view,
+                                                      'splays' if view == 'plan' else 'both')
+    except RuntimeError as e:
+        print(f"  scraps: {e}", file=sys.stderr)
+        return None
+    if len(groups) < 2:
+        return None
+    print(f"  scraps from the model ({view}): " + " | ".join(autoscraps.specs(groups))
+          + (f"; cut at legs {', '.join(f'{x}-{y}' for x, y in cut)}" if cut else "")
+          + (f"; {len(left)} clashes left" if left else ""), file=sys.stderr)
+    return autoscraps.specs(groups)
 
 
 def _layout_for_drawing(a, default, given=None):
@@ -141,10 +164,10 @@ def cmd_plan(a):
 
 def cmd_extended(a):
     from .settings import SETTINGS
-    SETTINGS['_elevation'] = True               # inner walls stay walls (settings.inner_wall_head)
+    SETTINGS['_elevation'] = True               # elevation rules (water flow under the floor)
     sk = load(a.sketch, 'elevation')
     opts = _opts(a)
-    opts.scraps = PROJECT.scraps_extended.get(a.survey) if a.survey else None
+    opts.scraps = (PROJECT.scraps_extended.get(a.survey) or _auto_scraps(a.survey, 'extended')) if a.survey else None
     opts.glitches = PROJECT.glitches.get(a.survey, {}).get(os.path.basename(a.sketch)) if a.survey else None
     text, scraps, sections, plan_scraps = convert.extended(
         sk, opts, a.output, _layout_for_drawing(a, EXT_LAYOUT),
@@ -266,6 +289,12 @@ def main(argv=None):
     if args[:1] == ['projected']:              # a projected elevation from the extended drawing
         from . import projected
         return projected.main(args[1:])
+    if args[:1] == ['scraps']:                 # scraps chosen from the 3D model
+        from . import autoscraps
+        return autoscraps.main(args[1:])
+    if args[:1] == ['fillcheck']:              # legs and splays against the whole-cave fill
+        from . import fillcheck
+        return fillcheck.main(args[1:])
     if args[:1] == ['zip']:                    # a review zip
         from . import reviewzip
         return reviewzip.main(args[1:])
