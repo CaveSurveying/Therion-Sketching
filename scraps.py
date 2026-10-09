@@ -121,7 +121,7 @@ def junction_joins(groups, legs):
     return out
 
 
-def assign(lines, groups, pos, legs, share=False, placed=None):
+def assign(lines, groups, pos, legs, share=False, placed=None, marks=None):
     """[(scrap index, colour, points)]: each stroke with the scrap of its
     nearest leg (legs within a scrap only; a lone station counts as a leg;
     a leg between scraps starting at a junction goes with the scrap at its
@@ -192,6 +192,17 @@ def assign(lines, groups, pos, legs, share=False, placed=None):
                             placed.add((tuple(piece[0]), tuple(piece[-1])))     # by its direction: kept there
                         t = decided
                         out[-1] = (t, c, piece)
+                # the floor or ceiling a scrap's stations' splays end on is that scrap's (Connection
+                # left of 13, user: the splays say which floor and ceiling is which)
+                hits = splay_hits(piece, marks, member) if marks and c in ('BLACK', 'BROWN') else {}
+                if hits and decided is None:
+                    if t not in hits:
+                        t = max(hits, key=hits.get)
+                        out[-1] = (t, c, piece)
+                    for k in hits:                    # splays of two scraps on it: a wall of each
+                        if k != t:
+                            out.append((k, c, piece))
+                    continue
                 # the wall between two scraps' passages: each draws it (not one a junction's branch decided)
                 u = shared_with(piece, t, segs) if share and c in ('BLACK', 'BROWN') and decided is None else None
                 if u is not None:                 # the wall between two scraps' passages: each draws it
@@ -245,6 +256,23 @@ def by_direction(piece, t, branches):
                 return bi
             return ti if t == bi else t
     return None
+
+
+SPLAY_HIT = 0.3     # m: a splay end this near a wall stroke ends on it
+
+
+def splay_hits(piece, marks, member):
+    """{scrap: splay ends on the piece} from marks {station: [(x, y) splay
+    ends]} (in an elevation, the ends straight up and down)."""
+    line = LineString(piece)
+    out = {}
+    for n, ends in marks.items():
+        if n not in member:
+            continue
+        k = sum(1 for e in ends if line.distance(Point(e)) < SPLAY_HIT)
+        if k:
+            out[member[n]] = out.get(member[n], 0) + k
+    return out
 
 
 SIDE_BY_SIDE = True

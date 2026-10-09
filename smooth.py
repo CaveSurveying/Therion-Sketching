@@ -1163,6 +1163,11 @@ def judge(o, objs, K, survey):
               if g.distance(Point(e)) > BEYOND * K and LineString([st[x], e]).crosses(g)
               and g.distance(Point(st[x])) > SPLAY_ON * K]      # (from a station on the line: TridentLeft 35)
     if beyond:
+        # ending in the drawn passage: a splay into passage not drawn (up an aven) doesn't make
+        # the line inner (Connection 15, the wall up to 16, user)
+        drawn = _passage(objs)
+        beyond = [e for e in beyond if drawn is None or drawn.buffer(0.3 * K).contains(Point(e))]
+    if beyond:
         return 'inner'
     # a station on the line: its splays reaching well out on both sides, into the drawn passage,
     # show passage both sides (Connection 15, hand edit: inner; TridentLeft 35, the wall through it)
@@ -1230,7 +1235,9 @@ def join_pieces(objs, K):
         n += 1
 
 
-GAP_JOIN = 0.6      # m: two free wall ends nearer than this, each the other's nearest, meet
+GAP_JOIN = 1.0      # m: two free wall ends nearer than this, each the other's nearest, meet ...
+GAP_TURN = 20.0     # degrees: ... if each wall heads this near the line to the other end (a gap in a
+                    # wall: the walls run along it; at a continuation they are nearer square to it)
 WALL_TURN = 90.0    # degrees: a wall of 3 or 4 nodes merges into the one it meets if the join turns less
 
 
@@ -1245,11 +1252,26 @@ def _set_end(o, k, p):
     o.set_segments(segs)
 
 
+def _heads_to(e, q, K):
+    """True if the wall at end e = (line, 0 or -1, point) heads, over its
+    last 0.3 m, within GAP_TURN of the point q."""
+    o, k, p = e
+    pts = bezier_points(o.segments(), 8)
+    pts = pts if k == -1 else pts[::-1]
+    back = next((x for x in reversed(pts[:-1]) if math.dist(x, p) >= 0.3 * K), pts[0])
+    u = (p[0] - back[0], p[1] - back[1])
+    v = (q[0] - p[0], q[1] - p[1])
+    if u == (0.0, 0.0) or v == (0.0, 0.0):
+        return False
+    return abs(_red(_arg(v) - _arg(u))) <= GAP_TURN
+
+
 def close_gaps(objs, K):
     """Small gaps between walls closed (Style.md, Walls; Connection, user):
     two free wall ends (no other wall end at them) nearer than GAP_JOIN,
-    each the other's nearest, meet at their midpoint, where the outline is
-    no worse for it. Returns how many."""
+    each the other's nearest and each wall heading within GAP_TURN of the
+    other end, meet at their midpoint, where the outline is no worse for
+    it. Returns how many."""
     n = 0
     walls = _wall_lines(objs)
     ends = [(o, k, tuple(o.segments()[k][-2:])) for o in walls for k in (0, -1)]
@@ -1268,6 +1290,8 @@ def close_gaps(objs, K):
         back = min((c for c in free if c is not b and c[0] is not b[0]), key=lambda c: math.dist(b[2], c[2]))
         if back is not a:
             continue                                  # not each other's nearest
+        if not (_heads_to(a, b[2], K) and _heads_to(b, a[2], K)):
+            continue                                  # not running along the gap: a continuation
         before = _outline_score(objs)
         rows = (a[0].rows, b[0].rows)
         m = ((a[2][0] + b[2][0]) / 2, (a[2][1] + b[2][1]) / 2)

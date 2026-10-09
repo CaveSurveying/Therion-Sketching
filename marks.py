@@ -197,6 +197,13 @@ def brown(strokes, passage, boulder_min, barriers=()):
                 elif not SETTINGS['mark_max']:
                     groups.append(('debris', [pp], 1))
                 continue                      # (a lone small loop is dirt when mark_max is set)
+            if SETTINGS['drawn_rocks']:
+                # every boulder drawn as a rock of its own; the smaller loops among them debris
+                alone += [pp for k, pp in members if k == 'boulder']
+                small = [pp for k, pp in members if k != 'boulder']
+                if len(small) > 1:
+                    groups.append(('debris', small, 1))
+                continue
             big = sum(1 for k, _ in members if k == 'boulder')
             groups.append(('blocks' if big * 2 > len(members) else 'debris', [pp for _, pp in members], 1))
         sorted_['boulder'] = alone

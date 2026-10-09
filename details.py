@@ -162,8 +162,77 @@ def floor_steps(objs, K, legs):
     return n
 
 
+ROCK_EDGE_MIN = 0.5   # m (square root of the area): a rock this big or bigger gets rock edges
+ROCK_BIG = 1.6        # m: and a third edge from this size (as before, round 3)
+RIDGE_TURN = 140.0    # degrees: the edge through the ridge bends about this much (a ridge, not a crease)
+
+
+def _corners(pts, n):
+    """The n points of a closed ring (no repeat) that keep most of its
+    shape: the point whose triangle with its neighbours is smallest goes,
+    one at a time (Visvalingam)."""
+    pts = list(pts)
+    area = lambda a, b, c: abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])) / 2
+    while len(pts) > n:
+        k = min(range(len(pts)), key=lambda i: area(pts[i - 1], pts[i], pts[(i + 1) % len(pts)]))
+        del pts[k]
+    return pts
+
+
+def rock(pp, K):
+    """A pleasing rock from a sketched loop: (corners, [edge lines]). Rocks
+    are angular and roughly convex: the hull of the loop, cut to 5 to 8
+    corners by size; over ROCK_EDGE_MIN, a ridge a little towards the top
+    left of the middle (light from the top left) joined to corners well
+    round from each other, as one line through the ridge (two corners), and
+    a third edge from ROCK_BIG (Style.md, rocks; the user: pleasing rocks,
+    not copied from other drawings)."""
+    g = Polygon(pp).buffer(0)
+    if g.is_empty:
+        return None, []
+    if g.geom_type != 'Polygon':
+        g = max(g.geoms, key=lambda q: q.area)
+    hull = g.convex_hull
+    size = math.sqrt(hull.area) / K
+    ring = list(hull.exterior.coords)[:-1]
+    if hull.exterior.is_ccw is False:
+        ring = ring[::-1]
+    n = 5 if size < 0.5 else 6 if size < 1.0 else 7 if size < 2.0 else 8
+    corners = _corners(ring, min(n, len(ring)))
+    if len(corners) < 3:
+        return None, []
+    edges = []
+    if size >= ROCK_EDGE_MIN:
+        poly = Polygon(corners)
+        c = poly.centroid
+        r = math.sqrt(poly.area / math.pi)
+        ridge = (c.x - 0.18 * r, c.y + 0.18 * r)          # towards the top left
+        by_angle = sorted(corners, key=lambda p: math.atan2(p[1] - ridge[1], p[0] - ridge[0]))
+        # two corners nearly opposite each other, the edge bent at the ridge
+        best = min(((a, b) for i, a in enumerate(by_angle) for b in by_angle[i + 1:]),
+                   key=lambda ab: abs(_turn(ridge, ab[0], ab[1]) - RIDGE_TURN))
+        edges.append([list(best[0]), list(ridge), list(best[1])])
+        if size >= ROCK_BIG:
+            third = max((p for p in corners if p not in best),
+                        key=lambda p: min(abs(_turn(ridge, p, q)) for q in best), default=None)
+            if third is not None:
+                edges.append([list(ridge), list(third)])
+    return corners, edges
+
+
+def _turn(o, a, b):
+    """The angle at o between the directions to a and to b, in degrees (0 to 180)."""
+    u = math.atan2(a[1] - o[1], a[0] - o[0])
+    v = math.atan2(b[1] - o[1], b[0] - o[0])
+    d = abs(math.degrees(u - v)) % 360
+    return 360 - d if d > 180 else d
+
+
 def boulders(objs, K):
     """Clean polygons with facet edges. Returns how many were redrawn."""
+    from .settings import SETTINGS
+    if SETTINGS['drawn_rocks']:
+        return pleasing_rocks(objs, K)
     out, n = [], 0
     for o in objs:
         if o.kind == 'drop':
@@ -225,6 +294,36 @@ def boulders(objs, K):
             out.append(e)
     objs[:] = out
     return n
+
+
+def pleasing_rocks(objs, K):
+    """Each rock redrawn by `rock`, its edges after it, the rocks lower on
+    the page after (in front of) those above (rocks drawn later clip those
+    before). Returns how many."""
+    rocks, rest = [], []
+    for o in objs:
+        if o.kind == 'drop' or (o.kind == 'line' and o.head.startswith('line rock-edge')):
+            continue                                  # edges redrawn
+        if o.kind == 'line' and o.head.startswith('line rock-border') and len(o.segments()) > 3:
+            corners, edges = rock(bezier_points(o.segments()), K)
+            if corners:
+                o.set_segments([[x, y] for x, y in corners + [corners[0]]])
+                rocks.append((o, edges))
+                continue
+        rest.append(o)
+    rocks.sort(key=lambda r: -min(p[-1] for p in r[0].segments()))
+    out = []
+    for o, edges in rocks:
+        out.append(o)
+        for e in edges:
+            x = Obj('line', 'line rock-edge', [])
+            x.set_segments(e)
+            out.append(x)
+    # the rocks where the first of them was (areas and borders before, other symbols after)
+    first = next((i for i, o in enumerate(objs) if o.kind == 'line' and o.head.startswith('line rock-border')), None)
+    k = len([o for o in objs[:first] if o in rest]) if first is not None else len(rest)
+    objs[:] = rest[:k] + out + rest[k:]
+    return len(rocks)
 
 
 def redo_file(path, splays=None, only=None):

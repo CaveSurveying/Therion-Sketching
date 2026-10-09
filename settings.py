@@ -44,6 +44,8 @@ UPSTREAM = {
     'boulder_over_wall': 0.4,    # m: how far a boulder at a wall is run out along and over it
     'elevation_data': True,      # False: draw only what the plan sketch shows (no steps, pitches,
                                  # labels or slope arrows inferred from the elevation sketch)
+    'drawn_rocks': False,        # True: every boulder-sized loop is drawn as a rock of its own (details.boulders:
+                                 # clean corners, rock edges), smaller loops among them debris; not area blocks
     'mark_max': 0.0,             # m: brown loops and strokes smaller than this are marks (dirt):
                                  # ignored alone, sand or mud when three or more are together
     'area_min_width': 0.0,       # m: parts of areas narrower than this are dropped (sand/mud: 0.6 of it)

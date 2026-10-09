@@ -840,6 +840,48 @@ def _plen(pp):
     return sum(math.dist(a, b) for a, b in zip(pp, pp[1:]))
 
 
+def vertical_splays(pos, survey):
+    """{station: [(x, y) of its splay ends straight up and down]} in the
+    sketch's metres, from the survey's splays (roofs.Splays); {} without
+    them."""
+    import os
+    from .roofs import Splays, SQL
+    from .. import project
+    try:
+        path = project.load().path(SQL)
+        if not survey or not os.path.exists(path):
+            return {}
+        sp = Splays(path)
+    except Exception:
+        return {}
+    out = {}
+    for n, (x, y) in pos.items():
+        key = n if '@' in n else f'{n}@{survey}'
+        ends = ([(x, y + sp.up[key])] if key in sp.up else []) + ([(x, y - sp.down[key])] if key in sp.down else [])
+        if ends:
+            out[n] = ends
+    return out
+
+
+SPLAYED = 2         # vertical splay ends on a stroke not in a wall colour that make it a wall
+
+
+def splayed_walls(lines, marks, near=0.3):
+    """Strokes drawn grey (steps, mostly) that SPLAYED or more splay ends
+    straight up or down end on: the floor or ceiling the splays were
+    measured to, a wall (Connection 22 to 26: the roof of 18 to 23 is the
+    floor of 24 to 27, drawn grey). [(colour, points)]."""
+    ends = [Point(e) for es in marks.values() for e in es]
+    out = []
+    for c, pp in lines:
+        if c == 'GRAY' and len(pp) > 1:
+            g = LineString(pp)
+            if sum(1 for e in ends if g.distance(e) < near) >= SPLAYED:
+                c = 'BLACK'
+        out.append((c, pp))
+    return out
+
+
 def drawn_on(pieces, lines, sizes=None, meet=0.3, keep=()):
     """Scraps by hand, in an elevation: a whole stroke drawn on from the end
     of another of the same colour, in a scrap with more stations (`sizes`:
@@ -1119,8 +1161,11 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
         names = sorted(pos, key=register.natural)
         groups = by_hand.complete(by_hand.parse(opt.scraps, names), names, legs_all)
         placed = set()
-        pieces = drawn_on(by_hand.assign(lines, groups, pos, legs_all, share=True, placed=placed), lines,
-                          [len(g) for g in groups], keep=placed)
+        marks = vertical_splays(pos, opt.survey) if SETTINGS['outer_walls'] else None
+        if marks:                                # a grey line the splays end on is a floor or ceiling
+            lines = splayed_walls(lines, marks)
+        pieces = drawn_on(by_hand.assign(lines, groups, pos, legs_all, share=True, placed=placed, marks=marks),
+                          lines, [len(g) for g in groups], keep=placed)
     else:
         member = {n: i for i, g in enumerate(groups) for n in g}
         near = lambda p: member.get(_nearest(pos, p), 0) if pos else 0
