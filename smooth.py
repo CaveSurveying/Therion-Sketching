@@ -1762,6 +1762,9 @@ def _redo_scrap(header, body, path):
             untangle(objs, K, score)
         stepped += close_gaps(objs, K)
         stepped += merge_walls(objs, K)
+    if SETTINGS['drawn_rocks']:                  # rocks in every scrap, sections and elevations too
+        from .details import pleasing_rocks
+        pleasing_rocks(objs, K)
     if OUTER_KEPT and _outline_score(objs)[:2] != (0, 0):      # (mended since: not reported)
         import sys
         print(f"  {header.split()[1]}: {len(OUTER_KEPT)} outer wall(s) where the outline still crosses itself, "

@@ -152,6 +152,40 @@ def _keep_side(g, marks_geoms, barriers):
     return unary_union(keep) if keep else g
 
 
+LARGE_ROCK = 0.25    # a rock this share of the passage's width across it, or more, is large: drawn
+
+
+def passage_width(passage, c, n=12):
+    """The narrowest chord of the passage through the point c (m)."""
+    from shapely.geometry import Point as P_
+    if passage is None or not passage.contains(P_(c)):
+        return None
+    reach = math.sqrt(passage.area) * 4 + 1
+    best = None
+    for i in range(n):
+        a = math.pi * i / n
+        d = (math.cos(a) * reach, math.sin(a) * reach)
+        chord = LineString([(c[0] - d[0], c[1] - d[1]), (c[0] + d[0], c[1] + d[1])]).intersection(passage)
+        parts = [g for g in getattr(chord, 'geoms', [chord]) if g.geom_type == 'LineString']
+        part = next((g for g in parts if g.distance(P_(c)) < 1e-6), None)
+        if part is not None and (best is None or part.length < best):
+            best = part.length
+    return best
+
+
+def large_rock(pp, passage):
+    """True if a rock (closed loop) is large for the passage it is in (Style.md, rocks)."""
+    from shapely.geometry import Polygon as Pg
+    if len(pp) < 3:
+        return False
+    g = Pg(pp).buffer(0)
+    if g.is_empty:
+        return False
+    w = passage_width(passage, (g.centroid.x, g.centroid.y))
+    size = max(g.bounds[2] - g.bounds[0], g.bounds[3] - g.bounds[1])
+    return w is not None and size >= LARGE_ROCK * w
+
+
 def brown(strokes, passage, boulder_min, barriers=()):
     """(boulders [closed point lists], areas [(kind, Polygon)], lines [point lists]).
 
@@ -198,12 +232,8 @@ def brown(strokes, passage, boulder_min, barriers=()):
                     groups.append(('debris', [pp], 1))
                 continue                      # (a lone small loop is dirt when mark_max is set)
             if SETTINGS['drawn_rocks']:
-                # every boulder drawn as a rock of its own; the smaller loops among them debris
-                alone += [pp for k, pp in members if k == 'boulder']
-                small = [pp for k, pp in members if k != 'boulder']
-                if len(small) > 1:
-                    groups.append(('debris', small, 1))
-                continue
+                # a group is an area; a rock in it large for the passage it is in is drawn too
+                alone += [pp for k, pp in members if k == 'boulder' and large_rock(pp, passage)]
             big = sum(1 for k, _ in members if k == 'boulder')
             groups.append(('blocks' if big * 2 > len(members) else 'debris', [pp for _, pp in members], 1))
         sorted_['boulder'] = alone

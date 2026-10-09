@@ -494,6 +494,13 @@ def section_outline(strokes):
 def section_th2(name, attrs, lines, centre, K, comment):
     """A cross-section scrap. lines: [(colour, pts)] gathered for it.
     Returns (th2 lines, width, height) or None if it has no walls."""
+    # rocks in the section (closed brown loops on its floor) are drawn as rocks, not taken
+    # for its outline (Style.md, rocks: the user, rocks in cross sections drawn)
+    rocks = []
+    if SETTINGS['drawn_rocks']:
+        rocks = [pp for c, pp in lines if c == 'BROWN' and len(pp) > 3 and math.dist(pp[0], pp[-1]) < 0.15
+                 and Polygon(pp).buffer(0).area > 0.005]
+        lines = [(c, pp) for c, pp in lines if not any(pp is r for r in rocks)]
     wl = [pp for c, pp in lines if c in WALLS and len(pp) > 1]
     if not wl:
         return None
@@ -518,6 +525,11 @@ def section_th2(name, attrs, lines, centre, K, comment):
             inner.append(pp)
     rest, boulders, arrows = split_symbols(inner)
     o += symbols_th2([b for b in boulders if poly.contains(b.centroid)], [], xpx)
+    for pp in rocks:                      # straight sides; details.boulders shapes them and adds the edges
+        g = Polygon(pp).buffer(0)
+        if g.geom_type == 'Polygon' and poly.buffer(0.3).contains(g.centroid):
+            ring = list(g.simplify(0.02).exterior.coords)
+            o += ["line rock-border -close on"] + ["  %.2f %.2f" % xpx(q) for q in ring] + ["endline", ""]
     for pp in clean(rest, min_len=0.3):
         o += ["line border -clip off"] + bezier_lines(pp, xpx) + ["endline", ""]
     o += water_th2(lines, poly, xpx, name, flow=False)

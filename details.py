@@ -179,14 +179,23 @@ def _corners(pts, n):
     return pts
 
 
+TOP_FACE = 0.55      # the top face: the outline shrunk to this share round its middle ...
+TOP_SHIFT = 0.15     # ... and moved this share of the rock's radius towards the light (top left)
+LIGHT = (-0.7071, 0.7071)
+NODE_MIN = 0.06     # m: nodes of a rock edge at least this far apart
+FACE_BEND = 30.0     # degrees: a corner of the face edge bending less than this goes
+
+
 def rock(pp, K):
-    """A pleasing rock from a sketched loop: (corners, [edge lines]). Rocks
-    are angular and roughly convex: the hull of the loop, cut to 5 to 8
-    corners by size; over ROCK_EDGE_MIN, a ridge a little towards the top
-    left of the middle (light from the top left) joined to corners well
-    round from each other, as one line through the ridge (two corners), and
-    a third edge from ROCK_BIG (Style.md, rocks; the user: pleasing rocks,
-    not copied from other drawings)."""
+    """A rock as a line drawing of a block seen from above, from a sketched
+    loop: (corners, [edge lines]). The outline is the hull of the loop cut
+    to 5 to 8 corners by size (angular, with flat faces). The top face is
+    the outline shrunk round its middle and moved towards the light (top
+    left); its edges on the shadow side (bottom right) are drawn, with the
+    creases from the ends of that run, and from its middle on bigger rocks,
+    out to the outline's corners: the faces dropping to the floor, as a
+    simplified drawing of a boulder shows them (Style.md, rocks; the user:
+    rock edges to make them look like rock)."""
     g = Polygon(pp).buffer(0)
     if g.is_empty:
         return None, []
@@ -195,29 +204,205 @@ def rock(pp, K):
     hull = g.convex_hull
     size = math.sqrt(hull.area) / K
     ring = list(hull.exterior.coords)[:-1]
-    if hull.exterior.is_ccw is False:
+    if not hull.exterior.is_ccw:
         ring = ring[::-1]
     n = 5 if size < 0.5 else 6 if size < 1.0 else 7 if size < 2.0 else 8
     corners = _corners(ring, min(n, len(ring)))
+    while len(corners) > 3 and min(math.dist(corners[i - 1], corners[i]) for i in range(len(corners))) < NODE_MIN * K:
+        corners = _corners(corners, len(corners) - 1)          # (a small rock: corners not too close)
     if len(corners) < 3:
         return None, []
-    edges = []
+    poly = Polygon(corners)
+    c = poly.centroid
+    r = math.sqrt(poly.area / math.pi)
+    # each rock its own: a number from where it is (the same every run) picks its style
+    rnd = _seeded((round(c.x / K, 1), round(c.y / K, 1)))
+    long_, wide = _axes(corners)
+    style = rnd()
+    if wide / long_ <= 0.55:                       # a long rock: a wedge or a line across more often
+        style = 1 - (1 - style) * (RIDGE_SHARE + ACROSS_SHARE) * 1.3 if style > 0.3 else style
+    if style >= 1 - RIDGE_SHARE:
+        edges = _ridge(corners, c, r, rnd)
+    elif style >= 1 - RIDGE_SHARE - ACROSS_SHARE:
+        edges = _across(corners, size, rnd)
+    elif style >= 1 - RIDGE_SHARE - ACROSS_SHARE - PEAK_SHARE:
+        edges = _peak(corners, c, r, size, rnd)
+    else:
+        edges = _block(corners, c, r, size, rnd, K)
+    return corners, _three_ways(_spaced(edges, K), corners, K)
+
+
+def _three_ways(edges, corners, K):
+    """Every point inside the rock where edges meet has at least three lines
+    meeting there, as at a corner of a solid: one with fewer gets lines out
+    to corners of the outline, each into the widest gap between the lines
+    it has, not crossing the others (the user: three edges at every corner,
+    usually to the outline's corners)."""
+    from shapely.geometry import LineString as LS
+    key = lambda p: (round(p[0], 1), round(p[1], 1))
+    on_outline = lambda p: min(math.dist(p, q) for q in corners) < NODE_MIN * K
+    adj = {}
+    for e in edges:
+        for a, b in zip(e, e[1:]):
+            adj.setdefault(key(a), [tuple(a), set()])[1].add(key(b))
+            adj.setdefault(key(b), [tuple(b), set()])[1].add(key(a))
+    segs = [LS([a, b]) for e in edges for a, b in zip(e, e[1:])]
+    out = [list(e) for e in edges]
+    for k, (p, nbrs) in list(adj.items()):
+        if on_outline(p):
+            continue
+        while len(nbrs) < 3:
+            dirs = sorted(math.atan2(adj[n][0][1] - p[1], adj[n][0][0] - p[0]) for n in nbrs)
+
+            def gap(q):                                   # how far round from the nearest line it has
+                a = math.atan2(q[1] - p[1], q[0] - p[0])
+                return min(abs((a - d + math.pi) % (2 * math.pi) - math.pi) for d in dirs) if dirs else math.pi
+            cand = [q for q in corners if key(q) not in nbrs and math.dist(q, p) >= NODE_MIN * K
+                    and not any(LS([p, q]).crosses(sg) for sg in segs)]
+            if not cand:
+                break
+            q = max(cand, key=gap)
+            out.append([list(p), list(q)])
+            segs.append(LS([p, q]))
+            nbrs.add(key(q))
+            adj.setdefault(key(q), [tuple(q), set()])[1].add(k)
+    return out
+
+
+RIDGE_SHARE = 0.20   # of rocks drawn with a ridge (a wedge; long rocks more often)
+ACROSS_SHARE = 0.35  # with a line across from one side to the other (split in two faces)
+PEAK_SHARE = 0.25    # with a peak (pointed); the rest (about 20%) blocks with a top face
+
+
+def _across(corners, size, rnd):
+    """A line across the rock from a corner to one about opposite (two
+    faces), and on some rocks of ROCK_EDGE_MIN or more a second line from
+    another corner meeting it part-way along (three lines meet there)."""
+    m = len(corners)
+    i = int(rnd() * m) % m
+    j = (i + m // 2 + (1 if rnd() < 0.5 and m > 4 else 0)) % m
+    a, b = corners[i], corners[j]
+    if size >= ROCK_EDGE_MIN and rnd() < 0.55:
+        t = 0.35 + 0.3 * rnd()
+        q = (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+        side = [k for k in range(m) if k not in (i, j)]
+        k = side[int(rnd() * len(side)) % len(side)]
+        return [[a, q, b], [q, corners[k]]]
+    return [[a, b]]
+
+
+def _seeded(key):
+    """A repeatable random number source for one rock."""
+    import random
+    return random.Random(hash(key) & 0xffffffff).random
+
+
+def _axes(corners):
+    """(length, width) of a ring of corners along its longest and across."""
+    best = max(((a, b) for i, a in enumerate(corners) for b in corners[i + 1:]), key=lambda ab: math.dist(*ab))
+    (ax, ay), (bx, by) = best
+    L = math.dist(best[0], best[1]) or 1.0
+    ux, uy = (bx - ax) / L, (by - ay) / L
+    across = [(-uy) * (x - ax) + ux * (y - ay) for x, y in corners]
+    return L, max(across) - min(across)
+
+
+def _spaced(edges, K):
+    """Edges with no two nodes closer than NODE_MIN; one left with one node goes."""
+    out = []
+    for e in edges:
+        pts = [list(e[0])]
+        for q in e[1:]:
+            if math.dist(q, pts[-1]) >= NODE_MIN * K:
+                pts.append(list(q))
+        if len(pts) >= 2:
+            out.append(pts)
+    return out
+
+
+def _peak(corners, c, r, size, rnd):
+    """A pointed rock: a peak towards the light, creases down to corners well
+    round from each other (two as one line through the peak, a third from
+    0.5 m)."""
+    s = 0.15 + 0.2 * rnd()
+    peak = (c.x + LIGHT[0] * s * r, c.y + LIGHT[1] * s * r)
+    ang = lambda p: math.atan2(p[1] - peak[1], p[0] - peak[0])
+    by = sorted(corners, key=ang)
+    # the corner straight down the shadow side, and two well round from it either way
+    shadow = max(corners, key=lambda p: -((p[0] - peak[0]) * LIGHT[0] + (p[1] - peak[1]) * LIGHT[1]))
+    rest = [p for p in by if p != shadow]
+    if len(rest) < 2:
+        return [[shadow, peak]]
+    a = min(rest, key=lambda p: abs(_turn(peak, p, shadow) - 125))
+    b = min((p for p in rest if p != a), key=lambda p: abs(_turn(peak, p, a) - 120) + abs(_turn(peak, p, shadow) - 115))
+    edges = [[a, peak, shadow]]
     if size >= ROCK_EDGE_MIN:
-        poly = Polygon(corners)
-        c = poly.centroid
-        r = math.sqrt(poly.area / math.pi)
-        ridge = (c.x - 0.18 * r, c.y + 0.18 * r)          # towards the top left
-        by_angle = sorted(corners, key=lambda p: math.atan2(p[1] - ridge[1], p[0] - ridge[0]))
-        # two corners nearly opposite each other, the edge bent at the ridge
-        best = min(((a, b) for i, a in enumerate(by_angle) for b in by_angle[i + 1:]),
-                   key=lambda ab: abs(_turn(ridge, ab[0], ab[1]) - RIDGE_TURN))
-        edges.append([list(best[0]), list(ridge), list(best[1])])
-        if size >= ROCK_BIG:
-            third = max((p for p in corners if p not in best),
-                        key=lambda p: min(abs(_turn(ridge, p, q)) for q in best), default=None)
-            if third is not None:
-                edges.append([list(ridge), list(third)])
-    return corners, edges
+        edges.append([peak, b])
+    return edges
+
+
+def _ridge(corners, c, r, rnd):
+    """A wedge: a ridge along the rock's length, nearer the light side,
+    forking at each end to two corners."""
+    (ax, ay), (bx, by) = max(((p, q) for i, p in enumerate(corners) for q in corners[i + 1:]),
+                             key=lambda pq: math.dist(*pq))
+    t0, t1 = 0.22 + 0.1 * rnd(), 0.72 + 0.1 * rnd()
+    sh = (0.1 + 0.15 * rnd()) * r
+    e0 = (ax + (bx - ax) * t0 + LIGHT[0] * sh, ay + (by - ay) * t0 + LIGHT[1] * sh)
+    e1 = (ax + (bx - ax) * t1 + LIGHT[0] * sh, ay + (by - ay) * t1 + LIGHT[1] * sh)
+    near0 = sorted(corners, key=lambda p: math.dist(p, e0))
+    near1 = sorted(corners, key=lambda p: math.dist(p, e1))
+    side = lambda p: (bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax)
+    # each end forks to the nearest corner either side of the ridge
+    f0 = [next((p for p in near0 if side(p) > 0), None), next((p for p in near0 if side(p) < 0), None)]
+    f1 = [next((p for p in near1 if side(p) > 0), None), next((p for p in near1 if side(p) < 0), None)]
+    edges = []
+    if f0[1] and f1[1]:
+        edges.append([f0[1], e0, e1, f1[1]])            # the shadow side: one line along the ridge
+    else:
+        edges.append([e0, e1])
+    for f, e in ((f0[0], e0), (f1[0], e1)):
+        if f:
+            edges.append([e, f])
+    return edges
+
+
+def _block(corners, c, r, size, rnd, K):
+    """A block: its top face's shadow side and the creases to its corners."""
+    face_k = TOP_FACE - 0.1 + 0.2 * rnd()
+    shift = TOP_SHIFT * (0.6 + 0.8 * rnd())
+    top = [(c.x + (x - c.x) * face_k + LIGHT[0] * shift * r,
+            c.y + (y - c.y) * face_k + LIGHT[1] * shift * r) for x, y in corners]
+    m = len(top)
+    # the top face's edges facing away from the light (outward normal of a ccw ring: (dy, -dx))
+    shadow = []
+    for i in range(m):
+        (x0, y0), (x1, y1) = top[i], top[(i + 1) % m]
+        nx, ny = (y1 - y0), -(x1 - x0)
+        shadow.append(nx * LIGHT[0] + ny * LIGHT[1] < 0)
+    if all(shadow) or not any(shadow):
+        return []
+    # the run of shadow edges, as one line from its first corner to its last
+    start = next(i for i in range(m) if shadow[i] and not shadow[i - 1])
+    run = [start]
+    i = start
+    while shadow[i % m]:
+        i += 1
+        run.append(i % m)
+    # the face edge kept simple: corners of it that hardly bend, or close together, go
+    keep = [run[0]]
+    for j in range(1, len(run) - 1):
+        a, b, d = top[keep[-1]], top[run[j]], top[run[j + 1]]
+        bend = 180 - _turn(b, a, d)
+        if bend >= FACE_BEND and math.dist(a, b) >= 0.15 * r and math.dist(b, d) >= 0.15 * r:
+            keep.append(run[j])
+    keep.append(run[-1])
+    face = [list(top[k]) for k in keep]
+    edges = [[list(corners[keep[0]])] + face + [list(corners[keep[-1]])]]   # crease, face edge, crease
+    if size >= ROCK_EDGE_MIN and len(keep) >= 3:
+        k = keep[len(keep) // 2]
+        edges.append([list(top[k]), list(corners[k])])                     # the crease from its middle
+    return edges
 
 
 def _turn(o, a, b):
