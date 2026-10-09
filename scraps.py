@@ -78,35 +78,58 @@ def _closed(pp):
     return len(pp) > 3 and math.dist(pp[0], pp[-1]) < 0.1
 
 
-def junction_joins(groups, legs):
-    """[(scrap, junction, other station)]: legs between two scraps with a
-    junction (three legs or more) at one end. The passage the leg starts
-    belongs to the scrap at its other end: it starts at the junction
-    (Style.md, Scraps: each scrap a passage)."""
+def leg_owner(groups, legs):
+    """{leg: scrap}: a leg with both stations in one scrap is that scrap's;
+    a leg between two scraps with a junction (three legs or more) at one
+    end only goes with the scrap at its other end (the passage beyond the
+    junction); others are in neither."""
     member = {n: i for i, g in enumerate(groups) for n in g}
     degree = {}
     for a, b in legs:
         degree[a] = degree.get(a, 0) + 1
         degree[b] = degree.get(b, 0) + 1
-    out = []
+    out = {}
     for a, b in legs:
-        if a in member and b in member and member[a] != member[b]:
-            for j, o in ((a, b), (b, a)):
-                if degree[j] > 2 and degree[o] <= 2:
-                    out.append((member[o], j, o))
+        if a not in member or b not in member:
+            continue
+        if member[a] == member[b]:
+            out[(a, b)] = member[a]
+        elif (degree[a] > 2) != (degree[b] > 2):
+            out[(a, b)] = member[b] if degree[a] > 2 else member[a]
     return out
 
 
-def assign(lines, groups, pos, legs, share=False):
+def junction_joins(groups, legs):
+    """[(scrap, junction, other station)]: a scrap with one leg only at a
+    junction where another scrap has legs too: a branch, its passage
+    starting at the junction, its walls on a line up through it (Style.md,
+    Scraps: each scrap a passage; Trident 10, the ramp to 12 a branch off
+    the passage through 10)."""
+    own = leg_owner(groups, legs)
+    at = {}
+    for l, i in own.items():
+        for n in l:
+            at.setdefault(n, {}).setdefault(i, []).append(l)
+    out = []
+    for j, by in at.items():
+        if len(by) < 2:
+            continue
+        for i, ls in by.items():
+            if len(ls) == 1:
+                o = ls[0][1] if ls[0][0] == j else ls[0][0]
+                out.append((i, j, o))
+    return out
+
+
+def assign(lines, groups, pos, legs, share=False, placed=None):
     """[(scrap index, colour, points)]: each stroke with the scrap of its
     nearest leg (legs within a scrap only; a lone station counts as a leg;
     a leg between scraps starting at a junction goes with the scrap at its
     other end), long open strokes cut where that changes (see `meet_ends`)."""
     member = {n: i for i, g in enumerate(groups) for n in g}
-    segs = [(member[a], LineString([pos[a], pos[b]])) for a, b in legs
-            if a in member and member.get(b) == member[a] and pos[a] != pos[b]]
-    segs += [(gi, LineString([pos[j], pos[o]])) for gi, j, o in junction_joins(groups, legs)
-             if j in pos and o in pos and pos[j] != pos[o]]
+    segs = [(i, LineString([pos[a], pos[b]])) for (a, b), i in leg_owner(groups, legs).items()
+            if a in pos and b in pos and pos[a] != pos[b]]
+    branches = branches_at(groups, pos, legs) if share else []
     have = {i for i, _ in segs}
     segs += [(i, Point(pos[n])) for n, i in member.items() if i not in have]
     if not segs:
@@ -151,14 +174,75 @@ def assign(lines, groups, pos, legs, share=False):
                     runs = merged
                     changed = True
                     break
+        # a branch's piece in the middle of a wall of the passage through the junction is
+        # that passage's (Trident: the roof over 10 to 13 runs close by 12)
+        small = {bi for _, bi, _, _ in branches}
+        for k in range(1, len(runs) - 1):
+            if runs[k][0] in small and runs[k - 1][0] == runs[k + 1][0] != runs[k][0]:
+                runs[k][0] = runs[k - 1][0]
         for t, a, b in runs:
             piece = pp[max(0, a - 1):b + 1]       # starts where the previous piece ended
             if len(piece) > 1:
                 out.append((t, c, piece))
-                u = shared_with(piece, t, segs) if share and c in ('BLACK', 'BROWN') else None
+                decided = None
+                if share and c in ('BLACK', 'BROWN'):
+                    decided = by_direction(piece, t, branches)
+                    if decided is not None:
+                        if decided != t and placed is not None:
+                            placed.add((tuple(piece[0]), tuple(piece[-1])))     # by its direction: kept there
+                        t = decided
+                        out[-1] = (t, c, piece)
+                # the wall between two scraps' passages: each draws it (not one a junction's branch decided)
+                u = shared_with(piece, t, segs) if share and c in ('BLACK', 'BROWN') and decided is None else None
                 if u is not None:                 # the wall between two scraps' passages: each draws it
                     out.append((u, c, piece))
     return out
+
+
+BRANCH_REACH = 1.5  # m: a wall starting this near a junction (along the passage) may be the branch's
+BRANCH_HEIGHT = 2.0  # m: and within this above or below it
+BRANCH_TURN = 5.0   # degrees: the branch's when this much nearer its leg's direction than the passage's
+
+
+def branches_at(groups, pos, legs):
+    """[(junction, branch scrap, its leg's far end, [(scrap, far end) of
+    the other legs at the junction])] for `by_direction`."""
+    own = leg_owner(groups, legs)
+    out = []
+    for bi, j, o in junction_joins(groups, legs):
+        if j not in pos or o not in pos:
+            continue
+        rest = [(i, l[1] if l[0] == j else l[0]) for l, i in own.items() if j in l and i != bi]
+        out.append((pos[j], bi, pos[o], [(i, pos[n]) for i, n in rest if n in pos]))
+    return out
+
+
+def by_direction(piece, t, branches):
+    """The scrap of a wall starting at a junction, by the leg it runs along:
+    the branch's when it heads off as the branch's leg does, else the
+    passage through the junction's (Trident 10: the ramp's floor up to 12
+    runs past 13 in the extended elevation, nearer 10 to 13 than 10 to 12).
+    None for a wall not starting at a junction."""
+    if len(piece) < 2 or LineString(piece).length < 1.0:
+        return None
+    ang = lambda a, b: math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
+    turn = lambda a, b: abs((a - b + 180) % 360 - 180)
+    for j, bi, o, rest in branches:
+        for e, f in ((piece[0], piece[-1]), (piece[-1], piece[0])):
+            if abs(e[0] - j[0]) > BRANCH_REACH or abs(e[1] - j[1]) > BRANCH_HEIGHT:
+                continue
+            side = 1 if o[0] > j[0] else -1
+            if (f[0] - e[0]) * side <= 0:
+                continue                          # heads the other way from the branch
+            a = ang(e, f)
+            same = [(turn(a, ang(j, n)), i) for i, n in rest if (n[0] - j[0]) * side > 0]
+            if not same:
+                continue
+            through, ti = min(same)
+            if turn(a, ang(j, o)) + BRANCH_TURN < through:
+                return bi
+            return ti if t == bi else t
+    return None
 
 
 SHARED = 1.5        # m: a wall between two passages this near it, one either side, is a wall of each
@@ -186,8 +270,9 @@ def shared_with(piece, t, segs):
     if t not in best:
         return None
     dt, gt = best[t]
+    beside = lambda g: isinstance(g, LineString) and 0 < g.project(mid) < g.length    # alongside it, not past its end
     for k, (d, g) in sorted(best.items(), key=lambda x: x[1][0]):
-        if k != t and d < SHARED and d < 2 * dt + 0.3 and side(g) != side(gt):
+        if k != t and d < SHARED and d < 2 * dt + 0.3 and side(g) != side(gt) and beside(g):
             return k
     return None
 

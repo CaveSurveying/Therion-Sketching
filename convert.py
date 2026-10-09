@@ -228,7 +228,7 @@ def cut_back(poly, walls, legs, splay_ends):
     return g if g.geom_type == 'Polygon' and not g.is_empty else poly
 
 
-def drop_rock_faces(poly, walls, legs, stations, seal=0.3, edge_seal=0.5, away=0.3, bridged_min=0.5):
+def drop_rock_faces(poly, walls, legs, stations, seal=0.3, edge_seal=0.5, away=0.3, bridged_min=0.5, margin=0.02):
     """The passage fill without the rock its closing-up took in. The fill is
     cut into faces along the wall strokes (gaps the sketcher left, up to
     `seal` m between stroke ends, and up to `edge_seal` m from a stroke's
@@ -237,24 +237,29 @@ def drop_rock_faces(poly, walls, legs, stations, seal=0.3, edge_seal=0.5, away=0
     `away` m from any stroke (the edge there was made by closing up, not
     sketched) is rock (the inside of a bend, a tongue between two
     branches, round a hook in the wall) and goes. A face wholly inside,
-    such as a pillar, stays as before."""
+    such as a pillar, stays as before. A leg or station counts only more
+    than `margin` m inside a face (a station at a passage's end may sit
+    just outside its walls)."""
     from shapely.ops import polygonize
+    from .tidy import overshoot
     strokes = [LineString(w) for w in walls if len(w) > 1]
     if not strokes:
         return poly
     ends = [Point(w[i]) for w in walls if len(w) > 1 for i in (0, -1)]
     seals = []
     edge = poly.exterior
+    # each seal carried 1 cm on past where it lands, so that it crosses what it meets
+    # (a point put on a line in floating point is not quite on it: the face stayed open)
     for e in ends:
         for st in strokes:
             d = st.distance(e)
             if 1e-9 < d <= seal:
                 q = st.interpolate(st.project(e))
-                seals.append(LineString([(e.x, e.y), (q.x, q.y)]))
+                seals.append(overshoot(e, q, 0.01))
         d = edge.distance(e)               # a stroke ending just short of the fill's edge reaches it
         if 1e-9 < d <= edge_seal:
             q = edge.interpolate(edge.project(e))
-            seals.append(LineString([(e.x, e.y), (q.x, q.y)]))
+            seals.append(overshoot(e, q, 0.01))
     net = unary_union([poly.exterior] + [st.intersection(poly.buffer(0.01)) for st in strokes] + seals)
     faces = [f for f in polygonize(net) if f.area > 1e-6 and poly.buffer(0.01).contains(f.representative_point())]
     if len(faces) < 2:
@@ -271,8 +276,8 @@ def drop_rock_faces(poly, walls, legs, stations, seal=0.3, edge_seal=0.5, away=0
     keep = []
     near_strokes = unary_union(strokes).buffer(away)
     for f in faces:
-        has_leg = (not leg_lines.is_empty and f.buffer(-0.02).intersects(leg_lines)) or \
-            any(f.contains(Point(p)) for p in stations)
+        has_leg = (not leg_lines.is_empty and f.buffer(-margin).intersects(leg_lines)) or \
+            any(f.buffer(-margin).contains(Point(p)) for p in stations)
         along = f.boundary.intersection(edge.buffer(0.02))
         bridged = along.difference(near_strokes).length
         if has_leg or along.length < 0.05 or bridged < bridged_min:
@@ -746,6 +751,8 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
             mine = [('BROWN', pp) if k in loops else (c, pp) for k, (c, pp) in enumerate(mine)]
         walls, boulders, arrows = wall_strokes(mine)
         walls = clean(walls)
+        if SETTINGS['outer_walls']:
+            walls = corners(walls)
         gset = set(g)
         legs = [[pos[a], pos[b]] for a, b in geo.legs if a in gset and b in gset]
         polys = plan_fill(walls, legs, [pp for c, pp in mine if c == 'BLUE'])
@@ -833,7 +840,7 @@ def _plen(pp):
     return sum(math.dist(a, b) for a, b in zip(pp, pp[1:]))
 
 
-def drawn_on(pieces, lines, sizes=None, meet=0.3):
+def drawn_on(pieces, lines, sizes=None, meet=0.3, keep=()):
     """Scraps by hand, in an elevation: a whole stroke drawn on from the end
     of another of the same colour, in a scrap with more stations (`sizes`:
     stations per scrap), goes into that scrap: the same wall, and a small
@@ -852,6 +859,8 @@ def drawn_on(pieces, lines, sizes=None, meet=0.3):
         k, c, pp = rec
         if not is_whole(pp) or copies[key(pp)] > 1:
             continue                                 # a wall shared by two scraps (scraps.shared_with) stays in both
+        if (tuple(pp[0]), tuple(pp[-1])) in keep:
+            continue                                 # a branch's wall, by its direction (scraps.by_direction)
         mine, theirs = False, set()
         for e in (pp[0], pp[-1]):
             for k2, c2, q in ends:
@@ -869,6 +878,57 @@ def drawn_on(pieces, lines, sizes=None, meet=0.3):
 
 JOIN_REACH = 3.0    # m: wall ends this near a join (a station of a leg between scraps) are at the join
 IN_LINE = 0.3       # m: a wall end further out than the opposite wall's end by more than this is cut back
+
+
+ELEVATION_SEAL = 0.5  # m: in an elevation, a gap this wide at a passage end closes off the rock beside it
+                      # (Trident 4: the wall over 3 to 4 ends 0.46 m from the floor)
+CORNER_TAIL = 1.5   # m: walls crossing this near an end of each meet at the crossing, the ends past it go
+
+
+def corners(walls):
+    """Two walls crossing near an end of each (a corner drawn with both
+    strokes run on past it): each is cut at the crossing and the short ends
+    beyond it go, so the outline turns the corner and doesn't cross itself
+    (Trident 17, hand edit: the roof and the clay floor of the pocket)."""
+    out = [list(w) for w in walls]
+    for i in range(len(out)):
+        for k in range(i + 1, len(out)):
+            a, b = out[i], out[k]
+            if len(a) < 2 or len(b) < 2:
+                continue
+            la, lb = LineString(a), LineString(b)
+            x = la.intersection(lb)
+            if x.is_empty or x.geom_type != 'Point':
+                continue
+            ta, tb = la.project(x), lb.project(x)
+            ea = 0 if ta < CORNER_TAIL else (-1 if la.length - ta < CORNER_TAIL else None)
+            eb = 0 if tb < CORNER_TAIL else (-1 if lb.length - tb < CORNER_TAIL else None)
+            if ea is None or eb is None or min(ta, la.length - ta) < 0.05 or min(tb, lb.length - tb) < 0.05:
+                continue
+            ca = ta if ea == 0 else la.length - ta
+            cb = tb if eb == 0 else lb.length - tb
+            if la.length - ca < 2 * ca or lb.length - cb < 2 * cb:
+                continue                              # the end past it not short: not a corner run on past
+            c = (x.x, x.y)
+            out[i] = _cut_at(a, ta, ea, c)
+            out[k] = _cut_at(b, tb, eb, c)
+    return out
+
+
+def _cut_at(w, t, end, c):
+    """w with the part from its `end` (0 or -1) to distance t along it
+    replaced by the point c."""
+    acc, keep = 0.0, []
+    if end == -1:
+        keep = [w[0]]
+        for p, q in zip(w, w[1:]):
+            acc += math.dist(p, q)
+            if acc >= t:
+                break
+            keep.append(q)
+        return keep + [c]
+    rev = _cut_at(w[::-1], LineString(w).length - t, -1, c)
+    return rev[::-1]
 
 
 LINE_REACH = 1.5    # m: wall ends this near the line through a junction are taken to it
@@ -1058,7 +1118,9 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
         from . import scraps as by_hand
         names = sorted(pos, key=register.natural)
         groups = by_hand.complete(by_hand.parse(opt.scraps, names), names, legs_all)
-        pieces = drawn_on(by_hand.assign(lines, groups, pos, legs_all, share=True), lines, [len(g) for g in groups])
+        placed = set()
+        pieces = drawn_on(by_hand.assign(lines, groups, pos, legs_all, share=True, placed=placed), lines,
+                          [len(g) for g in groups], keep=placed)
     else:
         member = {n: i for i, g in enumerate(groups) for n in g}
         near = lambda p: member.get(_nearest(pos, p), 0) if pos else 0
@@ -1077,6 +1139,8 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
             mine = feats.lines
         walls, _b, _a = wall_strokes(mine)
         walls = clean(walls)
+        if SETTINGS['outer_walls']:
+            walls = corners(walls)
         gset = set(g)
         if len(groups) > 1:                      # where this scrap meets the next, its walls end in line
             from .scraps import junction_joins
@@ -1097,7 +1161,11 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
             ([[(x0, y), (x1, y)] for x0, x1, y in feats.pools] if feats else [])
         others = [(c, pp) for k, c, pp in pieces if k != gi and pp]
         stops = clean(wall_strokes(others)[0]) if others else []
-        for poly in elevation_fill(walls, legs, extra, below, above, stops):
+        polys = elevation_fill(walls, legs, extra, below, above, stops)
+        if SETTINGS['rock_faces'] and SETTINGS['outer_walls']:     # the rock its closing-up took in goes, as in plan
+            polys = [drop_rock_faces(p, walls, legs, [pos[n] for n in g if n in pos], seal=ELEVATION_SEAL,
+                                     margin=0.1) for p in polys]
+        for poly in polys:
             inside = [n for n in g if poly.buffer(1.0).contains(Point(pos[n]))]
             if not inside:
                 continue

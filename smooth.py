@@ -1078,6 +1078,59 @@ def split_by_side(objs, K, st, legs):
     objs[:] = new
 
 
+def judge(o, objs, K, survey):
+    """A line by the legs it belongs to (see outer_lines): None if it has
+    none, 'inner' if they lie on both sides of it or their splays reach past
+    it, else the side (+1 left, -1 right) its passage is on."""
+    st, legs, ends = survey
+    pts = bezier_points(o.segments())
+    g = LineString(pts)
+    if g.length < 0.05 * K:
+        return None
+    from shapely.ops import nearest_points, unary_union
+    others = unary_union([LineString(bezier_points(x.segments())) for x in objs
+                          if x is not o and x.kind == 'line' and len(x.segments()) > 1
+                          and x.head.split()[1] in ('wall', 'border') and '-subtype invisible' not in x.head])
+
+    def sees(a, b):                              # no other wall or border between the leg and the line
+        p, q = nearest_points(LineString([st[a], st[b]]), g)
+        if p.distance(q) < 0.05 * K:
+            return True
+        gap = LineString([p, q])
+        cut = gap.intersection(others)
+        return cut.is_empty or all(c.distance(q) < 0.1 * K for c in getattr(cut, 'geoms', [cut]))
+    dist = {(a, b): LineString([st[a], st[b]]).distance(g) for a, b in legs}
+    mine = [(a, b) for a, b in legs if dist[(a, b)] < LEG_REACH * K and sees(a, b)]
+    if not mine:
+        return None
+    nearest = min(dist[l] for l in mine)
+    mine = [l for l in mine if dist[l] <= nearest + LEG_BAND * K]     # its own passage, not one beyond
+
+    def side(q):                                 # +1 left of the line, -1 right, at its nearest part
+        d = g.project(Point(q))
+        a, b = g.interpolate(max(0, d - 0.05 * K)), g.interpolate(min(g.length, d + 0.05 * K))
+        c = (b.x - a.x) * (q[1] - a.y) - (b.y - a.y) * (q[0] - a.x)
+        return 1 if c > 0 else -1
+
+    def foot_on(q):                              # q lies across the line, not off its ends
+        d = g.project(Point(q))
+        return 0.02 * g.length < d < 0.98 * g.length
+    # stations clearly to one side (a station the line was sketched just over doesn't count)
+    near = {x for a, b in mine for x in (a, b)}
+    votes = [side(st[x]) for x in near if foot_on(st[x]) and g.distance(Point(st[x])) > ON_LINE * K]
+    if not votes:
+        votes = [side(LineString([st[a], st[b]]).interpolate(0.5, normalized=True).coords[0]) for a, b in mine]
+    left, right = votes.count(1), votes.count(-1)
+    if min(left, right) >= max(1, 0.3 * len(votes)):
+        return 'inner'
+    here = 1 if left >= right else -1
+    beyond = [e for a, b in mine for x in (a, b) for e in ends.get(x, ())
+              if foot_on(e) and side(e) != here and g.distance(Point(e)) > BEYOND * K]
+    if beyond:
+        return 'inner'
+    return here
+
+
 def outer_lines(objs, K, survey):
     """Style.md: every outer line is a wall. A line the converter made a
     border, or a wall with `-outline none`, is judged by the legs it
@@ -1095,73 +1148,149 @@ def outer_lines(objs, K, survey):
     from .settings import SETTINGS
     if SETTINGS.get('_elevation'):              # (the roof of one passage drawn on as the floor of the next)
         split_by_side(objs, K, st, legs)
-    for o in objs:
-        if o.kind != 'line' or len(o.segments()) < 2:
+    for o in list(objs):                            # (tee_joins may split walls in objs)
+        if o.kind != 'line' or len(o.segments()) < 2 or not any(x is o for x in objs):
             continue
         if not (o.head.strip() in ('line border', 'line border -clip off')
                 or (o.head.startswith('line wall') and '-outline none' in o.head)):
             continue
-        pts = bezier_points(o.segments())
-        g = LineString(pts)
-        if g.length < 0.05 * K:
+        verdict = judge(o, objs, K, survey)
+        if verdict is None:
             continue
-        from shapely.ops import nearest_points, unary_union
-        others = unary_union([LineString(bezier_points(x.segments())) for x in objs
-                              if x is not o and x.kind == 'line' and len(x.segments()) > 1
-                              and x.head.split()[1] in ('wall', 'border') and '-subtype invisible' not in x.head])
-
-        def sees(a, b):                              # no other wall or border between the leg and the line
-            p, q = nearest_points(LineString([st[a], st[b]]), g)
-            if p.distance(q) < 0.05 * K:
-                return True
-            gap = LineString([p, q])
-            cut = gap.intersection(others)
-            return cut.is_empty or all(c.distance(q) < 0.1 * K for c in getattr(cut, 'geoms', [cut]))
-        dist = {(a, b): LineString([st[a], st[b]]).distance(g) for a, b in legs}
-        mine = [(a, b) for a, b in legs if dist[(a, b)] < LEG_REACH * K and sees(a, b)]
-        if not mine:
-            continue
-        nearest = min(dist[l] for l in mine)
-        mine = [l for l in mine if dist[l] <= nearest + LEG_BAND * K]     # its own passage, not one beyond
-
-        def side(q):                                 # +1 left of the line, -1 right, at its nearest part
-            d = g.project(Point(q))
-            a, b = g.interpolate(max(0, d - 0.05 * K)), g.interpolate(min(g.length, d + 0.05 * K))
-            c = (b.x - a.x) * (q[1] - a.y) - (b.y - a.y) * (q[0] - a.x)
-            return 1 if c > 0 else -1
-
-        def foot_on(q):                              # q lies across the line, not off its ends
-            d = g.project(Point(q))
-            return 0.02 * g.length < d < 0.98 * g.length
-        # stations clearly to one side (a station the line was sketched just over doesn't count)
-        near = {x for a, b in mine for x in (a, b)}
-        votes = [side(st[x]) for x in near if foot_on(st[x]) and g.distance(Point(st[x])) > ON_LINE * K]
-        if not votes:
-            votes = [side(LineString([st[a], st[b]]).interpolate(0.5, normalized=True).coords[0]) for a, b in mine]
-        left, right = votes.count(1), votes.count(-1)
-        if min(left, right) >= max(1, 0.3 * len(votes)):
+        if verdict == 'inner':
             if o.head.startswith('line wall'):
                 o.head = 'line border'
             continue
-        here = 1 if left >= right else -1
-        beyond = [e for a, b in mine for x in (a, b) for e in ends.get(x, ())
-                  if foot_on(e) and side(e) != here and g.distance(Point(e)) > BEYOND * K]
-        if beyond:
-            if o.head.startswith('line wall'):
-                o.head = 'line border'
-            continue
+        here = verdict
         rows, before = o.rows, _outline_score(objs)
         o.head = 'line wall'
         if here < 0:                                 # the passage on its right: drawn the other way
             o.set_segments(reverse_segments(o.segments()))
         if _outline_score(objs) > before:            # the other way round, the passage on the other side?
             o.set_segments(reverse_segments(o.segments()))
-            if _outline_score(objs) > before:        # the outline would cross itself either way: passages
+            if _outline_score(objs) > before and not tee_joins(objs, o, K, before, survey):
+                # the outline would cross itself either way: passages
                 o.head, o.rows = 'line border', rows     # over one another in one scrap (they want their own)
                 OUTER_KEPT.append(tuple(round(v) for v in o.segments()[0][-2:]))
                 continue
         n += 1
     return n
+
+
+TEE_ON = 0.05       # m (x K): a line's end this near the middle of a wall meets it there
+TEE_TAIL = 1.0      # m (x K): a line's end crossing a wall this near it is cut back to the wall
+
+
+def _split_obj(w, at, K):
+    """Two copies of line w split at its point nearest `at`, cut exactly out
+    of its curves; None if that is at or near an end of it."""
+    from .tidy import dense, wall_piece
+    segs = w.segments()
+    pts, idx = dense(segs)
+    line = LineString(pts)
+    t = line.project(Point(at))
+    if t < 0.1 * K or t > line.length - 0.1 * K:
+        return None
+    cum = [0.0]
+    for p, q in zip(pts, pts[1:]):
+        cum.append(cum[-1] + math.dist(p, q))
+    d = {'segs': segs, 'pts': pts, 'idx': idx, 'cum': cum}
+    a, b = Obj('line', w.head, raw=''), Obj('line', w.head, raw='')
+    a.set_segments(wall_piece(d, 0.0, t))
+    b.set_segments(wall_piece(d, t, cum[-1]))
+    return a, b
+
+
+def _cut_end(o, end, keep):
+    """o's rows with the part past distance `keep` from its other end gone."""
+    from .tidy import dense, wall_piece
+    segs = o.segments()
+    pp, idx = dense(segs)
+    cum = [0.0]
+    for p, q in zip(pp, pp[1:]):
+        cum.append(cum[-1] + math.dist(p, q))
+    d = {'segs': segs, 'pts': pp, 'idx': idx, 'cum': cum}
+    o.set_segments(wall_piece(d, keep, cum[-1]) if end == 0 else wall_piece(d, 0.0, keep))
+
+
+def _tee(objs, o, end, K):
+    """(wall, point) where o's end meets a wall at a T, its end cut back to
+    the wall if it crosses it just short of the end; None if it doesn't."""
+    if len(o.segments()) < 2:
+        return None
+    g = LineString(bezier_points(o.segments()))
+    e = Point(g.coords[end])
+    for w in objs:
+        if w is o or w.kind != 'line' or not w.head.startswith('line wall') or '-outline none' in w.head \
+                or '-close on' in w.head or len(w.segments()) < 2:
+            continue
+        wl = LineString(bezier_points(w.segments()))
+        if min(Point(wl.coords[0]).distance(e), Point(wl.coords[-1]).distance(e)) < 0.1 * K:
+            continue                                      # end to end: Therion joins those itself
+        if wl.distance(e) < TEE_ON * K:
+            return w, wl.interpolate(wl.project(e))
+        x = g.intersection(wl)
+        pts = [q for q in getattr(x, 'geoms', [x]) if q.geom_type == 'Point']
+        near = [q for q in pts if (g.project(q) if end == 0 else g.length - g.project(q)) < min(TEE_TAIL * K, g.length / 3)]
+        if near:
+            at = min(near, key=lambda q: q.distance(e))
+            rows = o.rows
+            _cut_end(o, end, g.project(at))
+            if len(o.segments()) < 2:
+                o.rows = rows
+                continue
+            return w, at
+    return None
+
+
+def tee_joins(objs, o, K, before, survey=None):
+    """An outer line meeting a wall at a T (its end on the middle of the wall,
+    or crossing it just short of its end) is made a wall there as a hand
+    edit does it (Style.md, Walls: every outer line a wall; log row 139):
+    its end cut back to the wall, the wall split at that point, and the
+    piece of the wall then inside the passage a border (or both pieces
+    walls, a T of three). Kept if the outline is then no worse than
+    `before`, with o either way round; else all is put back. Returns True
+    if kept."""
+    saved = (list(objs), o.rows, [(x, x.head, x.rows) for x in objs])
+
+    def restore():
+        objs[:] = saved[0]
+        o.rows = saved[1]
+        for x, h, r in saved[2]:
+            x.head, x.rows = h, r
+    options = [[None]]
+    for end in (0, -1):
+        t = _tee(objs, o, end, K)
+        if t is None:
+            continue
+        w, at = t
+        parts = _split_obj(w, (at.x, at.y), K)
+        if parts is None:
+            continue
+        a, b = parts
+        k = objs.index(w)
+        objs[k:k + 1] = [a, b]
+        # which piece is inside (a border: only one the legs say is inner), or neither
+        options.append([(x, w.head) for x in (a, b) if survey and judge(x, objs, K, survey) == 'inner'] + [None])
+    if len(options) == 1:
+        restore()
+        return False
+    import itertools
+    for pick in itertools.product(*options[1:]):
+        for x in pick:
+            if x:
+                x[0].head = 'line border'
+        for rev in (False, True):
+            now = _outline_score(objs)
+            if now <= before and now[:2] == (0, 0):       # and sound: no outline crossing itself
+                return True
+            o.set_segments(reverse_segments(o.segments()))
+        for x in pick:
+            if x:
+                x[0].head = x[1]
+    restore()
+    return False
 
 
 OUTER_KEPT = []     # first points of outer lines left as borders: as walls the outline crossed itself

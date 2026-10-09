@@ -148,6 +148,9 @@ def _seg_seg3(a, b, c, d, n=12):
 
 
 ROCK = 1.0           # m: and one leg this much further from the other than its walls (not the same space)
+JUNCTION_ROCK = 1.5  # m: two legs from one station, each far end this much further from the other leg than
+                     # its walls (Trident 10 to 12 over 10 to 13: 2.8 m, walls 1.0; BoldStep 5 to 7 and 5 to 8,
+                     # one passage as the user sees it: 2.4 m, walls 1.0)
 
 
 def clashes(fp, zr=None, solid=None, alone=None):
@@ -159,6 +162,21 @@ def clashes(fp, zr=None, solid=None, alone=None):
     for i, a in enumerate(legs):
         for b in legs[i + 1:]:
             if set(a) & set(b):
+                # two legs from one station: in an extended elevation, a branch drawn over the
+                # passage it leaves when each goes well away from the other (Trident 10: the
+                # ramp to 12 over 10 to 13), at least `alone` m2 of it
+                if not (alone and solid and a in solid and b in solid):
+                    continue
+                (p, q, ra), (u, v, rb) = solid[a], solid[b]
+                far_a = q if a[0] in b else p
+                far_b = v if b[0] in a else u
+                apart = max(ra, rb) + JUNCTION_ROCK
+                if _seg_dist3(far_a, u, v)[0] < apart or _seg_dist3(far_b, p, q)[0] < apart:
+                    continue
+                inter = fp[a].intersection(fp[b]).area
+                small = min(fp[a].area, fp[b].area)
+                if inter >= alone and inter / max(small, 1e-6) > OVERLAP:
+                    out.append((a, b, inter / small))
                 continue
             if zr and a in zr and b in zr and not (zr[a][0] > zr[b][1] + LEVEL_GAP or zr[b][0] > zr[a][1] + LEVEL_GAP):
                 continue
@@ -175,15 +193,20 @@ def clashes(fp, zr=None, solid=None, alone=None):
 
 
 def _components(legs, cut):
+    """[[legs] per scrap]. cut: legs in no scrap, or {leg: station}: a leg
+    detached at a junction station goes with the passage at its other end
+    (a branch: Trident 10 to 12), None for a leg in neither."""
+    end = cut if isinstance(cut, dict) else dict.fromkeys(cut)
     adj = defaultdict(set)
+    node = lambda l, n: (n, l) if end.get(l) == n else n
     for l in legs:
-        if l in cut:
+        if l in end and end[l] is None:
             continue
-        adj[l[0]].add(l)
-        adj[l[1]].add(l)
+        adj[node(l, l[0])].add(l)
+        adj[node(l, l[1])].add(l)
     seen, comps = set(), []
     for l in legs:
-        if l in cut or l in seen:
+        if (l in end and end[l] is None) or l in seen:
             continue
         comp, todo = [], [l]
         while todo:
@@ -192,7 +215,7 @@ def _components(legs, cut):
                 continue
             seen.add(x)
             comp.append(x)
-            for n in x:
+            for n in (node(x, x[0]), node(x, x[1])):
                 todo += [y for y in adj[n] if y not in seen]
         comps.append(comp)
     return comps
@@ -227,8 +250,12 @@ def _path(legs, a, b, cut):
 def choose(legs, clash, length, degree, view='extended'):
     """The legs to cut so that no scrap holds a clash. legs: [(a, b)];
     clash: [(leg, leg, overlap)]; length: {leg: m}; degree: {station: legs}.
-    Returns (cut legs, [[legs] per scrap], clashes left)."""
-    cut = set()
+    A leg is cut in neither scrap; in an elevation a leg at a junction is
+    detached there instead, going with the passage beyond it (each scrap a
+    passage: the branch its own scrap, the passage through the junction
+    whole, Trident 10 to 12). Returns ({cut leg: junction or None},
+    [[legs] per scrap], clashes left)."""
+    cut = {}
     for _ in range(4 * len(legs)):
         comps = _components(legs, cut)
         where = {l: i for i, c in enumerate(comps) for l in c}
@@ -238,35 +265,49 @@ def choose(legs, clash, length, degree, view='extended'):
         comp = comps[where[live[0][0]]]
         mine = [(a, b) for a, b, _ in live if where[a] == where[live[0][0]]]
         best = None
+        # the passage through each junction: the two legs leading on to the most
+        # passage; a leg off it is a branch
+        through = {}
+        for n in {n for l in comp for n in l if degree[n] > 2}:
+            at = [l for l in comp if n in l and l not in cut]
+            sides = _components(comp, {**cut, **{l: n for l in at}})
+            of = {x: sum(length[y] for y in p) for p in sides for x in p}
+            through[n] = set(sorted(at, key=lambda l: -of.get(l, 0.0))[:2])
         for l in comp:
-            parts = _components(comp, cut | {l})
-            if len(parts) < 2:
-                continue                              # in a loop: cutting it parts nothing
-            side = {x: i for i, p in enumerate(parts) for x in p}
-            resolved = sum(1 for a, b in mine if side.get(a) is not None and side.get(b) is not None
-                           and side[a] != side[b])
-            if not resolved:
+            if l in cut:
                 continue
             simple = degree[l[0]] <= 2 and degree[l[1]] <= 2
             # a leg or more from a junction: the legs either side of it simple too
             nbrs = [x for x in comp if x != l and set(x) & set(l)]
             clear = simple and all(degree[y] <= 2 for x in nbrs for y in x)
-            sizes = sorted(sum(length[x] for x in p) for p in parts)
-            balance = sizes[0] / max(sizes[-1], 1e-6)
-            if view == 'plan':
-                if not simple:
-                    continue                          # plans: never at a junction (a hard rule)
-                score = (clear, resolved, balance)
-            else:
-                # elevations: near a junction, most of the time on a short piece of
-                # passage by it (WestPassage 57 to 59), maybe on it
-                near = not simple or not clear
-                score = (resolved, near, -length[l], balance)
-            if best is None or score > best[0]:
-                best = (score, l)
+            ends = [n for n in l if degree[n] > 2] if view != 'plan' else []
+            for j in ends or [None]:
+                parts = _components(comp, {**cut, l: j})
+                if len(parts) < 2:
+                    continue                          # in a loop: cutting it parts nothing
+                side = {x: i for i, p in enumerate(parts) for x in p}
+                resolved = sum(1 for a, b in mine if side.get(a) is not None and side.get(b) is not None
+                               and side[a] != side[b])
+                if not resolved:
+                    continue
+                sizes = sorted(sum(length[x] for x in p) for p in parts)
+                balance = sizes[0] / max(sizes[-1], 1e-6)
+                if view == 'plan':
+                    # plans: on simple passage; a leg by a junction keeps the junction
+                    # whole in one scrap, a little back from it (CJS, CrossRoads, CJPitch)
+                    score = (simple, clear, resolved, balance)
+                else:
+                    # elevations: near a junction, most of the time on a short piece of
+                    # passage by it (WestPassage 57 to 59), maybe on it; at the junction
+                    # the branch goes, the passage through it stays whole
+                    near = not simple or not clear
+                    branch = j is not None and l not in through.get(j, ())
+                    score = (resolved, near, branch, -length[l], balance)
+                if best is None or score > best[0]:
+                    best = (score, l, j)
         if best is None:
             break
-        cut.add(best[1])
+        cut[best[1]] = best[2]
     # cuts that are not needed go, the smallest scraps first: as few scraps as hold no clash
     pairs = {frozenset((a, b)) for a, b, _ in clash}
     changed = True
@@ -276,7 +317,7 @@ def choose(legs, clash, length, degree, view='extended'):
         size = {l: sum(length[x] for x in c) for c in comps for l in c}
         for l in sorted(cut, key=lambda l: min((size.get(x, 0) for x in legs if set(x) & set(l) and x != l),
                                               default=0)):
-            trial = cut - {l}
+            trial = {k: v for k, v in cut.items() if k != l}
             merged = _components(legs, trial)
             where = {x: i for i, c in enumerate(merged) for x in c}
             if not any(where.get(a) == where.get(b) for a, b in map(tuple, pairs) if a in where):
@@ -299,9 +340,13 @@ def scraps_for(th, survey, view, source='splays'):
         g = sorted({n for l in c for n in l}, key=natural)
         if len(g) >= 2:
             groups.append(g)
-    # a station of a cut leg sits in one scrap only (scraps.py: the cut leg is in neither)
+    # a station of a cut leg sits in one scrap only (scraps.py: the cut leg is in neither);
+    # a junction a branch is detached at sits in the branch (Trident 10 in 10 to 12)
+    where = {l: i for i, c in enumerate(comps) for l in c}
+    first = {j: where[l] for l, j in cut.items() if j is not None and l in where}
+    order = sorted(range(len(groups)), key=lambda i: -sum(1 for j, k in first.items() if k == i))
     seen = set()
-    for g in groups:
+    for g in [groups[i] for i in order]:
         g[:] = [n for n in g if n not in seen]
         seen |= set(g)
     groups = [g for g in groups if len(g) >= 2]
@@ -344,7 +389,9 @@ def check_split(groups, fp, length, degree, zr=None, solid=None, view='extended'
         for n in l:
             at[n].append(where.get(l))           # None: a leg between scraps, in neither
     for n, sc in at.items():                     # scraps meet at a station whose legs are in different scraps
-        if view == 'plan' and degree[n] > 2 and (len(set(sc)) > 1):     # elevations: joins by junctions are usual
+        # a leg cut by the junction (None: in neither) keeps the junction whole in one scrap
+        # (CJPitch, CJS, CrossRoads); elevations: joins by junctions are usual
+        if view == 'plan' and degree[n] > 2 and len(set(sc) - {None}) > 1:
             out.append(('junction', f"scraps meet at {n}, a junction"))
     size = defaultdict(float)
     for l, i in where.items():
