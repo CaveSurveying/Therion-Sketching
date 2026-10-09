@@ -662,8 +662,9 @@ def one_line_per_wall(objs, K):
             # both ends on the ends of two different outline walls: the piece
             # of the stroke between them (round a bend the fill took in)
             sg = o.segments()
+            # (within 15 cm: TridentLeft 10, a drawn line 7 cm short, dropped, hand edit)
             hit = [next((w for w in outline for k in (0, -1)
-                         if math.dist(tuple(sg[e][-2:]), tuple(w.segments()[k][-2:])) < 0.05 * K), None)
+                         if math.dist(tuple(sg[e][-2:]), tuple(w.segments()[k][-2:])) < LINK_REACH * K), None)
                    for e in (0, -1)]
             return hit[0] is not None and hit[1] is not None and hit[0] is not hit[1]
 
@@ -680,7 +681,7 @@ def one_line_per_wall(objs, K):
                 o.head = o.head.replace(' -outline none', '')
                 # run on from the wall whose end it starts at (so the walls join into one line)
                 sg = o.segments()
-                if not any(math.dist(tuple(sg[0][-2:]), tuple(w.segments()[-1][-2:])) < 0.05 * K for w in outline):
+                if not any(math.dist(tuple(sg[0][-2:]), tuple(w.segments()[-1][-2:])) < LINK_REACH * K for w in outline):
                     o.set_segments(reverse_segments(sg))
                 after = _outline_score(objs)
                 if after <= before:     # only if Therion makes the outline as well as before
@@ -1078,6 +1079,26 @@ def split_by_side(objs, K, st, legs):
     objs[:] = new
 
 
+LINK_REACH = 0.15   # m: a piece off the outline with each end this near an outline wall's end links them
+SPLAY_ON = 0.2      # m: splays from a station this near a line don't show passage beyond it
+END_JOIN = 0.3      # m: wall ends nearer than this are made one point (after smoothing)
+END_MARGIN = 1.0    # m: a station whose nearest point on a line is this near its end doesn't vote (TridentLeft 9: 0.8 m)
+
+
+def _passage(objs):
+    """The passage as the outline walls make it now (Polygon), or None."""
+    outline = [bezier_points(o.segments(), 20) for o in objs if o.kind == 'line' and len(o.segments()) > 1
+               and '-close on' not in o.head and o.head.startswith('line wall')
+               and '-outline none' not in o.head and '-subtype invisible' not in o.head]
+    out = None
+    for ring in therion_rings(outline):
+        pts = [p for i, rev in ring for p in (outline[i][::-1] if rev else outline[i])]
+        if len(pts) > 3:
+            g = Polygon(pts).buffer(0)
+            out = g if out is None else out.union(g)
+    return out
+
+
 def judge(o, objs, K, survey):
     """A line by the legs it belongs to (see outer_lines): None if it has
     none, 'inner' if they lie on both sides of it or their splays reach past
@@ -1104,7 +1125,11 @@ def judge(o, objs, K, survey):
     if not mine:
         return None
     nearest = min(dist[l] for l in mine)
-    mine = [l for l in mine if dist[l] <= nearest + LEG_BAND * K]     # its own passage, not one beyond
+    from .settings import SETTINGS
+    if not SETTINGS.get('_elevation'):
+        mine = [l for l in mine if dist[l] <= nearest + LEG_BAND * K]     # its own passage, not one beyond
+    # (in an elevation a passage seen across the line with nothing between is the passage below
+    # or above: the line is inner, the floor of one and the roof of the other, Connection 21-23)
 
     def side(q):                                 # +1 left of the line, -1 right, at its nearest part
         d = g.project(Point(q))
@@ -1113,22 +1138,256 @@ def judge(o, objs, K, survey):
         return 1 if c > 0 else -1
 
     def foot_on(q):                              # q lies across the line, not off its ends
-        d = g.project(Point(q))
-        return 0.02 * g.length < d < 0.98 * g.length
+        d = g.project(Point(q))                  # (nor by an end, where it meets the next wall: TridentLeft 9)
+        m = max(0.02 * g.length, min(END_MARGIN * K, 0.2 * g.length))
+        return m < d < g.length - m
     # stations clearly to one side (a station the line was sketched just over doesn't count)
     near = {x for a, b in mine for x in (a, b)}
     votes = [side(st[x]) for x in near if foot_on(st[x]) and g.distance(Point(st[x])) > ON_LINE * K]
-    if not votes:
+    by_legs = not votes
+    if by_legs:
         votes = [side(LineString([st[a], st[b]]).interpolate(0.5, normalized=True).coords[0]) for a, b in mine]
     left, right = votes.count(1), votes.count(-1)
+    if by_legs and min(left, right) >= max(1, 0.3 * len(votes)):
+        # legs either side, no station to say: the leg along the line decides (TridentLeft 38:
+        # 35 to 38 down the passage, 34 to 35 across the rock beyond, hand edit)
+        a, b = min(mine, key=lambda l: dist[l])
+        left, right = (1, 0) if side(LineString([st[a], st[b]]).interpolate(0.5, normalized=True).coords[0]) > 0 \
+            else (0, 1)
     if min(left, right) >= max(1, 0.3 * len(votes)):
         return 'inner'
     here = 1 if left >= right else -1
+    # a splay reaching past the line: the shot crosses it (a splay ending on the far side of a
+    # winding or short line without crossing it doesn't count: TridentLeft 9, 26, 35, hand edit)
     beyond = [e for a, b in mine for x in (a, b) for e in ends.get(x, ())
-              if foot_on(e) and side(e) != here and g.distance(Point(e)) > BEYOND * K]
+              if g.distance(Point(e)) > BEYOND * K and LineString([st[x], e]).crosses(g)
+              and g.distance(Point(st[x])) > SPLAY_ON * K]      # (from a station on the line: TridentLeft 35)
     if beyond:
         return 'inner'
+    # a station on the line: its splays reaching well out on both sides, into the drawn passage,
+    # show passage both sides (Connection 15, hand edit: inner; TridentLeft 35, the wall through it)
+    drawn = None
+    for x in near:
+        if g.distance(Point(st[x])) > SPLAY_ON * K:
+            continue
+        if drawn is None:
+            drawn = _passage(objs) or Polygon()
+        # (a splay into passage not drawn yet doesn't count: TridentLeft 35, 36 and 37 beyond)
+        # across the line's own length (not off its ends: TridentLeft 35, the passage south of it
+        # is beyond the line's end)
+        across = lambda e: 0.02 * g.length < g.project(Point(e)) < 0.98 * g.length
+        far = [side(e) for e in ends.get(x, ()) if g.distance(Point(e)) > BEYOND * K and across(e)
+               and drawn.buffer(0.3 * K).contains(Point(e))]
+        if far.count(1) >= 1 and far.count(-1) >= 1:
+            return 'inner'
     return here
+
+
+def join_pieces(objs, K):
+    """Wall pieces off the outline (`-outline none`) that end within
+    LINK_REACH of each other, with no third line ending there, are one wall
+    turning a corner: joined into one line at the meeting point (Style.md,
+    Walls; TridentLeft 9, hand edit: the U round 9 and the wall from 5;
+    a floor step or overhang ending there too ends on the joined node).
+    Returns how many were joined."""
+    n = 0
+    while True:
+        pieces = [o for o in objs if o.kind == 'line' and o.head.startswith('line wall') and '-outline none' in o.head
+                  and '-close on' not in o.head and len(o.segments()) > 1]
+        ends = [(o, k, tuple(o.segments()[k][-2:])) for o in objs if o.kind == 'line' and len(o.segments()) > 1
+                and '-close on' not in o.head and o.head.split()[1] == 'wall'      # (steps end on the wall's node)
+                for k in (0, -1)]
+        found = None
+        for i, a in enumerate(pieces):
+            for b in pieces[i + 1:]:
+                for ka in (0, -1):
+                    for kb in (0, -1):
+                        pa, pb = tuple(a.segments()[ka][-2:]), tuple(b.segments()[kb][-2:])
+                        if math.dist(pa, pb) >= LINK_REACH * K:
+                            continue
+                        crowd = [e for e in ends if e[0] not in (a, b) and
+                                 min(math.dist(e[2], pa), math.dist(e[2], pb)) < LINK_REACH * K]
+                        if not crowd:
+                            found = (a, ka, b, kb)
+                            break
+                    if found:
+                        break
+                if found:
+                    break
+            if found:
+                break
+        if not found:
+            return n
+        a, ka, b, kb = found
+        sa = a.segments() if ka == -1 else reverse_segments(a.segments())
+        sb = b.segments() if kb == 0 else reverse_segments(b.segments())
+        m = ((sa[-1][-2] + sb[0][-2]) / 2, (sa[-1][-1] + sb[0][-1]) / 2)
+        sa[-1] = list(sa[-1][:-2]) + [m[0], m[1]]
+        rest = [list(r) for r in sb[1:]]
+        a.set_segments(sa + rest)
+        b.kind = 'drop'
+        objs[:] = [o for o in objs if o.kind != 'drop']
+        n += 1
+
+
+GAP_JOIN = 0.6      # m: two free wall ends nearer than this, each the other's nearest, meet
+WALL_TURN = 90.0    # degrees: a wall of 3 or 4 nodes merges into the one it meets if the join turns less
+
+
+def _wall_lines(objs):
+    return [o for o in objs if o.kind == 'line' and o.head.startswith('line wall') and len(o.segments()) > 1
+            and '-close on' not in o.head and '-outline none' not in o.head]
+
+
+def _set_end(o, k, p):
+    segs = [list(x) for x in o.segments()]
+    segs[k][-2:] = [p[0], p[1]]
+    o.set_segments(segs)
+
+
+def close_gaps(objs, K):
+    """Small gaps between walls closed (Style.md, Walls; Connection, user):
+    two free wall ends (no other wall end at them) nearer than GAP_JOIN,
+    each the other's nearest, meet at their midpoint, where the outline is
+    no worse for it. Returns how many."""
+    n = 0
+    walls = _wall_lines(objs)
+    ends = [(o, k, tuple(o.segments()[k][-2:])) for o in walls for k in (0, -1)]
+    free = [e for e in ends if not any(f[0] is not e[0] and math.dist(f[2], e[2]) < 0.01 * K for f in ends)]
+    used = set()
+    for a in free:
+        if id(a) in used:
+            continue
+        cand = [b for b in free if b is not a and b[0] is not a[0] and id(b) not in used]
+        if not cand:
+            continue
+        b = min(cand, key=lambda b: math.dist(a[2], b[2]))
+        d = math.dist(a[2], b[2])
+        if d >= GAP_JOIN * K:
+            continue
+        back = min((c for c in free if c is not b and c[0] is not b[0]), key=lambda c: math.dist(b[2], c[2]))
+        if back is not a:
+            continue                                  # not each other's nearest
+        before = _outline_score(objs)
+        rows = (a[0].rows, b[0].rows)
+        m = ((a[2][0] + b[2][0]) / 2, (a[2][1] + b[2][1]) / 2)
+        _set_end(a[0], a[1], m)
+        _set_end(b[0], b[1], m)
+        if _outline_score(objs) > before:
+            a[0].rows, b[0].rows = rows
+            continue
+        used |= {id(a), id(b)}
+        n += 1
+    return n
+
+
+def merge_walls(objs, K):
+    """Walls of one kind meeting end to end merged into one line (Style.md,
+    merge_short; Connection, user): always one of 2 nodes, one of 3 or 4
+    if the join turns less than WALL_TURN, where the outline is no worse.
+    Returns how many were merged."""
+    n = 0
+    changed = True
+    while changed:
+        changed = False
+        walls = sorted(_wall_lines(objs), key=lambda o: len(o.segments()))
+        for o in walls:
+            so = o.segments()
+            if len(so) > 4:
+                break
+            for w in walls:
+                if w is o or w.head != o.head:
+                    continue
+                sw = w.segments()
+                hit = next(((we, oe) for we in (0, -1) for oe in (0, -1)
+                            if math.dist(sw[we][-2:], so[oe][-2:]) < 0.01 * K), None)
+                if hit is None:
+                    continue
+                # a third wall ending there too: a junction, not a run on
+                p = sw[hit[0]][-2:]
+                if any(x not in (o, w) and any(math.dist(x.segments()[k][-2:], p) < 0.01 * K for k in (0, -1))
+                       for x in _wall_lines(objs)):
+                    continue
+                first = sw if hit[0] == -1 else reverse_segments(sw)
+                second = so if hit[1] == 0 else reverse_segments(so)
+                if len(so) > 2:
+                    a = bezier_points(first, 8)
+                    b = bezier_points(second, 8)
+                    u = (a[-1][0] - a[-3][0], a[-1][1] - a[-3][1])
+                    v = (b[2][0] - b[0][0], b[2][1] - b[0][1])
+                    if abs(_red(_arg(v) - _arg(u))) >= WALL_TURN:
+                        continue
+                before = _outline_score(objs)
+                rows, wrows = o.rows, w.rows
+                # keep the direction of the longer (its passage on the left)
+                w.set_segments(list(first) + [list(r) for r in second[1:]])
+                if hit[0] == 0:
+                    w.set_segments(reverse_segments(w.segments()))
+                o.kind = 'drop'
+                if _outline_score(objs) > before:
+                    o.kind, w.rows = 'line', wrows
+                    continue
+                objs[:] = [x for x in objs if x.kind != 'drop']
+                n += 1
+                changed = True
+                break
+            if changed:
+                break
+    return n
+
+
+STRAY = 0.5         # m: a wall shorter than this touching no other wall is a stray mark
+
+
+def stray_walls(objs, K):
+    """Walls under STRAY long joined end to end with no other wall (free, or
+    a spur off another's middle): a stray mark, which Therion would make an outline of its own (one that can't
+    turn: MetaPost warns it crosses itself; TritonNorth 14). Dropped.
+    Returns how many."""
+    walls = [o for o in objs if o.kind == 'line' and o.head.startswith('line wall') and len(o.segments()) > 1
+             and '-close on' not in o.head]
+    lines = {id(o): LineString(bezier_points(o.segments())) for o in walls}
+    n = 0
+    for o in walls:
+        g = lines[id(o)]
+        if g.length >= STRAY * K:
+            continue
+        ends = [Point(g.coords[0]), Point(g.coords[-1])]
+        # joined end to end with another wall: part of a wall, kept (a spur off a wall's middle is not)
+        if any(min(e.distance(Point(lines[id(w)].coords[k])) for k in (0, -1)) < 0.1 * K
+               for w in walls if w is not o for e in ends):
+            continue
+        o.kind = 'drop'
+        n += 1
+    objs[:] = [o for o in objs if o.kind != 'drop']
+    return n
+
+
+def same_way_round(objs):
+    """Walls round each outline all run the same way, the passage on their
+    left: a wall Therion has to take backwards to make the outline (most of
+    it, by length, going the other way) is reversed (Style.md, Walls;
+    TridentLeft 27: a short piece by the junction, start to start with the
+    wall beside it). Not walls with -reverse on (hand edits). Returns how
+    many were reversed."""
+    outline = [o for o in objs if o.kind == 'line' and len(o.segments()) > 1 and '-close on' not in o.head
+               and o.head.startswith('line wall') and '-outline none' not in o.head
+               and '-subtype invisible' not in o.head]
+    pts = [bezier_points(o.segments(), 20) for o in outline]
+    n = 0
+    for ring in therion_rings(pts):
+        if len(ring) < 2:
+            continue
+        L = lambda i: LineString(pts[i]).length
+        back = sum(L(i) for i, rev in ring if rev)
+        fwd = sum(L(i) for i, rev in ring if not rev)
+        if back == fwd:
+            continue
+        for i, rev in ring:
+            if rev == (back < fwd) and '-reverse on' not in outline[i].head:
+                outline[i].set_segments(reverse_segments(outline[i].segments()))
+                n += 1
+    return n
 
 
 def outer_lines(objs, K, survey):
@@ -1168,13 +1427,114 @@ def outer_lines(objs, K, survey):
             o.set_segments(reverse_segments(o.segments()))
         if _outline_score(objs) > before:            # the other way round, the passage on the other side?
             o.set_segments(reverse_segments(o.segments()))
-            if _outline_score(objs) > before and not tee_joins(objs, o, K, before, survey):
-                # the outline would cross itself either way: passages
-                o.head, o.rows = 'line border', rows     # over one another in one scrap (they want their own)
-                OUTER_KEPT.append(tuple(round(v) for v in o.segments()[0][-2:]))
-                continue
+            if _outline_score(objs) > before:
+                o.set_segments(reverse_segments(o.segments()))      # back to the passage on its left
+                # never made a border to mend the outline (Style.md, Walls): the crossing is mended
+                # (a loop at a sharp turn, walls run on past a corner, a T), else reported
+                if not (untangle(objs, K, before) or tee_joins(objs, o, K, before, survey)):
+                    OUTER_KEPT.append(tuple(round(v) for v in o.segments()[0][-2:]))
         n += 1
     return n
+
+
+LOOP_MAX = 2.0      # m (x K): a loop of a line shorter than this, where it crosses itself, is cut out
+CORNER_TAIL = 1.5   # m (x K): two walls crossing this near an end of each meet at the crossing
+
+
+def _cum(pts):
+    out = [0.0]
+    for p, q in zip(pts, pts[1:]):
+        out.append(out[-1] + math.dist(p, q))
+    return out
+
+
+def _piece(o, t0, t1):
+    """Rows of line o from distance t0 to t1 along it."""
+    from .tidy import dense, wall_piece
+    segs = o.segments()
+    pts, idx = dense(segs)
+    return wall_piece({'segs': segs, 'pts': pts, 'idx': idx, 'cum': _cum(pts)}, t0, t1)
+
+
+def _self_loop(o, K):
+    """(distance in, distance out) of the shortest loop where line o crosses
+    itself, under LOOP_MAX; None if none."""
+    from .tidy import dense, _cross
+    pts, _ = dense(o.segments())
+    cum = _cum(pts)
+    best = None
+    for i in range(len(pts) - 1):
+        for j in range(i + 2, len(pts) - 1):
+            if cum[j] - cum[i + 1] > LOOP_MAX * K:
+                break
+            q = _cross(pts[i], pts[i + 1], pts[j], pts[j + 1])
+            if q is not None:
+                a = cum[i] + math.dist(pts[i], q)
+                b = cum[j] + math.dist(pts[j], q)
+                if b - a > 1e-6 and (best is None or b - a < best[1] - best[0]):
+                    best = (a, b)
+    return best
+
+
+def untangle(objs, K, before):
+    """Mend an outline that crosses itself without changing what any line
+    is (Style.md, Walls: no wall made a border to mend it): a small loop of
+    a wall where it crosses itself (a sharp turn drawn as a curve) is cut
+    out, and two walls crossing near an end of each (run on past a corner)
+    are cut back to the crossing. Kept if the outline is then no worse than
+    `before` and sound; else all put back. Returns True if mended."""
+    walls = [x for x in objs if x.kind == 'line' and x.head.startswith('line wall')
+             and '-outline none' not in x.head and '-close on' not in x.head and len(x.segments()) > 1]
+    saved = [(x, x.rows) for x in walls]
+    changed = False
+    for w in walls:                                  # loops within a wall
+        for _ in range(5):
+            lp = _self_loop(w, K)
+            if lp is None:
+                break
+            L = _cum(bezier_points(w.segments()))[-1]
+            a = _piece(w, 0.0, lp[0])
+            b = _piece(w, lp[1], L)
+            w.set_segments(a + b[1:])
+            changed = True
+    for w in walls:                                  # a wall round the whole outline, its two ends run on past each other
+        g = LineString(bezier_points(w.segments()))
+        if g.length < 4 * CORNER_TAIL * K:
+            continue
+        head = LineString([g.interpolate(d) for d in [CORNER_TAIL * K * k / 20 for k in range(21)]])
+        tail = LineString([g.interpolate(g.length - d) for d in [CORNER_TAIL * K * k / 20 for k in range(21)]])
+        x = head.intersection(tail)
+        if x.is_empty or x.geom_type != 'Point':
+            continue
+        t0, t1 = g.project(x), g.length - tail.project(x)
+        if t1 - t0 > 2 * CORNER_TAIL * K:
+            w.set_segments(_piece(w, t0, t1))
+            changed = True
+    for i, w in enumerate(walls):                    # walls run on past a corner
+        for v in walls[i + 1:]:
+            gw, gv = LineString(bezier_points(w.segments())), LineString(bezier_points(v.segments()))
+            x = gw.intersection(gv)
+            if x.is_empty or x.geom_type != 'Point':
+                continue
+            tw, tv = gw.project(x), gv.project(x)
+            ew = 0 if tw < CORNER_TAIL * K else (-1 if gw.length - tw < CORNER_TAIL * K else None)
+            ev = 0 if tv < CORNER_TAIL * K else (-1 if gv.length - tv < CORNER_TAIL * K else None)
+            if ew is None or ev is None:
+                continue
+            cw = tw if ew == 0 else gw.length - tw
+            cv = tv if ev == 0 else gv.length - tv
+            if min(cw, cv) < 0.01 * K or gw.length < 2 * cw or gv.length < 2 * cv:
+                continue
+            w.set_segments(_piece(w, tw, gw.length) if ew == 0 else _piece(w, 0.0, tw))
+            v.set_segments(_piece(v, tv, gv.length) if ev == 0 else _piece(v, 0.0, tv))
+            changed = True
+    if changed:
+        now = _outline_score(objs)
+        if (now <= before and now[:2] == (0, 0)) or now[:2] < before[:2]:
+            return True
+    for x, r in saved:
+        x.rows = r
+    return False
 
 
 TEE_ON = 0.05       # m (x K): a line's end this near the middle of a wall meets it there
@@ -1271,8 +1631,7 @@ def tee_joins(objs, o, K, before, survey=None):
         a, b = parts
         k = objs.index(w)
         objs[k:k + 1] = [a, b]
-        # which piece is inside (a border: only one the legs say is inner), or neither
-        options.append([(x, w.head) for x in (a, b) if survey and judge(x, objs, K, survey) == 'inner'] + [None])
+        options.append([None])                            # both pieces stay walls (never made borders)
     if len(options) == 1:
         restore()
         return False
@@ -1293,7 +1652,7 @@ def tee_joins(objs, o, K, before, survey=None):
     return False
 
 
-OUTER_KEPT = []     # first points of outer lines left as borders: as walls the outline crossed itself
+OUTER_KEPT = []     # first points of outer walls where the outline still crosses itself (reported)
 
 
 def no_outline_none(objs, K=1.0):
@@ -1320,6 +1679,19 @@ def no_outline_none(objs, K=1.0):
         if len(o.segments()) < 2:
             o.kind = 'drop'
             continue
+        # a short piece running on from the end of another line is that line's kind (it merges
+        # into it: Style.md, merge_short; Connection 13 to 15, hand edit: a 2-node piece of a border)
+        from .settings import SETTINGS
+        so = o.segments()
+        if SETTINGS['merge_short'] and len(so) <= SETTINGS['merge_short']:
+            nb = next((x for x in objs if x is not o and x.kind == 'line' and len(x.segments()) > 1
+                       and '-close on' not in x.head and '-outline none' not in x.head
+                       and x.head.split()[1] in ('wall', 'border')
+                       and any(math.dist(so[a][-2:], x.segments()[b][-2:]) < 0.05 * K
+                               for a in (0, -1) for b in (0, -1))), None)
+            if nb is not None and nb.head.split()[1] == 'border':
+                o.head = nb.head
+                continue
         g = LineString(bezier_points(o.segments()))
         inside = passage is not None and sum(passage.buffer(-0.05 * K).contains(g.interpolate(i / 10, normalized=True))
                                              for i in range(11)) >= 9
@@ -1328,8 +1700,8 @@ def no_outline_none(objs, K=1.0):
             continue
         before = _outline_score(objs)
         o.head = o.head.replace(' -outline none', '')
-        if _outline_score(objs) > before:
-            o.head = 'line border'
+        if _outline_score(objs) > before and not untangle(objs, K, before):
+            OUTER_KEPT.append(tuple(round(v) for v in o.segments()[0][-2:]))   # a wall still: reported
     objs[:] = [o for o in objs if o.kind != 'drop']
     return n
 
@@ -1341,19 +1713,37 @@ def _redo_scrap(header, body, path):
     K = scale_of(header)
     from .settings import SETTINGS
     SETTINGS['_elevation'] = '-projection extended' in header
+    joined = join_pieces(objs, K) if SETTINGS['outer_walls'] else 0
     tidy = one_line_per_wall(objs, K)
-    stepped = 0
+    stepped = joined
     if SETTINGS['outer_walls'] and '-projection none' not in header:
         from .survey import survey_of
         sv = survey_of(path) or (re.match(r'scrap (\S+?)S[PE]\d', header) or [None, ''])[1]
         OUTER_KEPT.clear()
         stepped += outer_lines(objs, K, survey_shots(objs, K, sv, SETTINGS['_elevation']))
-        if OUTER_KEPT:
-            import sys
-            print(f"  {header.split()[1]}: {len(OUTER_KEPT)} outer line(s) left as borders, as walls the outline "
-                  f"crosses itself (passages over one another: separate scraps?) at "
-                  + ", ".join("%d %d" % p for p in OUTER_KEPT), file=sys.stderr)
     stepped += no_outline_none(objs, K)
+    if SETTINGS['outer_walls']:
+        before = _outline_score(objs)
+        rows = [(o, o.rows) for o in objs if o.kind == 'line']
+        if same_way_round(objs) and _outline_score(objs) > before:
+            for o, r in rows:                        # (Therion would link the walls differently)
+                o.rows = r
+        stray = stray_walls(objs, K)
+        if stray:
+            import sys
+            print(f"  {header.split()[1]}: {stray} stray wall mark(s) under {STRAY} m, touching no other wall, "
+                  f"dropped", file=sys.stderr)
+        score = _outline_score(objs)
+        if score[:2] != (0, 0):                      # an outline still crossing: mended where it can be
+            untangle(objs, K, score)
+        stepped += close_gaps(objs, K)
+        stepped += merge_walls(objs, K)
+    if OUTER_KEPT and _outline_score(objs)[:2] != (0, 0):      # (mended since: not reported)
+        import sys
+        print(f"  {header.split()[1]}: {len(OUTER_KEPT)} outer wall(s) where the outline still crosses itself, "
+              f"to check (passages over one another: separate scraps?) at "
+              + ", ".join("%d %d" % p for p in OUTER_KEPT), file=sys.stderr)
+        OUTER_KEPT.clear()
     if SETTINGS['wall_jog_max'] > 0:        # walls joined through the sketcher's steps (jogs.py),
         from .jogs import join_scrap        # before the refit so the join is smoothed too
         stepped = join_scrap(objs, K, SETTINGS['wall_jog_max'])
@@ -1471,6 +1861,12 @@ def redo_file(path, scraps=None):
     t = ''.join(out)
     # the converter's fill line, left where a scrap had no wall to refit: never written (lint wall-invisible)
     t = re.sub(r'(?m)^line wall -subtype invisible -close on\n(?:(?!endline).*\n)*?endline\n\n?', '', t)
+    from .settings import SETTINGS
+    if SETTINGS['outer_walls'] and out:     # wall ends that nearly meet, in a scrap or across a join: one point
+        from .scraps import meet_ends
+        k = scale_of(re.search(r'(?m)^scrap [^\n]*', t).group(0)) if re.search(r'(?m)^scrap ', t) else 0
+        if k:
+            t = meet_ends(t, END_JOIN * k, within=True)
     if b'\r\n' in raw:
         t = t.replace('\n', '\r\n')
     open(path, 'wb').write(t.encode('utf-8'))

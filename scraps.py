@@ -196,6 +196,8 @@ def assign(lines, groups, pos, legs, share=False, placed=None):
                 u = shared_with(piece, t, segs) if share and c in ('BLACK', 'BROWN') and decided is None else None
                 if u is not None:                 # the wall between two scraps' passages: each draws it
                     out.append((u, c, piece))
+    if not share and SIDE_BY_SIDE:
+        out = side_by_side(out, segs)
     return out
 
 
@@ -245,6 +247,64 @@ def by_direction(piece, t, branches):
     return None
 
 
+SIDE_BY_SIDE = True
+PAIR_GAP = 0.6      # m: two walls this close, side by side, are the walls of two passages
+PAIR_REACH = 3.0    # m: the other scrap's legs within this of the outer one of them
+PAIR_MIN = 2.0      # m: walls at least this long (short pieces where passages cross are left as they are)
+PAIR_TURN = 30.0    # degrees: both passages' legs within this of the walls' direction
+
+
+def side_by_side(pieces, segs):
+    """Two walls of one scrap running side by side close together, between
+    this scrap's passage and another's: the one on the other passage's side
+    (that passage's leg beyond it, this scrap's leg and the other wall on
+    the near side) is the other scrap's wall (GoSouth 16 to 21, hand edit:
+    the lower of the two lines is the wall of the passage from 17, not of
+    13 to 16)."""
+    out = [list(p) for p in pieces]
+    walls = [k for k, (t, c, pp) in enumerate(out) if c == 'BLACK' and len(pp) > 1 and LineString(pp).length > PAIR_MIN]
+
+    def side(line, q):                            # +1 left of the line at its nearest part, -1 right
+        d = line.project(q)
+        a, b = line.interpolate(max(0.0, d - 0.1)), line.interpolate(min(line.length, d + 0.1))
+        return 1 if (b.x - a.x) * (q.y - a.y) - (b.y - a.y) * (q.x - a.x) > 0 else -1
+    moves = {}
+    for i in walls:
+        for j in walls:
+            if i == j or out[i][0] != out[j][0]:
+                continue
+            x, y = LineString(out[i][2]), LineString(out[j][2])
+            if sum(y.distance(x.interpolate(k / 10, normalized=True)) < PAIR_GAP for k in range(11)) < 7:
+                continue                              # not side by side along most of x
+            t = out[i][0]
+            mid = x.interpolate(0.5, normalized=True)
+            mine = [g for k, g in segs if k == t and isinstance(g, LineString)]
+            theirs = [(k, g) for k, g in segs if k != t and isinstance(g, LineString)]
+            if not mine or not theirs:
+                continue
+            gm = min(mine, key=lambda g: g.distance(mid))
+            kt, gt = min(theirs, key=lambda kg: kg[1].distance(mid))
+            if gt.distance(mid) > PAIR_REACH:
+                continue
+
+            def along(g):                             # the leg runs alongside x (not across, as where passages cross)
+                (x0, y0), (x1, y1) = x.coords[0], x.coords[-1]
+                (u0, v0), (u1, v1) = g.coords[0], g.coords[-1]
+                c = abs((x1 - x0) * (u1 - u0) + (y1 - y0) * (v1 - v0)) / ((x.length or 1) * (g.length or 1))
+                return c > math.cos(math.radians(PAIR_TURN))
+            if not (along(gm) and along(gt)):
+                continue
+            from shapely.ops import nearest_points
+            pm = nearest_points(gm, mid)[0]
+            pt = nearest_points(gt, mid)[0]
+            py = nearest_points(y, mid)[0]
+            if side(x, pt) != side(x, pm) and side(x, py) == side(x, pm):
+                moves[i] = kt
+    for i, k in moves.items():
+        out[i][0] = k
+    return [tuple(p) for p in out]
+
+
 SHARED = 1.5        # m: a wall between two passages this near it, one either side, is a wall of each
 
 
@@ -278,11 +338,31 @@ def shared_with(piece, t, segs):
 
 
 
-def meet_ends(text, near):
+def other_ends(lines, scrap):
+    """Indices of the first and last point rows of the lines other than
+    walls in one scrap of th2 text (as a list of lines)."""
+    out, cur, i = [], None, 0
+    while i < len(lines):
+        if lines[i].startswith("scrap "):
+            cur = lines[i].split()[1]
+        if cur == scrap and lines[i].startswith("line ") and not lines[i].startswith("line wall"):
+            j = i + 1
+            while j < len(lines) and lines[j].strip() != "endline":
+                j += 1
+            rows = [k for k in range(i + 1, j) if re.match(r"^\s*-?\d", lines[k])]
+            out += rows[:1] + rows[-1:]
+            i = j
+        i += 1
+    return out
+
+
+def meet_ends(text, near, within=False):
     """th2 text where a wall ending within `near` (drawing units) of a wall
     end in another scrap ends where that one does (both moved to their
     midpoint): one wall cut between two scraps, or drawn as two strokes
-    that nearly meet, which the converter's tidying leaves apart."""
+    that nearly meet, which the converter's tidying leaves apart. With
+    `within`, two walls of one scrap too (Style.md, Walls: wall ends that
+    nearly meet are one point; TridentLeft 5 and 10, hand edit)."""
     lines = text.split("\n")
     ends = []                       # (scrap, line index of the row, (x, y))
     scrap = None
@@ -290,21 +370,21 @@ def meet_ends(text, near):
     while i < len(lines):
         if lines[i].startswith("scrap "):
             scrap = lines[i].split()[1]
-        if lines[i].startswith("line wall") and "-subtype invisible" not in lines[i]:
+        if lines[i].startswith("line wall") and "-subtype invisible" not in lines[i] and "-close on" not in lines[i]:
             j = i + 1
             while j < len(lines) and lines[j].strip() != "endline":
                 j += 1
             rows = [k for k in range(i + 1, j) if re.match(r"^\s*-?\d", lines[k])]
             for k in (rows[:1] + rows[-1:]) if rows else []:
                 v = lines[k].split()
-                ends.append((scrap, k, (float(v[-2]), float(v[-1]))))
+                ends.append((scrap, k, (float(v[-2]), float(v[-1])), i))
             i = j
         i += 1
     done = set()
     for a in range(len(ends)):
         best = None
         for b in range(len(ends)):
-            if ends[a][0] == ends[b][0] or a in done or b in done:
+            if a in done or b in done or ends[a][3] == ends[b][3] or (ends[a][0] == ends[b][0] and not within):
                 continue
             d = math.dist(ends[a][2], ends[b][2])
             if 0 < d < near and (best is None or d < best[0]):
@@ -315,5 +395,11 @@ def meet_ends(text, near):
             for k in (ends[a][1], ends[b][1]):
                 v = lines[k].split()
                 lines[k] = "  " + " ".join(v[:-2] + ["%.2f" % m[0], "%.2f" % m[1]])
+            # a line of another kind (a step, a border) ending on either end moves with it (lint end-on-node)
+            old = {("%.2f" % ends[x][2][0], "%.2f" % ends[x][2][1]) for x in (a, b)}
+            for k in other_ends(lines, ends[a][0]):
+                v = lines[k].split()
+                if tuple(v[-2:]) in old:
+                    lines[k] = "  " + " ".join(v[:-2] + ["%.2f" % m[0], "%.2f" % m[1]])
             done |= {a, b}
     return "\n".join(lines)

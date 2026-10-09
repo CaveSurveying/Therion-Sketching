@@ -428,16 +428,24 @@ def th2(lines, passage, px, idbase, wall_colours, boulder_min, barriers=()):
                 return False                               # a long line is not rock detail
             return L.length > 0 and max(L.intersection(r).length for r in rocks) >= 0.5 * L.length
         brown_lines = [pp for pp in brown_lines if len(pp) < 2 or not in_rocks(pp)]
+    # interior lines are marked by an id: drawn in a colour that is not a wall's, they are
+    # inner whatever side the legs are on (a channel either side of the leg: TridentLeft
+    # 21 to 29), so the outer-line rule (smooth.outer_lines) leaves them be
+    n = [0]
+
+    def head():
+        n[0] += 1
+        return f"line border -id {idbase}-inner{n[0]}" if SETTINGS['outer_walls'] else "line border"
     for pp in brown_lines:
         g = LineString(pp).intersection(inside)
         for part in getattr(g, 'geoms', [g]):
             if part.geom_type == 'LineString' and part.length >= 0.3:
-                o += ["line border"] + smooth_rows(list(part.coords), px) + ["endline", ""]
+                o += [head()] + smooth_rows(list(part.coords), px) + ["endline", ""]
     rock_areas = unary_union([g for k, g in areas if k in ('blocks', 'debris')]) if bmin else None
     for pp in inner_pp:
         L = LineString(pp)
         if rock_areas is not None and not rock_areas.is_empty and L.length < bmin \
                 and L.intersection(rock_areas).length >= 0.5 * L.length:
             continue                     # a short line among the rocks: part of their drawing
-        o += ["line border"] + smooth_rows(pp, px) + ["endline", ""]
+        o += [head()] + smooth_rows(pp, px) + ["endline", ""]
     return o
