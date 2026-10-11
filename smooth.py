@@ -1028,6 +1028,7 @@ LEG_REACH = 6.0     # m: the legs a line belongs to are within this of it
 LEG_BAND = 1.5      # m: legs this much further from a line than the nearest are another passage's
 ON_LINE = 0.6       # m: a station this close to a line doesn't say which side the passage is
 BEYOND = 0.5        # m: a splay reaching further than this past a line shows passage beyond it
+SPLAY_MEASURED = 0.3  # m: a vertical splay ending this near a line was measured to it (elevations)
 
 
 SIDE_RUN = 1.0      # m: a line is split where its nearest leg changes side for at least this far
@@ -1154,6 +1155,21 @@ def judge(o, objs, K, survey):
         a, b = min(mine, key=lambda l: dist[l])
         left, right = (1, 0) if side(LineString([st[a], st[b]]).interpolate(0.5, normalized=True).coords[0]) > 0 \
             else (0, 1)
+    if SETTINGS.get('_elevation'):
+        # the floor or roof the splays straight up or down were measured to, from one side only
+        # (none from the other side reaching it): that side's wall (BoldStep 1 and 4, the floor
+        # of 0 to 4 over the passage at 5 and 6, user)
+        reach = {x for a, b in mine for x in (a, b)} | {x for x in st if g.distance(Point(st[x])) < LEG_REACH * K}
+        on = [x for x in reach for e in ends.get(x, ()) if g.distance(Point(e)) < SPLAY_MEASURED * K
+              and 0.02 * g.length < g.project(Point(e)) < 0.98 * g.length
+              and g.distance(Point(st[x])) > SPLAY_ON * K]
+        sides = {side(st[x]) for x in on}
+        if len(set(on)) >= 2 and len(sides) == 1:
+            s1 = sides.pop()
+            short = [x for x in reach if side(st[x]) == -s1 and any(
+                LineString([st[x], e]).distance(g) < SPLAY_MEASURED * K for e in ends.get(x, ()))]
+            if not short:
+                return s1
     if min(left, right) >= max(1, 0.3 * len(votes)):
         return 'inner'
     here = 1 if left >= right else -1
@@ -1305,6 +1321,9 @@ def close_gaps(objs, K):
     return n
 
 
+SLIVER = 0.05       # m: a wall piece shorter than this on another's end goes
+
+
 def merge_walls(objs, K):
     """Walls of one kind meeting end to end merged into one line (Style.md,
     merge_short; Connection, user): always one of 2 nodes, one of 3 or 4
@@ -1334,6 +1353,13 @@ def merge_walls(objs, K):
                     continue
                 first = sw if hit[0] == -1 else reverse_segments(sw)
                 second = so if hit[1] == 0 else reverse_segments(so)
+                pts = bezier_points(so, 8)
+                if sum(math.dist(a, b) for a, b in zip(pts, pts[1:])) < SLIVER * K:
+                    o.kind = 'drop'                  # a sliver on the end of a wall: not drawn (TritonNorth)
+                    objs[:] = [x for x in objs if x.kind != 'drop']
+                    n += 1
+                    changed = True
+                    break
                 if len(so) > 2:
                     a = bezier_points(first, 8)
                     b = bezier_points(second, 8)
@@ -1894,6 +1920,10 @@ def redo_file(path, scraps=None):
         k = scale_of(re.search(r'(?m)^scrap [^\n]*', t).group(0)) if re.search(r'(?m)^scrap ', t) else 0
         if k:
             t = meet_ends(t, END_JOIN * k, within=True)
+            from .scraps import meet_on_walls     # a wall ending on another scrap's wall: at a node of it
+            t = meet_on_walls(t, END_JOIN * k)
+            from .scraps import drop_slivers
+            t = drop_slivers(t, SLIVER * k)
     if b'\r\n' in raw:
         t = t.replace('\n', '\r\n')
     open(path, 'wb').write(t.encode('utf-8'))

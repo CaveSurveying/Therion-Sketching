@@ -128,6 +128,26 @@ def dash_chains(cands, dash_gap=DASH_GAP, min_dashes=MIN_DASHES):
                 continue
             link[a].add(b)
             link[b].add(a)
+    # each dash joins only its nearest dash ahead and behind along its line, and only if that
+    # one takes it back too (two dashed lines side by side are not one zigzag: FairyChimneys 12)
+    def centre(k):
+        pp = pp_of[k]
+        return ((pp[0][0] + pp[-1][0]) / 2, (pp[0][1] + pp[-1][1]) / 2)
+
+    def nearest(a):
+        u, ca = _axis(pp_of[a]), centre(a)
+        best = {}
+        for b in link[a]:
+            cb = centre(b)
+            t = (cb[0] - ca[0]) * u[0] + (cb[1] - ca[1]) * u[1]
+            side = t > 0
+            if side not in best or math.dist(ca, cb) < math.dist(ca, centre(best[side])):
+                best[side] = b
+        return set(best.values())
+    from .settings import SETTINGS
+    if SETTINGS.get('dash_neighbours'):
+        keep = {a: nearest(a) for a in idx}
+        link = {a: {b for b in keep[a] if a in keep[b]} for a in idx}
     seen, chains = set(), []
     for i in idx:
         if i in seen:

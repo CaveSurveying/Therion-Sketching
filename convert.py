@@ -48,6 +48,10 @@ def is_outline(pp):
     return not (straight and path > 1.5 * L)
 
 
+LINK_MIN = 0.3      # m: a short stroke in a wall colour this long or more, joined to the wall at both ends, is wall
+LINK_MEET = 0.3     # m: ends this close are joined
+
+
 def wall_strokes(lines):
     """(wall strokes, boulders, slope arrows) from the sketch lines."""
     black = [pp for c, pp in lines if c == 'BLACK' and len(pp) > 1
@@ -69,7 +73,23 @@ def wall_strokes(lines):
     black += hooks
     cols = [c for c in SETTINGS['wall_colours'] if c != 'BLACK']
     other = [pp for c, pp in lines if c in cols and len(pp) > 1 and is_outline(pp)]
-    return black + other, boulders, arrows
+    # short pieces of a wall drawn in a wall colour, joined end to end at both ends to the
+    # wall (FairyChimneys 9: the floor under it, brown then green flowstone in short strokes)
+    walls = black + other
+    if not SETTINGS.get('short_links'):
+        return walls, boulders, arrows
+    short = [pp for c, pp in lines if c in cols and len(pp) > 1 and not any(pp is q for q in other)
+             and LINK_MIN <= sum(math.dist(a, b) for a, b in zip(pp, pp[1:])) and math.dist(pp[0], pp[-1]) >= LINK_MIN]
+    meets = lambda e, qs: any(min(math.dist(e, q[0]), math.dist(e, q[-1])) < LINK_MEET for q in qs)
+    changed = True
+    while changed:
+        changed = False
+        for pp in list(short):
+            rest = walls + [q for q in short if q is not pp]
+            if not (meets(pp[0], rest) and meets(pp[-1], rest)):
+                short = [q for q in short if q is not pp]
+                changed = True
+    return walls + short, boulders, arrows
 
 
 def _lerp_pt(a, b, t):
@@ -943,7 +963,7 @@ def corners(walls):
     """Two walls crossing near an end of each (a corner drawn with both
     strokes run on past it): each is cut at the crossing and the short ends
     beyond it go, so the outline turns the corner and doesn't cross itself
-    (Trident 17, hand edit: the roof and the clay floor of the pocket)."""
+    (Trident 17, hand edit: the roof and the mud floor of the pocket)."""
     out = [list(w) for w in walls]
     for i in range(len(out)):
         for k in range(i + 1, len(out)):
@@ -1088,13 +1108,17 @@ def trim_at_joins(walls, joins, stations, others=()):
     return out
 
 
-def presumed_strokes(lines):
+ELEVATION_DASH_GAP = 1.2   # m: dashes of one line in an elevation (a big chamber's roof drawn sparsely:
+                           # FairyChimneys 34 to 39, Connection; plans keep notation.DASH_GAP)
+
+
+def presumed_strokes(lines, dash_gap=None):
     """(lines with each black dashed line as one stroke, [those strokes]) with
     dashed_presumed; the dashes themselves are gone."""
     if not SETTINGS['dashed_presumed']:
         return lines, []
     from . import notation
-    found, used = notation.presumed(lines)
+    found, used = notation.presumed(lines, dash_gap or notation.DASH_GAP)
     return [l for k, l in enumerate(lines) if k not in used] + [('BLACK', pp) for pp in found], found
 
 
@@ -1109,11 +1133,10 @@ def presumed_marks(presumed, poly, px):
 def subtype_marks(lines, px, kinds={}):
     """Comment lines recording where walls are drawn in a colour that means
     a wall subtype (green: `flowstone`, or `blocks` if drawn lumpy; brown: `debris` where
-    boulders lie along it, `sand` where brown dots do, else mud, `clay`), for smooth.wall_subtypes to apply once the walls are final:
-    `# wall-subtype clay: x y x y ...` in drawing units."""
-    from .marks import kind_of
+    boulders lie along it, else `sand`: mud is drawn as sand, never clay), for
+    smooth.wall_subtypes to apply once the walls are final:
+    `# wall-subtype sand: x y x y ...` in drawing units."""
     out = []
-    dots = [pp for c, pp in lines if c == 'BROWN' and pp and kind_of(pp, 0.3, SETTINGS['mark_max']) == 'sand']
     from .elevation import _closed, BOULDER_MAX
     rocks = [LineString(pp) for c, pp in lines if len(pp) > 3 and _closed(pp)
              and sum(math.dist(a, b) for a, b in zip(pp, pp[1:])) <= BOULDER_MAX]
@@ -1121,7 +1144,6 @@ def subtype_marks(lines, px, kinds={}):
         if c not in ('BROWN', 'GREEN') or len(pp) < 2 or not is_outline(pp):
             continue
         L = LineString(pp)
-        near = sum(1 for d in dots if L.distance(Point(d[0])) < 0.5)
         if id(pp) in kinds:
             kind = kinds[id(pp)]
         elif c == 'GREEN':                       # colour is a hint: shape decides
@@ -1129,7 +1151,7 @@ def subtype_marks(lines, px, kinds={}):
         elif sum(1 for r in rocks if L.distance(r) < 0.3) >= max(2, L.length / 2.0):
             kind = 'debris'                      # boulders along it: a floor of debris
         else:
-            kind = 'sand' if near >= 3 else 'clay'
+            kind = 'sand'                        # mud or sand: sand (user, 2026-10-11: no clay)
         out.append(f"# wall-subtype {kind}: " + " ".join("%.1f %.1f" % px(p) for p in pp))
     return out + ([""] if out else [])
 
@@ -1167,7 +1189,11 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
     px = lambda p: (K * p[0], K * p[1])
     xs_text, made, used = section_scraps(sketch, opt, K, 'E')
     lines = [l for i, l in enumerate(sketch.lines) if i not in used]
+    # dashed lines found before the strokes are shared out between scraps (one crossing two
+    # scraps would break into runs too short to count)
+    lines, presumed_all = presumed_strokes(lines, ELEVATION_DASH_GAP)
     legs_all = [(a, b) for a, b, *_ in sketch.legs()]
+    marks = None
     if opt.scraps and SETTINGS['hand_scraps']:    # chosen by hand ([scraps_extended]), as in plan
         from . import scraps as by_hand
         names = sorted(pos, key=register.natural)
@@ -1178,6 +1204,9 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
             lines = splayed_walls(lines, marks)
         pieces = drawn_on(by_hand.assign(lines, groups, pos, legs_all, share=True, placed=placed, marks=marks),
                           lines, [len(g) for g in groups], keep=placed)
+        colours = set(SETTINGS['wall_colours']) | {'BLACK'}
+        pieces = by_hand.one_wall_each_side(pieces, groups, pos, colours)
+        pieces = by_hand.carried_through(pieces, colours)
     else:
         member = {n: i for i, g in enumerate(groups) for n in g}
         near = lambda p: member.get(_nearest(pos, p), 0) if pos else 0
@@ -1188,7 +1217,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
         if len(g) < 2:
             continue
         mine = [(c, pp) for k, c, pp in pieces if k == gi]
-        mine, presumed = presumed_strokes(mine)
+        presumed = presumed_all
         feats = None
         if SETTINGS['elevation_features']:       # pools, flow, curtains, blocks, rocks, rubble (elevation.py)
             from . import elevation as el
@@ -1213,12 +1242,23 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
             walls += el.bowls(feats, walls)
         if not walls:
             continue
-        legs = [(pos[a], pos[b]) for a, b in legs_all if a in gset and b in gset]
+        if len(groups) > 1 and SETTINGS['outer_walls']:   # with the legs at a junction going with the passage beyond it
+            from .scraps import leg_owner
+            own = leg_owner(groups, legs_all)
+            legs = [(pos[a], pos[b]) for a, b in legs_all if own.get((a, b)) == gi and a in pos and b in pos]
+        else:
+            legs = [(pos[a], pos[b]) for a, b in legs_all if a in gset and b in gset]
         extra = [pp for c, pp in mine if c == 'BLUE'] + \
             ([[(x0, y), (x1, y)] for x0, x1, y in feats.pools] if feats else [])
         others = [(c, pp) for k, c, pp in pieces if k != gi and pp]
         stops = clean(wall_strokes(others)[0]) if others else []
-        polys = elevation_fill(walls, legs, extra, below, above, stops)
+        # the fill reaches as high as the splays say the roof is (FairyChimneys 31 to 39: a chamber
+        # 7 to 11 m high, its dashed roof drawn there)
+        reach = above
+        if marks:
+            ups = [e[1] - pos[n][1] for n in g if n in marks and n in pos for e in marks[n] if e[1] > pos[n][1]]
+            reach = max([above] + [u + 0.5 for u in ups])
+        polys = elevation_fill(walls, legs, extra, below, reach, stops)
         if SETTINGS['rock_faces'] and SETTINGS['outer_walls']:     # the rock its closing-up took in goes, as in plan
             polys = [drop_rock_faces(p, walls, legs, [pos[n] for n in g if n in pos], seal=ELEVATION_SEAL,
                                      margin=0.1) for p in polys]

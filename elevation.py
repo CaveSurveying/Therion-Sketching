@@ -110,6 +110,8 @@ BOULDER_MAX = 1.5       # m: a closed stroke up to this long is a boulder
 FLOOR_GAP = 1.0         # m: boulders this close are one row
 FLOOR_ROW = 4           # boulders in a row along the floor make a floor
 FLOOR_COVER = 1.0       # m: a floor line drawn within this under the row is the floor already
+FLOOR_SMOOTH = 1.0      # m: a floor over a row of rocks follows their tops, averaged over this
+ROW_LINE = 0.5          # m: or through the row or this far above it (rocks drawn along a floor line)
 
 
 def _curled(pp):
@@ -119,8 +121,9 @@ def _curled(pp):
 
 def boulder_floor(lines):
     """A floor drawn only as a row of marks (boulders, small closed loops,
-    or short brown curls and dashes; no line under them) is a floor: a line
-    along the bottom of the row, where no line is drawn under it. Returns
+    or short brown curls and dashes; no line under or through them) is a floor: a line
+    through the tops of the rocks, smoothed (user: BoldStep 12 to 11, rocks are only
+    drawn: imagine a line through their tops), where no line is drawn under it. Returns
     [(points, 'debris')]: only where most marks are curled (straight dashes
     are mud marked on a floor drawn elsewhere)."""
     loops = [pp for c, pp in lines if len(pp) > 1 and length(pp) <= BOULDER_MAX and (
@@ -144,8 +147,12 @@ def boulder_floor(lines):
             continue                    # straight dashes: mud marked on a floor, not a floor
         kind = 'debris'
         run = []
+        top = LineString(_top(r)) if len(_top(r)) > 1 else None
         for q in _bottom(r):
-            below = LineString([q, (q[0], q[1] - FLOOR_COVER)])
+            # a line drawn under the row, through it or just over it (debris drawn as small
+            # rocks along a floor line: FairyChimneys 25 to 28), is the floor already
+            up = top.intersection(LineString([(q[0], -1e5), (q[0], 1e5)])).bounds[3] if top else q[1]
+            below = LineString([(q[0], max(up, q[1]) + ROW_LINE), (q[0], q[1] - FLOOR_COVER)])
             if any(d.intersects(below) or d.distance(Point(q)) < 0.1 for d in drawn):
                 if length(run) >= 1.0:
                     out.append((run, kind))
@@ -154,7 +161,25 @@ def boulder_floor(lines):
                 run.append(q)
         if length(run) >= 1.0:
             out.append((run, kind))
-    return out
+    return [(_over_tops(run, top), kind) if top else (run, kind) for run, kind in out]
+
+
+def _over_tops(run, top, half=FLOOR_SMOOTH / 2):
+    """The floor over a run of the row: the tops of its rocks (joined across the
+    gaps between them), as a running mean over FLOOR_SMOOTH m."""
+    def y_at(x):
+        cut = top.intersection(LineString([(x, -1e5), (x, 1e5)]))
+        return cut.bounds[3] if not cut.is_empty else None
+    xs = [q[0] for q in run]
+    tops = [(x, y_at(x)) for x in xs]
+    tops = [(x, y) for x, y in tops if y is not None]
+    if len(tops) < 2:
+        return run
+    out = []
+    for x, _ in tops:
+        near = [y for x2, y in tops if abs(x2 - x) <= half]
+        out.append((x, sum(near) / len(near)))
+    return LineString(out).simplify(0.05).coords[:]
 
 
 class Features:

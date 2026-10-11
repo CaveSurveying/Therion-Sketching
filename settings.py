@@ -15,14 +15,18 @@ UPSTREAM = {
     'section_names': False,      # True: cross-sections named survey + PX/EX + station (FairyChimneysPX5); upstream X_xs_n
     'outer_walls': False,        # True: a border or `-outline none` wall with passage (by the splays) on one side only is a wall
     'dashed_presumed': False,    # True: black dashed lines (no ticks) are `line wall -subtype presumed`
+    'dash_neighbours': False,    # True: a dash joins only its nearest dash ahead and behind (two dashed lines
+                                 # side by side stay two: FairyChimneys 12)
+    'short_links': False,        # True: a short stroke in a wall colour joined to the wall at both ends is
+                                 # wall (FairyChimneys 9: the floor drawn in short brown and green pieces)
     'section_arrows': False,     # True: section lines `-direction both`, view direction on the left, 0.5 m past the passage (Style.md)
     'layout_split': True,        # True (upstream): a scrap per group of stations that fits Therion's
                                  # layout with one shift, and a sketch that fits only upside down
                                  # flipped. False (plan stage 5d): the layout is for `check` only
     'elevation_features': False,  # True: pools, water flow, curtains, blocks, rocks and rubble read
                                   # from an elevation sketch by shape (elevation.py)
-    'wall_subtypes': False,      # True: elevation walls drawn brown are mud (-subtype clay), or sand where
-                                 # brown dots lie along them
+    'wall_subtypes': False,      # True: elevation walls drawn brown are -subtype sand (mud too: no clay),
+                                 # or debris where rocks lie along them
     'elevation_wall_colours': [],  # strokes that can make an elevation's outline, if not wall_colours
                                  # (a floor is often drawn brown)
     'interior_borders': False,   # True: lines inside the passage stay borders (no floor-step guessing)

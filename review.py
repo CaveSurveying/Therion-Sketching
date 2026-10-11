@@ -371,6 +371,49 @@ def check(th2, scraps=None):
     return res
 
 
+DOUBLED_NEAR = 1.0   # m: a wall this close behind another, seen from the nearest station,
+DOUBLED_RUN = 1.0    # m: for this long in all, is a second wall on one side of the passage (a hard rule)
+
+
+def doubled_walls(th2, scraps=None):
+    """[(scrap, metres, (x, y))]: an outer wall lying behind another of the
+    same scrap's walls, seen from the nearest station (Style.md, hard rule 2:
+    one outer wall each side of the passage)."""
+    t = open(th2, encoding='utf-8').read().replace('\r\n', '\n')
+    res = []
+    for m in re.finditer(r'^scrap (\S+)([^\n]*)\n(.*?)^endscrap', t, re.S | re.M):
+        if scraps and m.group(1) not in scraps:
+            continue
+        sc = re.search(r'-scale \[([^]]*)\]', m.group(2))
+        v = sc.group(1).split() if sc else []
+        k = (float(v[2]) - float(v[0])) / (float(v[6]) - float(v[4])) if len(v) >= 8 else K
+        objs = parse_scrap(m.group(3))
+        st = list(stations_of(objs).values())
+        walls = [LineString(bezier_points(o.segments(), 20)) for o in outline_lines(objs)]
+        if not st:
+            continue
+        # walls joined end to end carry on from one another: not one behind the other
+        ends = [(Point(w.coords[0]), Point(w.coords[-1])) for w in walls]
+        joined = [{j for j in range(len(walls)) if j != i and
+                   min(e.distance(f) for e in ends[i] for f in ends[j]) < 0.1 * k} for i in range(len(walls))]
+        for i, a in enumerate(walls):
+            run, at = 0.0, None
+            n = max(2, int(a.length / (0.1 * k)) + 1)
+            for q_ in range(n):
+                p = a.interpolate(q_ / (n - 1), normalized=True)
+                s = min(st, key=lambda q: math.dist(q, (p.x, p.y)))
+                sight = LineString([(p.x, p.y), s])
+                behind = any(j != i and j not in joined[i] and b.distance(p) < DOUBLED_NEAR * k
+                             and b.intersects(sight) and b.intersection(sight).distance(p) > 0.05 * k
+                             for j, b in enumerate(walls))
+                if behind:                       # in all, along the wall (a sight line may slip past)
+                    run += a.length / (n - 1) / k
+                    at = at or (round(p.x), round(p.y))
+            if run >= DOUBLED_RUN:
+                res.append((m.group(1), run, at))
+    return res
+
+
 def gaps(th2, scrap, minlen=0.3, sketch=None):
     """[(metres, nearest station, a, b, share of the gap the sketch walls run along)]."""
     objs = scrap_objects(th2, scrap); st = stations_of(objs)
@@ -428,3 +471,5 @@ def main(argv):
         for s_, n, ok, tn in check(a.th2, a.scraps or None):
             flag = '' if ok and tn != 0 else '   <- ' + ('crosses itself' if not ok else 'MetaPost will warn')
             print(f'{s_}: {n} lines, valid {ok}, turning {tn}{flag}')
+        for s_, run, at in doubled_walls(a.th2, a.scraps or None):
+            print(f'{s_}: a second wall on one side of the passage for {run:.1f} m at {at[0]} {at[1]}   <- hard rule 2')
