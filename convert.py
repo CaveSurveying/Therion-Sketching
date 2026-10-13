@@ -471,7 +471,49 @@ def gather_section(centre, lines, used, stations, near=1.2, reach=6.0, avoid=())
     return picked
 
 
-def section_outline(strokes):
+SECTION_CLOSE = (0.03, 0.06, 0.1, 0.17)   # a section's closing distances: shares of its size (with section_shape)
+SECTION_MAIN = 0.7        # one stroke this share of the section's length (floor marks aside) is its outline ...
+SECTION_OPEN = 0.7        # ... and if its ends are apart, by up to this share of its size, a floor closes it
+FLOOR_MARK = 0.6          # m: a closed loop shorter than this is a mark on the floor (a pebble), not a wall
+FLOOR_NEAR = 0.15         # m: floor marks this close to the closing floor make it debris
+
+
+def _floor_mark(pp):
+    return len(pp) > 3 and math.dist(pp[0], pp[-1]) < 0.15 and LineString(pp).length < FLOOR_MARK
+
+
+def drawn_floor(strokes, centre):
+    """A section sketched as one open stroke (walls and roof, the floor left
+    open or drawn as pebbles): (outline polygon, the stroke's two ends,
+    floor subtype or None), the floor straight across its ends; or None if
+    the section is not drawn so (Style.md, cross-sections: the user,
+    TridentLeft PX1 and PX10)."""
+    strokes = [s for s in strokes if len(s) > 1]
+    marks = [s for s in strokes if _floor_mark(s)]
+    rest = [s for s in strokes if not _floor_mark(s)]
+    if not rest:
+        return None
+    main = max(rest, key=lambda s: LineString(s).length)
+    L = LineString(main).length
+    if L < SECTION_MAIN * sum(LineString(s).length for s in rest):
+        return None
+    a, b = main[0], main[-1]
+    x0, y0, x1, y1 = LineString(main).bounds
+    size = math.hypot(x1 - x0, y1 - y0)
+    gap = math.dist(a, b)
+    if gap < 0.05 or gap > SECTION_OPEN * size:
+        return None
+    g = Polygon(list(main) + [main[0]]).buffer(0)
+    if g.geom_type != 'Polygon':
+        g = max(getattr(g, 'geoms', []), key=lambda p: p.area, default=Polygon())
+    if g.is_empty or (centre is not None and not g.buffer(0.1).contains(Point(centre))):
+        return None
+    chord = LineString([b, a])
+    near = [m for m in marks if chord.distance(Polygon(m).buffer(0).centroid) < FLOOR_NEAR]
+    return g, (a, b), ('debris' if len(near) >= 2 else None)
+
+
+def section_outline(strokes, centre=None):
     """One closed outline for a cross-section, from its wall strokes.
 
     The strokes are thickened just enough to close the outline (up to
@@ -487,7 +529,12 @@ def section_outline(strokes):
         return None
     U = unary_union([LineString(s) for s in strokes])
     out = None
-    for d in (0.1, 0.2, 0.35, 0.6):
+    steps = (0.1, 0.2, 0.35, 0.6)
+    if SETTINGS['section_shape']:           # closing distances scale with the section's size
+        b = U.bounds
+        diag = math.hypot(b[2] - b[0], b[3] - b[1])
+        steps = tuple(min(d, f * diag) for d, f in zip(steps, SECTION_CLOSE))
+    for d in steps:
         g = U.buffer(d, join_style=1)
         big = max(_polygons(g, 0.0) or [Polygon()], key=lambda p: p.area)
         if big.is_empty:
@@ -497,7 +544,10 @@ def section_outline(strokes):
             o = filled.buffer(-d, join_style=1)
             ps = _polygons(o, 0.01)
             if ps:
-                out = max(ps, key=lambda p: p.area)
+                cand = max(ps, key=lambda p: p.area)
+                if centre is not None and not cand.buffer(0.1).contains(Point(centre)):
+                    continue                # a pocket, not the section: its station is outside
+                out = cand
                 break
     if out is None:     # never closes: wrap the strokes
         pts = MultiPoint([p for s in strokes for p in s])
@@ -524,7 +574,16 @@ def section_th2(name, attrs, lines, centre, K, comment):
     wl = [pp for c, pp in lines if c in WALLS and len(pp) > 1]
     if not wl:
         return None
-    poly = section_outline(wl)
+    floor = drawn_floor(wl + rocks, centre) if SETTINGS['section_shape'] else None
+    if floor:
+        poly, (a, b), sub = floor
+        wl = [pp for pp in wl if not _floor_mark(pp)]      # pebbles on the floor: the floor's subtype shows them
+        # nor are small rocks on it drawn (Style.md, rocks along a wall line)
+        chord = LineString([b, a])
+        rocks = [pp for pp in rocks if chord.distance(Polygon(pp).buffer(0).centroid) >= FLOOR_NEAR
+                 or math.sqrt(Polygon(pp).buffer(0).convex_hull.area) >= 0.3]
+    else:
+        poly = section_outline(wl, centre if SETTINGS['section_shape'] else None)
     if poly is None:
         return None
     if SETTINGS['sections_in_place']:     # where it was sketched, by its section mark
@@ -532,7 +591,18 @@ def section_th2(name, attrs, lines, centre, K, comment):
     else:
         xpx = lambda p: (K * (p[0] - centre[0]) + 1000, K * (p[1] - centre[1]) + 1000)
     o = [f"scrap {name} -projection none{attrs}", "", comment, ""]
-    o += ["line wall -close on"] + bezier_closed(list(poly.exterior.coords), xpx) + ["endline", ""]
+    if floor:
+        # the stroke as drawn (walls and roof), then the floor straight back across its ends
+        main = max(wl, key=lambda s: LineString(s).length)
+        pp = list(LineString(main).simplify(0.025).coords)
+        if len(pp) >= 3:
+            pp = list(LineString(chaikin(pp, 1)).simplify(0.015).coords)
+        pp[0], pp[-1] = a, b
+        o += ["line wall"] + bezier_lines(pp, xpx) + ["endline", ""]
+        o += [f"line wall{' -subtype ' + sub if sub else ''}", "  %.2f %.2f" % xpx(b), "  %.2f %.2f" % xpx(a),
+              "endline", ""]
+    else:
+        o += ["line wall -close on"] + bezier_closed(list(poly.exterior.coords), xpx) + ["endline", ""]
     # marks inside: boulders, and ledges or other lines as borders
     inner = []
     edge = poly.exterior

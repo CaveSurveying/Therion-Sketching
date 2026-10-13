@@ -533,12 +533,14 @@ def meet_ends(text, near, within=False):
     nearly meet are one point; TridentLeft 5 and 10, hand edit)."""
     lines = text.split("\n")
     ends = []                       # (scrap, line index of the row, (x, y))
-    scrap = None
+    scrap, section = None, False
     i = 0
     while i < len(lines):
         if lines[i].startswith("scrap "):
             scrap = lines[i].split()[1]
-        if lines[i].startswith("line wall") and "-subtype invisible" not in lines[i] and "-close on" not in lines[i]:
+            section = "-projection none" in lines[i]      # a cross-section joins no other scrap
+        if lines[i].startswith("line wall") and "-subtype invisible" not in lines[i] and "-close on" not in lines[i] \
+                and not section:
             j = i + 1
             while j < len(lines) and lines[j].strip() != "endline":
                 j += 1
@@ -574,12 +576,16 @@ def meet_ends(text, near, within=False):
 
 
 def _walls_of(lines):
-    """[(scrap, header index, [numeric row indices])] of the walls in th2 lines."""
-    out, scrap, i = [], None, 0
+    """[(scrap, header index, [numeric row indices])] of the walls in th2 lines,
+    cross-sections left out: a section joins no other scrap (TridentLeft PX6
+    was joined to the plan's wall beside it)."""
+    out, scrap, section, i = [], None, False, 0
     while i < len(lines):
         if lines[i].startswith("scrap "):
             scrap = lines[i].split()[1]
-        if lines[i].startswith("line wall") and "-subtype invisible" not in lines[i] and "-close on" not in lines[i]:
+            section = "-projection none" in lines[i]
+        if lines[i].startswith("line wall") and "-subtype invisible" not in lines[i] and "-close on" not in lines[i] \
+                and not section:
             j = i + 1
             while j < len(lines) and lines[j].strip() != "endline":
                 j += 1

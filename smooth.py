@@ -1756,6 +1756,41 @@ def no_outline_none(objs, K=1.0):
     return n
 
 
+SECTION_SPIKE = 0.03   # a section's spike: shorter than this share of its walls' length (with section_shape)
+SHAPE_KEPT = 0.9       # a node removed (despike) or handle moved (fix_handles) keeps this share of the area
+MIN_RING = 4           # ... and a closed wall at least this many distinct nodes
+
+
+def _walls_of(objs):
+    return [o for o in objs if o.kind == 'line' and o.head.startswith('line wall')
+            and '-subtype invisible' not in o.head and len(o.segments()) > 1]
+
+
+def _shape(objs, section):
+    """Areas to keep: each closed wall's, and in a section the outline its
+    walls enclose together (TridentLeft PX1: a section despiked to a sliver)."""
+    from shapely.ops import polygonize, unary_union
+    out, nodes = {}, {}
+    for o in _walls_of(objs):
+        if '-close on' in o.head:
+            pts = bezier_points(o.segments(), 4)
+            out[id(o)] = Polygon(pts).buffer(0).area if len(pts) > 3 else 0.0
+            nodes[id(o)] = len({(round(s[-2], 1), round(s[-1], 1)) for s in o.segments()})
+    if section:
+        lines = [LineString(bezier_points(o.segments(), 4)) for o in _walls_of(objs)]
+        out['outline'] = sum(p.area for p in polygonize(unary_union(lines))) if lines else 0.0
+    return out, nodes
+
+
+def _shape_kept(objs, section, before):
+    """No closed wall (or section outline) losing more than 1 - SHAPE_KEPT of
+    its area, nor a closed wall left with under MIN_RING distinct nodes."""
+    (a0, n0), (a1, n1) = before, _shape(objs, section)
+    if any(n1.get(k, 0) < min(MIN_RING, n) for k, n in n0.items()):
+        return False
+    return all(a1.get(k, 0.0) >= SHAPE_KEPT * a for k, a in a0.items())
+
+
 def _redo_scrap(header, body, path):
     """One scrap through the wall refit and the steps after it.
     Returns (objs, tidy report, points before, after, ends moved)."""
@@ -1855,16 +1890,24 @@ def _redo_scrap(header, body, path):
         # back over a short way (an overshoot where strokes overlap): each fix can show
         # the next, so until nothing changes. Judged on the outline not crossing itself.
         from .nodes import fix_handles, despike
+        short = SETTINGS['despike']
+        section = SETTINGS['section_shape'] and '-projection none' in header
+        if section:     # a section's spikes are short for its size, not for a passage's (TridentLeft PX1, PX10)
+            short = min(short, SECTION_SPIKE * sum(LineString(bezier_points(o.segments(), 4)).length
+                                                   for o in _walls_of(objs)) / K)
         for _ in range(5):
             q0 = _quality(objs)
             saved = [(o, o.rows) for o in objs if o.kind == 'line']
+            shape0 = _shape(objs, section)
             k = fix_handles(objs, 0.02 * K)
-            if _quality(objs)[0] < q0[0]:
+            if _quality(objs)[0] < q0[0] or not _shape_kept(objs, section, shape0):
                 for o, rows in saved:
                     o.rows = rows
                 k = 0
             q1 = _quality(objs)[0]
-            k += despike(objs, K, SETTINGS['despike'], ok=lambda: _quality(objs)[0] >= q1)
+            shape1 = _shape(objs, section)
+            k += despike(objs, K, short,
+                         ok=lambda: _quality(objs)[0] >= q1 and _shape_kept(objs, section, shape1))
             stepped += k
             if not k:
                 break
