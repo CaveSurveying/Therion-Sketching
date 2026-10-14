@@ -385,6 +385,28 @@ BRIDGE_MEET = 0.3    # m: pieces whose ends are this close are joined end to end
 BRIDGE_TURN = 45.0   # degrees: and carry on in line, turning less than this at each join
 
 
+def _stroke_rest(pieces, i, colours):
+    """The scrap holding the rest of piece i's sketch stroke: a piece in one
+    other scrap meeting it exactly end to end (cut there when the strokes
+    were shared out), carrying on in line and longer than it; or None."""
+    k, c, pp = pieces[i]
+
+    def heading(qq, e):
+        qq = qq if math.dist(e, qq[0]) <= math.dist(e, qq[-1]) else qq[::-1]
+        q = next((p for p in qq if math.dist(p, qq[0]) >= BRIDGE_MEET), qq[-1])
+        return math.atan2(q[1] - qq[0][1], q[0] - qq[0][0])
+    for e in (pp[0], pp[-1]):
+        rest = [(k2, qq) for k2, c2, qq in pieces if k2 != k and c2 == c and len(qq) > 1
+                and min(math.dist(e, qq[0]), math.dist(e, qq[-1])) < 1e-6]
+        if len(rest) != 1:
+            continue
+        k2, qq = rest[0]
+        d = abs((heading(pp, e) - heading(qq, e) + math.pi) % (2 * math.pi) - math.pi)
+        if d >= math.pi - math.radians(BRIDGE_TURN) and LineString(qq).length > LineString(pp).length:
+            return k2
+    return None
+
+
 def carried_through(pieces, colours):
     """Pieces with a short run of wall strokes (BRIDGE m or less) joined end
     to end at both ends to one other scrap's walls, and to none of its own
@@ -459,18 +481,26 @@ BEHIND_SHARE = 0.5   # over more than this share of its length, is a second wall
 BEHIND_RUN = 1.0     # m: and this much of it at least
 
 
+MOVE_REACH = 1.0     # m: a wall inside a scrap's passage within this of another scrap's legs (mean) is that scrap's
+INSIDE_SHARE = 0.45  # of its length with the scrap's walls both above and below it: inside its passage
+                     # (TridentCentre 3 to 5: 0.49, its floor drawn with a step under it)
+INSIDE_HEIGHT = 4.0  # m: (looking this far up and down)
+LEFT_BEHIND = 1.0    # m: a piece of a moved wall's stroke shorter than this goes with it
+
+
 def one_wall_each_side(pieces, groups, pos, colours):
     """Pieces without a wall stroke that is also another scrap's where, in
     this scrap, it and another of its walls lie one behind the other, seen
     from its nearest station (Style.md, hard rule 2: one outer wall each
     side of the passage; FairyChimneys 13 to 20: the crawl's floor and roof,
-    drawn by the branch over it)."""
+    drawn by the branch over it). If neither is, the one behind goes to the
+    scrap holding the rest of its sketch stroke, if any (one stroke, one wall)."""
     key = lambda pp: (tuple(pp[0]), tuple(pp[-1]), len(pp))
     owners = {}
     for k, c, pp in pieces:
         if len(pp) > 1:
             owners.setdefault(key(pp), set()).add(k)
-    drop = set()
+    drop, moved = set(), {}
     for k, g in enumerate(groups):
         st = [pos[n] for n in g if n in pos]
         walls = [(i, LineString(pp)) for i, (k2, c, pp) in enumerate(pieces)
@@ -503,7 +533,78 @@ def one_wall_each_side(pieces, groups, pos, colours):
                     drop.add(i)
                 elif shared(j):
                     drop.add(j)
-    return [x for i, x in enumerate(pieces) if i not in drop]
+                elif i not in moved:
+                    # the one behind cut from a stroke carrying on in another scrap: that scrap's
+                    # (TridentCentre: the floor rising through 4 to 7 cut at 4, behind the floor of 3 to 4)
+                    k2 = _stroke_rest(pieces, i, colours)
+                    if k2 is not None:
+                        moved[i] = k2
+    return [((moved[i],) + tuple(x[1:])) if i in moved else x for i, x in enumerate(pieces) if i not in drop]
+
+
+
+
+def _inside(line, walls):
+    """Share of the line with one of `walls` above and one below it (elevation)."""
+    from shapely.ops import unary_union
+    if not walls:
+        return 0.0
+    u = unary_union(walls)
+    n = max(3, int(line.length / 0.1))
+    hit = 0
+    for q in range(n):
+        p = line.interpolate((q + 0.5) / n, normalized=True)
+        up = LineString([(p.x, p.y + 0.05), (p.x, p.y + INSIDE_HEIGHT)])
+        down = LineString([(p.x, p.y - 0.05), (p.x, p.y - INSIDE_HEIGHT)])
+        hit += up.intersects(u) and down.intersects(u)
+    return hit / n
+
+
+def inner_walls_moved(pieces, groups, pos, colours, legs):
+    """A wall stroke inside its scrap's passage (the scrap's walls above and
+    below it) is not that scrap's outer wall: it goes to another scrap whose
+    legs it runs beside and whose passage it is not inside, if there is one
+    (Style.md, hard rule 2; TridentCentre: the roof and floor of 4 to 8 drawn
+    inside the passage 3 to 7, the user)."""
+    # (a leg between scraps is both's: the passage 3 to 4 is the scrap of 4)
+    leg_lines = [[LineString([pos[a], pos[b]]) for a, b in legs if (a in g or b in g) and a in pos and b in pos]
+                 for g in [set(g) for g in groups]]
+    walls_of = lambda k, but: [LineString(pp) for i, (k2, c, pp) in enumerate(pieces)
+                               if k2 == k and i != but and c in colours and len(pp) > 1]
+    out, moved = list(pieces), []
+    for i, (k, c, pp) in enumerate(pieces):
+        if c not in colours or len(pp) < 2:
+            continue
+        line = LineString(pp)
+        if line.length < BEHIND_RUN or _inside(line, walls_of(k, i)) < INSIDE_SHARE:
+            continue
+        pts = [line.interpolate(q / 10, normalized=True) for q in range(11)]
+        best = None
+        for k2, ls in enumerate(leg_lines):
+            if k2 == k or not ls:
+                continue
+            d = sum(min(l.distance(p) for l in ls) for p in pts) / len(pts)
+            if d < MOVE_REACH and _inside(line, walls_of(k2, i)) < INSIDE_SHARE and (best is None or d < best[0]):
+                best = (d, k2)
+        if best:
+            out[i] = (best[1], c, pp)
+            moved.append(i)
+    # a short piece of the same stroke left behind (meeting a moved wall exactly end to end,
+    # carrying on in line) goes with it (Trident 12: 0.7 m left doubling the moved roof)
+    key = lambda pp: (tuple(pp[0]), tuple(pp[-1]), len(pp))
+    drop = set()
+    for i in moved:
+        k2, c, pp = out[i]
+        theirs = {key(q) for k3, c3, q in out if k3 == k2 and len(q) > 1}
+        for j, (k, c3, qq) in enumerate(out):
+            if k == k2 or c3 != c or len(qq) < 2 or LineString(qq).length >= LEFT_BEHIND:
+                continue
+            if any(math.dist(e, f) < BRIDGE_MEET for e in (pp[0], pp[-1]) for f in (qq[0], qq[-1])):
+                if key(qq) in theirs:
+                    drop.add(j)                 # shared out to both: the other scrap's copy stays
+                else:
+                    out[j] = (k2, c3, qq)
+    return [x for j, x in enumerate(out) if j not in drop]
 
 
 def other_ends(lines, scrap):

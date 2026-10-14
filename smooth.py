@@ -924,11 +924,16 @@ def _areas_to_outline(objs, K, over, simplify):
 MIN_RUN = 0.5       # m: a shorter stretch of one wall subtype goes with its neighbour
 
 
+SAND_STEEP = 0      # degrees: an elevation wall steeper than this is not sand (0: off; GoSouth's
+                    # rift sides plain wall, but Connection's shaft below 1 sand: asked)
+
+
 def wall_subtypes(objs, K, near=0.15):
     """Wall segments lying along a stroke recorded by convert.subtype_marks
     get that subtype: a wall whose kind changes along it is cut into one
     line per kind, each `line wall -subtype X` (plain `line wall` for rock),
     never a `subtype` on a point. Returns how many walls were cut or typed."""
+    from .settings import SETTINGS
     marks = []
     for o in objs:
         if o.kind != 'text':
@@ -954,7 +959,12 @@ def wall_subtypes(objs, K, near=0.15):
             pts = bezier_points([segs[i - 1][-2:], segs[i]], 4)
             mid = pts[len(pts) // 2] if len(pts) > 2 else \
                 ((pts[0][0] + pts[-1][0]) / 2, (pts[0][1] + pts[-1][1]) / 2)
-            kinds.append(next((kd for kd, zone in marks if zone.contains(Point(mid))), 'bedrock'))
+            kd = next((kd for kd, zone in marks if zone.contains(Point(mid))), 'bedrock')
+            a, b = segs[i - 1][-2:], segs[i][-2:]
+            if kd == 'sand' and SETTINGS.get('_elevation') and SAND_STEEP and \
+                    abs(b[1] - a[1]) > math.tan(math.radians(SAND_STEEP)) * abs(b[0] - a[0]):
+                kd = 'bedrock'                 # sand lies on floors, not up a steep wall (GoSouth's rift)
+            kinds.append(kd)
             lens.append(math.dist(segs[i - 1][-2:], segs[i][-2:]))
         if all(k == 'bedrock' for k in kinds):
             out.append(o)

@@ -288,6 +288,28 @@ def model_groups(legs, model, angle):
     return groups
 
 
+def chosen_groups(survey, legs, angle):
+    """Leg groups from the scrap chooser for this view (autoscraps, set from
+    the hand-drawn 315 splits: they keep larger overlaps in one scrap, so
+    fewer scraps than model_groups gave, GoSouth 2 not 7); a leg between
+    groups goes with its first station's. None if it cannot say."""
+    if angle != 315:
+        return None
+    try:
+        from . import autoscraps
+        st_groups = autoscraps.scraps_for(PROJECT.path(PROJECT.survey_file(survey)), survey, '315', 'both')[0]
+    except Exception as e:                  # (no model: the drawing's own groups)
+        print(f"warning: scrap chooser: {e}", file=sys.stderr)
+        return None
+    home = {n: gi for gi, g in enumerate(st_groups) for n in g}
+    out = [[] for _ in st_groups]
+    for a, b in legs:
+        gi = home.get(a, home.get(b))
+        if gi is not None:
+            out[gi].append((a, b))
+    return [g for g in out if g] or None
+
+
 def split_walls(walls, pr, group_of):
     """[(group, subtype, points)]: each wall cut where its nearest leg's
     group changes (a piece under MIN_PIECE stays with its neighbours)."""
@@ -382,7 +404,7 @@ def stations_only(survey, angle=315, file_it=False, author=None, copyright=None)
     return out, [name]
 
 
-def projected(survey, angle=315, file_it=False, author=None, copyright=None):
+def projected(survey, angle=315, file_it=False, author=None, copyright=None, out_dir=None):
     from . import convert
     from .roofs import Splays, SQL
     folder = os.path.dirname(PROJECT.path(PROJECT.survey_file(survey)))
@@ -402,6 +424,13 @@ def projected(survey, angle=315, file_it=False, author=None, copyright=None):
     for (n, sv), ps in lay.by_name.items():
         if sv in (survey, '') and ps:
             proj.setdefault(n, ps[0])
+    # in the xvi's own units, offset from its lowest station, as stations_only (and the hand-drawn
+    # 315s): the stations on the dots of the backdrop (log row 131)
+    xt = open(xvi_path, encoding='utf-8').read()
+    unit = float(re.search(r'XVIgrid\s+\{\s*\S+\s+\S+\s+(\S+)', xt).group(1))
+    x0 = min(p[0] for p in proj.values()) * unit
+    y0 = min(p[1] for p in proj.values()) * unit
+    px = lambda p: (unit * p[0] - x0, unit * p[1] - y0)
     model = None
     try:                                    # the 3D model, walls from the splays (as Loch shows it)
         from . import loch
@@ -417,7 +446,8 @@ def projected(survey, angle=315, file_it=False, author=None, copyright=None):
         pr = Projection(ext, proj, legs)
         if not pr.legs:
             continue
-        groups = model_groups(pr.legs, model, angle) if model else merge_groups(scrap_groups(pr), walls, pr)
+        groups = chosen_groups(survey, pr.legs, angle) or \
+            (model_groups(pr.legs, model, angle) if model else merge_groups(scrap_groups(pr), walls, pr))
         group_of = {l: gi for gi, g in enumerate(groups) for l in g}
         pieces = split_walls(walls, pr, group_of)
         for gi, g in enumerate(groups):
@@ -425,8 +455,8 @@ def projected(survey, angle=315, file_it=False, author=None, copyright=None):
             if not mine:
                 continue
             name = f"{survey}S{tag}_{len(names) + 1}"
-            px = lambda p: (K * p[0], K * p[1])
-            o = [f"scrap {name} -projection [elevation {angle}]{_attrs(K, author, copyright)}", "",
+            attrs = _attrs(K, author, copyright).split(' -scale')[0]
+            o = [f"scrap {name} -projection [elevation {angle}]{attrs} -scale [0 0 {10 * unit:.3f} 0 0.0 0.0 10 0 m]", "",
                  f"# Walls of {sname} ({os.path.basename(ext_path)}) projected to {angle}.", ""]
             lines = []
             for k, pts in mine:
@@ -449,7 +479,6 @@ def projected(survey, angle=315, file_it=False, author=None, copyright=None):
             names.append(name)
     if not names:
         sys.exit(f"{survey}: nothing to project")
-    px = lambda p: (K * p[0], K * p[1])
     anchor = next(iter(proj))
     poly = MultiPoint(hull).convex_hull.buffer(1.0)
     head = convert.header(xvi_path, os.path.join(folder, 'x.th2'), anchor, px(proj[anchor]), [poly], px)
@@ -458,7 +487,11 @@ def projected(survey, angle=315, file_it=False, author=None, copyright=None):
             "# across the view).", ""]
     from .tidy import tidy_text
     text = tidy_text("\n".join(head + note + body), PROJECT.drawing.get('map_scale', 500), elevation=True)
-    out = os.path.join(folder, f"{survey}{tag}.th2")
+    out = os.path.join(out_dir or folder, f"{survey}{tag}.th2")
+    if out_dir:                     # a copy to look at: its backdrop path from where it is
+        os.makedirs(out_dir, exist_ok=True)
+        text = text.replace(os.path.relpath(xvi_path, folder), os.path.relpath(xvi_path, out_dir))
+        file_it = False
     text = text.replace('\r\n', '\n').replace('\n', PROJECT.newline)
     open(out, 'wb').write(text.encode('utf-8'))
     print(f"wrote {out}: {len(names)} scraps ({' '.join(names)}); backdrop {xvi_path}")
@@ -539,5 +572,83 @@ def main(argv):
     p.add_argument('--copyright', nargs=2, metavar=('YEAR', 'HOLDER'))
     p.add_argument('--walls', action='store_true',
                    help='also project the extended drawing\'s walls (parked: log row 125)')
+    p.add_argument('--out', help='with --walls: write into this folder instead (not filed)')
     a = p.parse_args(argv)
-    (projected if a.walls else stations_only)(a.survey, a.angle, a.file, a.author, a.copyright)
+    if a.walls:
+        projected(a.survey, a.angle, a.file, a.author, a.copyright, a.out)
+    else:
+        stations_only(a.survey, a.angle, a.file, a.author, a.copyright)
+
+
+FORESHORTENED = 0.7  # a leg seen across the view at less than this share of its length: the passage behind
+                     # it is seen too, so only the outermost roof and floor are drawn (hand-drawn 315s: there
+                     # the roof is a median 0.23 m higher, the floor lower, than in a view seeing it side on)
+BIN = 0.25           # m: the envelope is taken over this width across the view
+UNDER = 0.1          # m: a roof point this far under the envelope (a floor point above it) is hidden
+
+
+def across_share(pr, leg):
+    a, b = leg
+    de = abs(pr.E[b][0] - pr.E[a][0])
+    return abs(pr.P[b][0] - pr.P[a][0]) / de if de >= STEEP else 1.0
+
+
+def enveloped(pr, lines, group_of=None):
+    """[(subtype, [(x, y) projected])] from [(subtype, [(x, y) extended], [leg per point])]: points on
+    foreshortened legs are kept only where they are the outermost roof (above the leg) or floor
+    (below it) of the passage seen there; a line is broken where its points are hidden."""
+    top, bottom = {}, {}
+    marked = []
+    for k, pts, used in lines:
+        q = []
+        for p, l in zip(pts, used):
+            v = pr(p, l)
+            a, b = l
+            A, B = pr.E[a], pr.E[b]
+            t = ((p[0] - A[0]) * (B[0] - A[0]) + (p[1] - A[1]) * (B[1] - A[1])) / max(1e-9, math.dist(A, B) ** 2)
+            up = p[1] > A[1] + max(0.0, min(1.0, t)) * (B[1] - A[1])
+            # only a roof or floor (over or under the leg) can be hidden; not a wall beyond its ends
+            # nor beside a pitch (WestPassage 58 to 62)
+            fs = (across_share(pr, l) < FORESHORTENED and 0.0 < t < 1.0 and abs(B[0] - A[0]) >= STEEP
+                  and abs(B[0] - A[0]) > abs(B[1] - A[1]))       # a steep leg: walls beside it, not over
+            key = ((round(v[0] / BIN), (group_of or {}).get(l, 0)), up)
+            if fs:
+                if up:
+                    top[key[0]] = max(top.get(key[0], -1e9), v[1])
+                else:
+                    bottom[key[0]] = min(bottom.get(key[0], 1e9), v[1])
+            q.append((v, fs, key))
+        marked.append((k, q))
+    # the envelope also takes the passage seen side on there (it is in front of or behind it)
+    for k, q in marked:
+        for v, fs, (x, up) in q:
+            if not fs:
+                if up and x in top:
+                    top[x] = max(top[x], v[1])
+                if not up and x in bottom:
+                    bottom[x] = min(bottom[x], v[1])
+    out = []
+    for k, q in marked:
+        run = []
+        for v, fs, (x, up) in q:
+            hidden = fs and ((up and v[1] < top.get(x, v[1]) - UNDER) or (not up and v[1] > bottom.get(x, v[1]) + UNDER))
+            if hidden:
+                if len(run) > 1:
+                    out.append((k, run))
+                run = []
+            else:
+                run.append(v)
+        if len(run) > 1:
+            out.append((k, run))
+    return out
+
+
+def predict(ext, proj, legs, ext_lines, envelope=True, **kw):
+    """Projected walls (lists of points) of extended walls, for scoring against hand-drawn views."""
+    pr = Projection(ext, proj, legs)
+    lines = [(k, pts, [pr.nearest(p) for p in pts]) for k, pts in ext_lines]
+    if not envelope:
+        return [[pr(p, l) for p, l in zip(pts, used)] for k, pts, used in lines]
+    groups = scrap_groups(pr) if envelope == 'groups' else [pr.legs]
+    group_of = {l: gi for gi, g in enumerate(groups) for l in g}
+    return [q for k, q in enveloped(pr, lines, group_of)]

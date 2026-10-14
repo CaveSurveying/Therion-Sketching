@@ -478,39 +478,97 @@ FLOOR_MARK = 0.6          # m: a closed loop shorter than this is a mark on the 
 FLOOR_NEAR = 0.15         # m: floor marks this close to the closing floor make it debris
 
 
+SECTION_MARK = 0.15       # an open stroke shorter than this share of the longest is a mark (a sand dash), not a wall
+SECTION_MEET = (0.15, 0.1)  # m, share of size: two strokes' ends this close meet, closing the outline
+
+
 def _floor_mark(pp):
     return len(pp) > 3 and math.dist(pp[0], pp[-1]) < 0.15 and LineString(pp).length < FLOOR_MARK
 
 
-def drawn_floor(strokes, centre):
-    """A section sketched as one open stroke (walls and roof, the floor left
-    open or drawn as pebbles): (outline polygon, the stroke's two ends,
-    floor subtype or None), the floor straight across its ends; or None if
-    the section is not drawn so (Style.md, cross-sections: the user,
-    TridentLeft PX1 and PX10)."""
-    strokes = [s for s in strokes if len(s) > 1]
-    marks = [s for s in strokes if _floor_mark(s)]
-    rest = [s for s in strokes if not _floor_mark(s)]
+def _section_mark(pp, longest):
+    """A pebble (a small closed loop) or a dash (a short open stroke): it
+    shows what the floor is, it is not the outline (FairyChimneys PX5: the
+    sand dashes under the floor taken for walls, the user)."""
+    return _floor_mark(pp) or LineString(pp).length < SECTION_MARK * longest
+
+
+def _smooth_open(pp):
+    q = list(LineString(pp).simplify(0.025).coords)
+    if len(q) >= 3:
+        q = list(LineString(chaikin(q, 1)).simplify(0.015).coords)
+    q[0], q[-1] = pp[0], pp[-1]
+    return q
+
+
+def drawn_outline(strokes, centre):
+    """A section drawn as open strokes: (outline polygon, [(points, subtype)],
+    strokes taken: the outline's and the marks), or None if it is not drawn so (then the strokes are closed up
+    as before). Short strokes (pebbles, sand dashes) are marks, never the
+    outline. The longest stroke and another meeting it at both ends make
+    the outline, each line with its colour's subtype (brown: the floor,
+    sand, or debris with pebbles on it; FairyChimneys PX5); one stroke open
+    at the bottom is closed by a floor straight across its ends (TridentLeft
+    PX1, PX10). Its station must be inside (Style.md, cross-sections)."""
+    strokes = [(c, list(s)) for c, s in strokes if len(s) > 1]
+    if not strokes:
+        return None
+    longest = max(LineString(s).length for _, s in strokes)
+    marks = [(c, s) for c, s in strokes if _section_mark(s, longest)]
+    rest = [(c, s) for c, s in strokes if not _section_mark(s, longest)]
     if not rest:
         return None
-    main = max(rest, key=lambda s: LineString(s).length)
-    L = LineString(main).length
-    if L < SECTION_MAIN * sum(LineString(s).length for s in rest):
-        return None
+    mc, main = max(rest, key=lambda cs: LineString(cs[1]).length)
     a, b = main[0], main[-1]
     x0, y0, x1, y1 = LineString(main).bounds
     size = math.hypot(x1 - x0, y1 - y0)
-    gap = math.dist(a, b)
-    if gap < 0.05 or gap > SECTION_OPEN * size:
+    if math.dist(a, b) < 0.05:
+        return None                                    # closed already: as before
+    meet = max(SECTION_MEET[0], SECTION_MEET[1] * size)
+
+    def subtype(colour, line):
+        if colour != 'BROWN':
+            return None
+        near = [s for _, s in marks if line.distance(LineString(s).centroid) < FLOOR_NEAR]
+        pebbles = [s for s in near if _floor_mark(s)]
+        return 'debris' if len(pebbles) >= 2 and len(pebbles) >= len(near) / 2 else 'sand'
+
+    def floor_marks(line):
+        near = [(c, s) for c, s in marks if line.distance(LineString(s).centroid) < FLOOR_NEAR]
+        pebbles = [s for c, s in near if _floor_mark(s)]
+        dashes = [s for c, s in near if c == 'BROWN' and not _floor_mark(s)]
+        if len(pebbles) >= 2 and len(pebbles) >= len(dashes):
+            return 'debris'
+        return 'sand' if len(dashes) >= 2 else None
+
+    out, used = None, [main]
+    partners = []
+    for c, s in rest:
+        if s is main:
+            continue
+        if math.dist(s[0], b) < meet and math.dist(s[-1], a) < meet:
+            partners.append((math.dist(s[0], b) + math.dist(s[-1], a), c, s))
+        elif math.dist(s[-1], b) < meet and math.dist(s[0], a) < meet:
+            partners.append((math.dist(s[-1], b) + math.dist(s[0], a), c, s[::-1]))
+    if partners:
+        _, c, s = min(partners, key=lambda x: x[0])
+        used += [q for _, q in rest if q is s or q == s[::-1]]
+        s = [b] + list(s[1:-1]) + [a]
+        lines = [(_smooth_open(main), subtype(mc, LineString(main))),
+                 (_smooth_open(s), subtype(c, LineString(s)) or floor_marks(LineString(s)))]
+        out = Polygon(list(main) + s[1:]).buffer(0)
+    elif LineString(main).length >= SECTION_MAIN * sum(LineString(s).length for _, s in rest) \
+            and math.dist(a, b) <= SECTION_OPEN * size:
+        chord = LineString([b, a])
+        lines = [(_smooth_open(main), subtype(mc, LineString(main))), ([b, a], floor_marks(chord))]
+        out = Polygon(list(main) + [a]).buffer(0)
+    if out is None:
         return None
-    g = Polygon(list(main) + [main[0]]).buffer(0)
-    if g.geom_type != 'Polygon':
-        g = max(getattr(g, 'geoms', []), key=lambda p: p.area, default=Polygon())
-    if g.is_empty or (centre is not None and not g.buffer(0.1).contains(Point(centre))):
+    if out.geom_type != 'Polygon':
+        out = max(getattr(out, 'geoms', []), key=lambda p: p.area, default=Polygon())
+    if out.is_empty or (centre is not None and not out.buffer(0.1).contains(Point(centre))):
         return None
-    chord = LineString([b, a])
-    near = [m for m in marks if chord.distance(Polygon(m).buffer(0).centroid) < FLOOR_NEAR]
-    return g, (a, b), ('debris' if len(near) >= 2 else None)
+    return out, lines, [s for _, s in marks] + used
 
 
 def section_outline(strokes, centre=None):
@@ -574,13 +632,15 @@ def section_th2(name, attrs, lines, centre, K, comment):
     wl = [pp for c, pp in lines if c in WALLS and len(pp) > 1]
     if not wl:
         return None
-    floor = drawn_floor(wl + rocks, centre) if SETTINGS['section_shape'] else None
-    if floor:
-        poly, (a, b), sub = floor
-        wl = [pp for pp in wl if not _floor_mark(pp)]      # pebbles on the floor: the floor's subtype shows them
-        # nor are small rocks on it drawn (Style.md, rocks along a wall line)
-        chord = LineString([b, a])
-        rocks = [pp for pp in rocks if chord.distance(Polygon(pp).buffer(0).centroid) >= FLOOR_NEAR
+    drawn = drawn_outline([(c, pp) for c, pp in lines if c in WALLS] + [('BROWN', r) for r in rocks], centre) \
+        if SETTINGS['section_shape'] else None
+    if drawn:
+        poly, outline, taken = drawn
+        # the outline's strokes, and marks (pebbles, sand dashes) showing the floor's subtype; nor
+        # are small rocks on it drawn (Style.md, rocks along a wall line)
+        wl = [pp for pp in wl if not any(pp is m or pp == m for m in taken)]
+        edge = LineString(list(poly.exterior.coords))
+        rocks = [pp for pp in rocks if edge.distance(Polygon(pp).buffer(0).centroid) >= FLOOR_NEAR
                  or math.sqrt(Polygon(pp).buffer(0).convex_hull.area) >= 0.3]
     else:
         poly = section_outline(wl, centre if SETTINGS['section_shape'] else None)
@@ -591,16 +651,11 @@ def section_th2(name, attrs, lines, centre, K, comment):
     else:
         xpx = lambda p: (K * (p[0] - centre[0]) + 1000, K * (p[1] - centre[1]) + 1000)
     o = [f"scrap {name} -projection none{attrs}", "", comment, ""]
-    if floor:
-        # the stroke as drawn (walls and roof), then the floor straight back across its ends
-        main = max(wl, key=lambda s: LineString(s).length)
-        pp = list(LineString(main).simplify(0.025).coords)
-        if len(pp) >= 3:
-            pp = list(LineString(chaikin(pp, 1)).simplify(0.015).coords)
-        pp[0], pp[-1] = a, b
-        o += ["line wall"] + bezier_lines(pp, xpx) + ["endline", ""]
-        o += [f"line wall{' -subtype ' + sub if sub else ''}", "  %.2f %.2f" % xpx(b), "  %.2f %.2f" % xpx(a),
-              "endline", ""]
+    if drawn:
+        # the strokes as drawn, meeting end to end (a floor straight across an open one)
+        for pp, sub in outline:
+            body = bezier_lines(pp, xpx) if len(pp) > 2 else ["  %.2f %.2f" % xpx(q) for q in pp]
+            o += [f"line wall{' -subtype ' + sub if sub else ''}"] + body + ["endline", ""]
     else:
         o += ["line wall -close on"] + bezier_closed(list(poly.exterior.coords), xpx) + ["endline", ""]
     # marks inside: boulders, and ledges or other lines as borders
@@ -1021,6 +1076,7 @@ def drawn_on(pieces, lines, sizes=None, meet=0.3, keep=()):
 
 
 JOIN_REACH = 3.0    # m: wall ends this near a join (a station of a leg between scraps) are at the join
+TRIM_ALL = False    # (testing: trim at every join, as before)
 IN_LINE = 0.3       # m: a wall end further out than the opposite wall's end by more than this is cut back
 
 
@@ -1154,6 +1210,11 @@ def trim_at_joins(walls, joins, stations, others=()):
     for i, k in ends:
         e = walls[i][k]
         side = 1 if e[0] > cx else -1                # the join's side of the scrap
+        # only where the scrap ends at the join: a branch joining part way along leaves the
+        # passage carrying on past it (TridentCentre: 4 joins 3 to 7 from the side, the user)
+        j = min(joins, key=lambda q: abs(q[0] - e[0]))
+        if not TRIM_ALL and any((s[0] - j[0]) * side > IN_LINE for s in stations):
+            continue
         opp = [walls[j][m] for j, m in ends if j != i] + theirs
         opp = [q for q in opp if abs(q[1] - e[1]) > 0.5 and abs(q[0] - e[0]) < JOIN_REACH]
         if not opp:
@@ -1178,8 +1239,26 @@ def trim_at_joins(walls, joins, stations, others=()):
     return out
 
 
+DASH_JOIN = False    # dashed lines joined across gaps (notation.join_dashed): worse on the ten, off
 ELEVATION_DASH_GAP = 1.2   # m: dashes of one line in an elevation (a big chamber's roof drawn sparsely:
                            # FairyChimneys 34 to 39, Connection; plans keep notation.DASH_GAP)
+
+
+GREEN_WALL = (0.8, 0.3)   # m: a green stroke this long or more, meeting a wall's end this near, is wall
+
+
+def green_walls(lines, walls):
+    """Open green strokes (flowstone) carrying a wall on from its end: the
+    wall there, drawn in green (the user: Trident 31 to the sand, FairyChimneys
+    34). Its subtype comes from the flowstone marks."""
+    ends = [Point(w[k]) for w in walls if len(w) > 1 for k in (0, -1)]
+    out = []
+    for c, pp in lines:
+        if c != 'GREEN' or len(pp) < 2 or LineString(pp).length < GREEN_WALL[0] or math.dist(pp[0], pp[-1]) < 0.15:
+            continue
+        if any(Point(e).distance(q) < GREEN_WALL[1] for e in (pp[0], pp[-1]) for q in ends):
+            out.append(list(pp))
+    return out
 
 
 def presumed_strokes(lines, dash_gap=None):
@@ -1188,7 +1267,8 @@ def presumed_strokes(lines, dash_gap=None):
     if not SETTINGS['dashed_presumed']:
         return lines, []
     from . import notation
-    found, used = notation.presumed(lines, dash_gap or notation.DASH_GAP)
+    found, used = notation.presumed(lines, dash_gap or notation.DASH_GAP,
+                                    3 * dash_gap if dash_gap == ELEVATION_DASH_GAP and DASH_JOIN else None)
     return [l for k, l in enumerate(lines) if k not in used] + [('BLACK', pp) for pp in found], found
 
 
@@ -1277,6 +1357,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
         colours = set(SETTINGS['wall_colours']) | {'BLACK'}
         pieces = by_hand.one_wall_each_side(pieces, groups, pos, colours)
         pieces = by_hand.carried_through(pieces, colours)
+        pieces = by_hand.inner_walls_moved(pieces, groups, pos, colours, legs_all)
     else:
         member = {n: i for i, g in enumerate(groups) for n in g}
         near = lambda p: member.get(_nearest(pos, p), 0) if pos else 0
@@ -1292,8 +1373,11 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
         if SETTINGS['elevation_features']:       # pools, flow, curtains, blocks, rocks, rubble (elevation.py)
             from . import elevation as el
             feats = el.features(mine, [pos[n] for n in g])
+            el.pillars_apart(feats, [(pos[a], pos[b]) for a, b in legs_all if a in pos and b in pos])
             mine = feats.lines
         walls, _b, _a = wall_strokes(mine)
+        if feats:      # a green stroke carrying a wall on, end to end: the wall there, flowstone (Trident 31)
+            walls += green_walls(mine, walls)
         walls = clean(walls)
         if SETTINGS['outer_walls']:
             walls = corners(walls)
@@ -1332,8 +1416,18 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
         if SETTINGS['rock_faces'] and SETTINGS['outer_walls']:     # the rock its closing-up took in goes, as in plan
             polys = [drop_rock_faces(p, walls, legs, [pos[n] for n in g if n in pos], seal=ELEVATION_SEAL,
                                      margin=0.1) for p in polys]
-        for poly in polys:
-            inside = [n for n in g if poly.buffer(1.0).contains(Point(pos[n]))]
+        # the stations in (or by) each fill; a scrap left with fewer than two takes the group's
+        # stations by no fill (TridentCentre 8 to 10: no walls sketched there, still the scrap's;
+        # others far from the drawing left out, FairyChimneys 40, TritonSouth 1: the user)
+        home = {n: next((k for k, p in enumerate(polys) if p.buffer(1.0).contains(Point(pos[n]))), None)
+                for n in g if n in pos}
+        for pi in range(len(polys)):
+            if 0 < sum(1 for h in home.values() if h == pi) < 2:
+                for n, h in home.items():
+                    if h is None:
+                        home[n] = pi
+        for pi, poly in enumerate(polys):
+            inside = [n for n in g if home.get(n) == pi]
             if not inside:
                 continue
             name = f"{opt.name}E{len(scraps) + 1}"

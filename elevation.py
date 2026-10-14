@@ -27,6 +27,7 @@ from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import unary_union
 
 from .marks import span, length
+from .walls import bezier_closed, bezier_lines
 
 CURL_RATIO = 1.5        # brown: path over span at least this ...
 CURL_SPAN = 1.5         # ... and spanning under this (m) is a curl of rubble
@@ -188,15 +189,79 @@ class Features:
         self.kinds = {}         # id(points) -> wall subtype it is drawn as
         self.debris = []        # curls: [points]
         self.rocks = []         # closed black loops: [points]
+        self.pillars = []       # closed black loops the survey goes round (legs above and below)
+        self.overhangs = []     # lines with ticks hanging from them: [points], ticks on the left
         self.curtains = []      # [(x, y)]
         self.flows = []         # clusters of blue strokes: [[points]]
         self.pools = []         # (x0, x1, level)
         self.bowls = []         # per pool: a bowl drawn under it (a wall stroke), or None
 
 
+PILLAR = 0.5        # m across or more, with legs above and below it within PILLAR_REACH: a pillar
+PILLAR_REACH = 3.0
+
+
+def pillars_apart(f, legs):
+    """Closed black loops with a leg above and one below them (the survey
+    going round, a loop in the data) are pillars, not rocks (the user:
+    TritonSouth 13 to 21, `equate 13 21`)."""
+    segs = [LineString(l) for l in legs if l[0] != l[1]]
+    keep = []
+    for pp in f.rocks:
+        g = Polygon(pp).buffer(0)
+        if g.is_empty or math.sqrt(g.area) < PILLAR:
+            keep.append(pp)
+            continue
+        c = g.centroid
+        x0, y0, x1, y1 = g.bounds
+        up = LineString([(c.x, y1), (c.x, y1 + PILLAR_REACH)])
+        down = LineString([(c.x, y0), (c.x, y0 - PILLAR_REACH)])
+        if any(s.intersects(up) for s in segs) and any(s.intersects(down) for s in segs):
+            f.pillars.append(pp)
+        else:
+            keep.append(pp)
+    f.rocks = keep
+
+
+TICK = (0.08, 0.45)     # m: a tick's length
+TICK_ON = 0.12          # m: a tick starts this near its line (TritonSouth by 6: 0.1)
+TICKS = 3               # ticks on one side make a line an overhang
+
+
+def _overhangs(lines):
+    """(overhangs [points, ticks on the left], the lines left): a line
+    (0.8 m or more) with TICKS or more short strokes of its colour starting
+    on it and leaving it across, all to one side, is an overhang (the user:
+    BoldStep by 4, TritonSouth by 6)."""
+    used, out = set(), []
+    for i, (c, pp) in enumerate(lines):
+        if len(pp) < 2 or length(pp) < 0.8 or c == 'BROWN':     # (brown curls under a floor are its rubble)
+            continue
+        main = LineString(pp)
+        sides = []
+        ticks = []
+        for j, (c2, qq) in enumerate(lines):
+            if j == i or c2 != c or len(qq) < 2 or not TICK[0] <= length(qq) <= TICK[1] \
+                    or math.dist(qq[0], qq[-1]) < 0.7 * length(qq):
+                continue                           # (a tick is short and straight)
+            a, b = (qq[0], qq[-1]) if main.distance(Point(qq[0])) <= main.distance(Point(qq[-1])) else (qq[-1], qq[0])
+            if main.distance(Point(a)) > TICK_ON or main.distance(Point(b)) < 0.6 * math.dist(a, b):
+                continue                       # not starting on it, or running along it
+            d = main.project(Point(a))
+            p0, p1 = main.interpolate(max(0.0, d - 0.05)), main.interpolate(min(main.length, d + 0.05))
+            cross = (p1.x - p0.x) * (b[1] - p0.y) - (p1.y - p0.y) * (b[0] - p0.x)
+            sides.append(1 if cross > 0 else -1)
+            ticks.append(j)
+        if len(ticks) >= TICKS and abs(sum(sides)) >= TICKS:
+            out.append(list(pp) if sum(sides) > 0 else list(pp)[::-1])
+            used |= {i, *ticks}
+    return out, [l for k, l in enumerate(lines) if k not in used]
+
+
 def features(lines, stations=()):
     f = Features()
     st = [Point(p) for p in stations]
+    f.overhangs, lines = _overhangs(list(lines))
     green_small, hung = [], []
     for c, pp in lines:
         if not pp or len(pp) < 2:
@@ -344,6 +409,16 @@ def th2(f, poly, walls, px, name):
         if near.contains(Point(pp[0])):
             o += ["line rock-border -close on"] + ["  %.2f %.2f" % px(p) for p in
                                                    LineString(pp).simplify(0.05).coords[:-1]] + ["endline", ""]
+    for pp in f.overhangs:
+        if near.intersects(LineString(pp)):
+            q = list(LineString(pp).simplify(0.03).coords)
+            o += ["line overhang"] + bezier_lines(q, px) + ["endline", ""]
+    for pp in f.pillars:                 # rock the passage goes round: a wall of its own (TritonSouth 13)
+        if near.contains(Point(pp[0])):
+            q = list(LineString(pp).simplify(0.03).coords)
+            if q[0] != q[-1]:
+                q.append(q[0])
+            o += ["line wall -outline in -close on"] + bezier_closed(q, px) + ["endline", ""]
     for c in f.curtains:
         if near.contains(Point(c)):
             o += ["point %.2f %.2f curtain" % px(c), ""]

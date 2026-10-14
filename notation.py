@@ -85,7 +85,70 @@ def ticks_of(line_pp, shorts, reach=TOUCH):
     return out
 
 
-def presumed(lines, dash_gap=DASH_GAP):
+JOIN_TURN = 35.0     # degrees: dashed lines carrying on across a gap turn no more than this
+
+
+def _end_dir(pts, at_end):
+    """Unit direction a polyline leaves its end (at_end) or start, over its last 0.5 m."""
+    q = pts if at_end else pts[::-1]
+    e = q[-1]
+    b = next((p for p in reversed(q[:-1]) if math.dist(p, e) >= 0.5), q[0])
+    d = math.dist(b, e) or 1.0
+    return ((e[0] - b[0]) / d, (e[1] - b[1]) / d)
+
+
+def join_dashed(lines, lone, gap):
+    """Dashed lines carrying on across a gap (up to `gap`) joined into one,
+    in order: through lone dashes lying along the gap, or straight across a
+    short one (FairyChimneys 36 to 38: a big chamber's roof drawn sparsely,
+    the user). lone: [points] of dashes in no line. Returns (lines, lone used)."""
+    lines = [list(l) for l in lines]
+    used = set()
+    changed = True
+    while changed:
+        changed = False
+        best = None
+        for i, a in enumerate(lines):
+            for j, b in enumerate(lines):
+                if i == j:
+                    continue
+                for ea in (True, False):
+                    for eb in (True, False):
+                        pa, pb = (a[-1] if ea else a[0]), (b[-1] if eb else b[0])
+                        d = math.dist(pa, pb)
+                        if d < 1e-6 or d > gap:
+                            continue
+                        g = ((pb[0] - pa[0]) / d, (pb[1] - pa[1]) / d)
+                        da, db = _end_dir(a, ea), _end_dir(b, eb)
+                        db = (-db[0], -db[1])                  # b entered from the gap
+                        if _angle(da, g) > JOIN_TURN or _angle(db, g) > JOIN_TURN:
+                            continue
+                        seg = [pa, pb]
+                        on = [k for k, q in enumerate(lone) if k not in used and
+                              min(_seg_dist(p, seg) for p in (q[0], q[-1])) < 0.3]
+                        if d > 1.5 * gap / 3 and not on:
+                            continue
+                        if best is None or d < best[0]:
+                            best = (d, i, j, ea, eb, on)
+        if best:
+            d, i, j, ea, eb, on = best
+            a = lines[i] if ea else lines[i][::-1]
+            b = lines[j] if not eb else lines[j][::-1]
+            lines[i] = a + b
+            lines.pop(j)
+            used |= set(on)
+            changed = True
+    return lines, used
+
+
+def _seg_dist(p, seg):
+    (ax, ay), (bx, by) = seg
+    L2 = (bx - ax) ** 2 + (by - ay) ** 2
+    t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((p[0] - ax) * (bx - ax) + (p[1] - ay) * (by - ay)) / L2))
+    return math.dist(p, (ax + t * (bx - ax), ay + t * (by - ay)))
+
+
+def presumed(lines, dash_gap=DASH_GAP, join_gap=None):
     """Black dashed lines with no ticks: a wall the surveyors could not see
     all of, where the passage carries on (`line wall -subtype presumed`).
     lines: [(colour, points)], what notation.find left. Returns
@@ -102,6 +165,10 @@ def presumed(lines, dash_gap=DASH_GAP):
             continue
         out.append(pts)
         used |= set(chain)
+    if join_gap and out:
+        lone_idx = [i for i, _ in cands if i not in used]
+        out, got = join_dashed(out, [pp_of[i] for i in lone_idx], join_gap)
+        used |= {lone_idx[k] for k in got}
     return out, used
 
 

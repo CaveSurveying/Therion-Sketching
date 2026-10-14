@@ -286,6 +286,12 @@ def main(argv=None):
     if args[:1] == ['place']:                  # filing a drawing into the survey
         from . import place
         return place.main(args[1:])
+    if args[:1] == ['unfold']:                 # an extended elevation from the projected ones
+        from . import unfold
+        return unfold.main(args[1:])
+    if args[:1] == ['joins']:                  # earlier plans cut back where a new survey joins
+        from . import joins
+        return joins.main(args[1:])
     if args[:1] == ['projected']:              # a projected elevation from the extended drawing
         from . import projected
         return projected.main(args[1:])
