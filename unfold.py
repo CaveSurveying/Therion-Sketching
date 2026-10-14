@@ -246,7 +246,7 @@ def unfold(survey, ext=None, skip=()):
 
 
 def write(survey, out_dir):
-    vs, ext, lines = unfold(survey)
+    vs, ext, lines = profile(survey)          # a profile, as the .ee walls (log row 159)
     px = lambda p: (K * p[0], K * p[1])
     name = f"{survey}SE1"
     o = ["encoding  utf-8", PROJECT.licence_comment, "",
@@ -295,14 +295,91 @@ def write_ee(survey):
     return path
 
 
+def _in_cave(survey):
+    """The map reference for the cave's maps, or None if the cave does not input the survey."""
+    cave = open(PROJECT.path(PROJECT.cave['plan_map_file']), encoding='utf-8').read()
+    if not re.search(rf'^\s*input {survey}/{survey}\.th\s*$', cave, re.M):
+        return None
+    th = open(PROJECT.path(PROJECT.survey_file(survey)), encoding='utf-8').read()
+    return f"{survey}MEe" if re.search(r'-namespace off', th) else f"{survey}MEe@{survey}"
+
+
+def file_map(survey, after, scraps):
+    """`map XMEe` of the scraps in X.th after the line matching `after` (an input), and
+    XMEe in the cave's extended map (LongwoodValleySinkMEe) if the cave has the survey."""
+    th = PROJECT.path(PROJECT.survey_file(survey))
+    s = open(th, encoding='utf-8', newline='').read()
+    nl = '\r\n' if '\r\n' in s else '\n'
+    if re.search(rf'^map {survey}MEe\b', s, re.M):
+        sys.exit(f"{th} already has map {survey}MEe")
+    m = re.search(after, s, re.M)
+    block = f"{nl}map {survey}MEe{nl}" + "".join(f"  {n}{nl}" for n in scraps) + f"endmap{nl}"
+    s = s[:m.end()] + nl + block + s[m.end():] if m else s
+    open(th, 'w', encoding='utf-8', newline='').write(s)
+    ref = _in_cave(survey)
+    if ref:
+        cave = PROJECT.path(PROJECT.cave['plan_map_file'])
+        c = open(cave, encoding='utf-8', newline='').read()
+        mm = re.search(r'^map LongwoodValleySinkMEe\s*\r?\n(.*?)^endmap', c, re.S | re.M)
+        if mm and ref not in mm.group(1):
+            c = c[:mm.end(1)] + f"  {ref}{nl}" + c[mm.end(1):]
+            open(cave, 'w', encoding='utf-8', newline='').write(c)
+    print(f"{th}: map {survey}MEe ({' '.join(scraps)})" + (f"; {ref} in LongwoodValleySinkMEe" if ref else " (not in the cave)"))
+
+
+def _attribution(survey):
+    """' -author DATE "NAME" -copyright YEAR "LICENCE"' from the survey's date and its notes
+    team member (who drew the elevations it is unfolded from), or '' if not given."""
+    th = open(PROJECT.path(PROJECT.survey_file(survey)), encoding='utf-8', errors='replace').read()
+    d = re.search(r'^\s*date\s+(\d{4})([\d.]*)', th, re.M)
+    t = re.search(r'^\s*team\s+"([^"]+)"\s+.*\bnotes\b', th, re.M)
+    if not d or not t:
+        return ''
+    return f' -author {d.group(1)}{d.group(2)} "{t.group(1)}" -copyright {d.group(1)} "{PROJECT.drawing['licence']}"'
+
+
+def file_extended(survey):
+    """X.extended.th2 written into the survey's folder and filed (input, map, cave map)."""
+    folder = os.path.dirname(PROJECT.path(PROJECT.survey_file(survey)))
+    if os.path.exists(os.path.join(folder, f"{survey}.extended.th2")):
+        sys.exit(f"{survey}.extended.th2 exists: not overwritten")
+    path = write(survey, folder)
+    t = open(path, encoding='utf-8').read()
+    open(path, 'w', encoding='utf-8').write(t.replace(' -projection extended -scale',
+                                                      f' -projection extended{_attribution(survey)} -scale', 1))
+    th = PROJECT.path(PROJECT.survey_file(survey))
+    s = open(th, encoding='utf-8', newline='').read()
+    nl = '\r\n' if '\r\n' in s else '\n'
+    m = list(re.finditer(rf'^map {survey}ME315\b.*?^endmap[^\n]*\n', s, re.S | re.M)) or \
+        list(re.finditer(r'^\s*input .*\n', s, re.M))
+    at = m[-1].end() if m else 0
+    s = s[:at] + f'{nl}input "{survey}.extended.th2"{nl}' + s[at:]
+    open(th, 'w', encoding='utf-8', newline='').write(s)
+    file_map(survey, rf'^input "{survey}\.extended\.th2".*$', [f"{survey}SE1"])
+    return path
+
+
+def file_ee(survey):
+    """map XMEe of the old extended drawing's scrap (X.ee.th2), filed as file_map."""
+    folder = os.path.dirname(PROJECT.path(PROJECT.survey_file(survey)))
+    f = next(f for f in sorted(os.listdir(folder)) if f.endswith('.ee.th2'))
+    names = re.findall(r'^scrap (\S+)', open(os.path.join(folder, f), encoding='utf-8').read(), re.M)
+    file_map(survey, rf'^\s*input "?{re.escape(f)}"?.*$', names)
+
+
 def main(argv):
     p = argparse.ArgumentParser(prog='python3 -m tools.sketch2therion unfold')
     p.add_argument('surveys', nargs='+')
     p.add_argument('--out', default='review/extended-new')
     p.add_argument('--ee', action='store_true', help="draw the walls into the survey's own X.ee.th2")
+    p.add_argument('--file', action='store_true',
+                   help="file it: X.extended.th2 in the survey (or, with --ee, its X.ee.th2 as it is), "
+                        "map XMEe in X.th and the cave's extended map")
     a = p.parse_args(argv)
     for s in a.surveys:
-        if a.ee:
+        if a.file:
+            file_ee(s) if a.ee else file_extended(s)
+        elif a.ee:
             write_ee(s)
         else:
             write(s, a.out)

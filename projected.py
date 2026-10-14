@@ -342,6 +342,14 @@ def split_walls(walls, pr, group_of):
 NODE_GAP = 0.06      # m: no two nodes closer than this (lint node-gap is 0.05 m)
 
 
+def _fitted(q, px, K):
+    """th2 rows of a projected wall refitted as the plans are (smooth's Bezier fit within its
+    TOL of the wall): nodes as sparse as the plans', about a metre apart, not one a point."""
+    from .smooth import _fit_within
+    rows = [[float(v) for v in r.split()] for r in bezier_lines(q, px)]
+    return ["  " + " ".join("%.2f" % v for v in r) for r in _fit_within(rows, K)]
+
+
 def _spaced(q):
     """The points with none closer than NODE_GAP to the one before (the ends kept)."""
     out = [q[0]]
@@ -470,7 +478,7 @@ def projected(survey, angle=315, file_it=False, author=None, copyright=None, out
                     lines.append((k, list(q)))
             for k, q in lines:
                 hull += q
-                o += [f"line wall{'' if k == 'bedrock' else ' -subtype ' + k}"] + bezier_lines(q, px) + ["endline", ""]
+                o += [f"line wall{'' if k == 'bedrock' else ' -subtype ' + k}"] + _fitted(q, px, unit) + ["endline", ""]
             # no closing walls: Therion closes the outline itself (Style.md, lint wall-invisible)
             for n in sorted({n for l in g for n in l}, key=register.natural):
                 o += ["point %.2f %.2f station -name %s" % (*px(proj[n]), n), ""]
