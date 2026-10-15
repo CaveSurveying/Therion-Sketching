@@ -3,6 +3,7 @@
 """A plan xvi re-exported with its cross sections linked, as SexyTopo now does.
 
     python3 -m tools.sketch2therion stxvi X [--xvi PATH] [--out PATH]
+    python3 -m tools.sketch2therion stxvi X --export plan|ee --out PATH
 
 SexyTopo before 1.12 (TickleWest: 1.8.3) wrote a plan xvi without linking
 its cross sections to the plan: the section's strokes are there, but not
@@ -18,7 +19,10 @@ paperclipmonkey/sexytopo, kmp/shared/.../io/export/Xvi.kt):
   (`CrossSection.getProjection`, `Projection2D.CROSS_SECTION`);
 - `connect` from the station on the plan to the section's place.
 
-The rest of the xvi is kept as it is. Coordinates are SexyTopo's sketch
+The rest of the xvi is kept as it is. With --export, a whole xvi is written
+from the SexyTopo files instead, the stations and shots laid out as SexyTopo
+does (Space3DTransformer, and ...ForElevation for an extended elevation):
+for an xvi exported before a leg was corrected (Century 46-47). Coordinates are SexyTopo's sketch
 ones (metres, y down) times the xvi's scale, with y flipped.
 """
 import argparse
@@ -87,8 +91,22 @@ def main(argv):
     p.add_argument('survey')
     p.add_argument('--xvi', help='the plan xvi (default: X/XVI/X.plan.xvi, X/X.plan.xvi, X/Notes/X.plan.xvi or X/Notes/XP.xvi)')
     p.add_argument('--out', help='where to write it (default: in place)')
+    p.add_argument('--export', choices=('plan', 'ee'),
+                   help='write a whole new xvi from the SexyTopo files instead (needs --out)')
     a = p.parse_args(argv)
     folder = os.path.dirname(PROJECT.path(PROJECT.survey_file(a.survey)))
+    if a.export:
+        if not a.out:
+            sys.exit('--export needs --out')
+        where = next((d for d in (folder, os.path.join(folder, 'Notes'))
+                      if os.path.exists(os.path.join(d, f'{a.survey}.data.json'))), None)
+        if not where:
+            sys.exit(f"{a.survey}: no {a.survey}.data.json")
+        data = load_json(os.path.join(where, f'{a.survey}.data.json'))
+        sketch = load_json(os.path.join(where, f'{a.survey}.{"plan" if a.export == "plan" else "ext-elevation"}.json'))
+        open(a.out, 'w', encoding='utf-8', newline='').write(export(sketch, data, a.export))
+        print(f"wrote {a.out}: the {a.export} from {a.survey}'s SexyTopo files")
+        return
     first = lambda names: next((q for q in names if os.path.exists(q)), None)
     path = a.xvi or first([os.path.join(folder, 'XVI', f'{a.survey}.plan.xvi'),
                            os.path.join(folder, f'{a.survey}.plan.xvi'),
@@ -110,3 +128,80 @@ def main(argv):
     target = a.out or path
     open(target, 'w', encoding='utf-8', newline='').write(out)
     print(f"wrote {target}: {n} cross sections linked to the plan")
+
+
+# -- a whole xvi from the SexyTopo files (as the current exporter writes it) -------------------
+
+def _cart(at, d, az, inc):
+    """SexyTopo's toCartesian: (east, north, up) from a leg's distance, azimuth and inclination."""
+    az, inc = math.radians(az), math.radians(inc)
+    return (at[0] + d * math.cos(inc) * math.sin(az), at[1] + d * math.cos(inc) * math.cos(az),
+            at[2] + d * math.sin(inc))
+
+
+def layout(data, view):
+    """(stations {name: (x, y)}, shots [((x, y), (x, y))]) in metres, y up, for view 'plan' or
+    'ee', walked from the first station as SexyTopo's Space3DTransformer and
+    Space3DTransformerForElevation do (an extended elevation unrolls each leg right, left or
+    upright by its destination's eeDirection, and turns the splays with it)."""
+    by = {st['name']: st for st in data['stations']}
+    root = data['stations'][0]['name']
+    pts, shots = {}, []
+    pending = [(root, (0.0, 0.0, 0.0), 0.0)]
+    to2d = (lambda c: (c[1], c[2])) if view == 'ee' else (lambda c: (c[0], c[1]))
+    while pending:
+        name, at, rot = pending.pop()
+        if name in pts:
+            continue
+        pts[name] = to2d(at)
+        for leg in reversed(by.get(name, {}).get('legs', [])):
+            d, az, inc = leg['distance'], leg['azimuth'], leg['inclination']
+            dest = leg['destination']
+            if dest != '-':
+                if view == 'ee':
+                    paz = {'right': 0.0, 'left': 180.0, 'vertical': 90.0}.get(
+                        str(by.get(dest, {}).get('eeDirection', 'right')).lower(), 0.0)
+                    end = _cart(at, d, paz, inc)
+                    pending.append((dest, end, paz - az))
+                else:
+                    end = _cart(at, d, az, inc)
+                    pending.append((dest, end, 0.0))
+            else:
+                end = _cart(at, d, az + rot, inc)
+            shots.append((to2d(at), to2d(end)))
+    return pts, shots
+
+
+def export(sketch, data, view, scale=78.74016):
+    """A whole xvi: stations, shots (legs and splays), the sketch's strokes, and each cross
+    section's station, splays and connect line. Labels and symbols are not drawn."""
+    pts, shots = layout(data, view)
+    px = lambda p: (p[0] * scale, p[1] * scale)
+    st = [f"\t {{{_num(px(p)[0])} {_num(px(p)[1])} {n}}}\n" for n, p in pts.items()]
+    sh = [f"\t {{{_num(px(a)[0])} {_num(px(a)[1])} {_num(px(b)[0])} {_num(px(b)[1])}}}\n" for a, b in shots]
+    sl = []
+    for path in sketch.get('paths', []):
+        v = []
+        for q in path['points']:
+            v += [_num(q['x'] * scale), _num((-q['y'] + 0.0) * scale)]
+        sl.append(f"\t {{{path['colour']} {' '.join(v)}}}\n")
+    a_st, a_sh, a_cn = section_rows(sketch, data, {n: px(p) for n, p in pts.items()}, scale)
+    xs = [x for p in pts.values() for x in (p[0],)] or [0.0]
+    ys = [p[1] for p in pts.values()] or [0.0]
+    left, bottom = (math.floor(min(xs)) - 5) * scale, (math.floor(min(ys)) - 5) * scale
+    nx, ny = int(max(xs) - min(xs)) + 11, int(max(ys) - min(ys)) + 11
+    return ("set XVIgrids {1 m}\n"
+            "set XVIstations {\n" + "".join(st + a_st) + "}\n"
+            "set XVIshots {\n" + "".join(sh + a_sh) + "}\n"
+            "set XVIsketchlines {\n" + "".join(sl + a_cn) + "}\n"
+            f"set XVIgrid {{{left:.4f} {bottom:.4f} {scale} 0.0 0.0 {scale} {nx}.0 {ny}.0}}\n")
+
+
+def load_json(path):
+    """A SexyTopo JSON file; anything after its closing brace (a longer file's leftover tail,
+    Century.ext-elevation.json) is ignored, with a warning."""
+    text = open(path, encoding='utf-8').read()
+    obj, end = json.JSONDecoder().raw_decode(text)
+    if text[end:].strip():
+        print(f"{path}: {len(text[end:].strip())} characters after the JSON ignored (a damaged save?)", file=sys.stderr)
+    return obj
