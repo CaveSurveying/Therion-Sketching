@@ -335,7 +335,7 @@ def _attribution(survey):
     t = re.search(r'^\s*team\s+"([^"]+)"\s+.*\bnotes\b', th, re.M)
     if not d or not t:
         return ''
-    return f' -author {d.group(1)}{d.group(2)} "{t.group(1)}" -copyright {d.group(1)} "{PROJECT.drawing['licence']}"'
+    return f' -author {d.group(1)}{d.group(2)} "{t.group(1).strip()}" -copyright {d.group(1)} "{PROJECT.drawing['licence']}"'
 
 
 def file_extended(survey):
