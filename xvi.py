@@ -113,11 +113,11 @@ def _key(p):
 
 # -- reading -----------------------------------------------------------------
 
-def _block(txt, name):
-    """The text inside `set NAME { ... }`, braces matched."""
+def block_span(txt, name):
+    """(start, end) of the text inside `set NAME { ... }`, braces matched; None if absent."""
     m = re.search(r'set\s+' + name + r'\s*\{', txt)
     if not m:
-        return ''
+        return None
     i = m.end()
     depth = 1
     j = i
@@ -127,7 +127,13 @@ def _block(txt, name):
         elif txt[j] == '}':
             depth -= 1
         j += 1
-    return txt[i:j - 1]
+    return i, j - 1
+
+
+def _block(txt, name):
+    """The text inside `set NAME { ... }`, braces matched."""
+    span = block_span(txt, name)
+    return txt[span[0]:span[1]] if span else ''
 
 
 def _entries(block):

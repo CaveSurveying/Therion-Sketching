@@ -289,6 +289,9 @@ def main(argv=None):
     if args[:1] == ['unfold']:                 # an extended elevation from the projected ones
         from . import unfold
         return unfold.main(args[1:])
+    if args[:1] == ['stxvi']:                  # an old SexyTopo plan xvi with its cross sections linked
+        from . import stxvi
+        return stxvi.main(args[1:])
     if args[:1] == ['joins']:                  # earlier plans cut back where a new survey joins
         from . import joins
         return joins.main(args[1:])
