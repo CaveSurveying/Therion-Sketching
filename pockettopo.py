@@ -3,7 +3,7 @@
 """PocketTopo files: the binary .top and the Therion export (_th.txt).
 
 Both are turned into a `Sketch` (see xvi.py), so PocketTopo sketches go
-through the same conversion as SexyTopo ones. Cross-sections become connect
+through the same conversion as SexyTopo ones. Cross sections become connect
 lines from the station to the middle of the drawing, as SexyTopo writes them.
 """
 import datetime
@@ -222,9 +222,9 @@ def _section(lines, name):
 
 def th_txt_sketch(path, view='plan'):
     """A PocketTopo Therion export as a Sketch. In its ELEVATION section a
-    cross-section's station is listed at the cross-section, and the CONNECT
+    cross section's station is listed at the cross section, and the CONNECT
     line runs back to where it is on the profile; in PLAN the station is in
-    place and the CONNECT line runs out to the cross-section."""
+    place and the CONNECT line runs out to the cross section."""
     lines = open(path, encoding='latin-1').read().replace('\r', '').splitlines()
     st, shots, polys = _section(lines, 'PLAN' if view == 'plan' else 'ELEVATION')
     stations = {n: [p] for n, p in st.items()}

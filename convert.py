@@ -1,6 +1,6 @@
 # Ported from caves-mendip-swildons, tools/sketch2therion (commit 198bf46,
 # https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see tools/LICENSE.
-"""Sketch -> th2: plan scraps, extended-elevation scraps and cross-sections.
+"""Sketch -> th2: plan scraps, extended-elevation scraps and cross sections.
 
 What each colour becomes (the same in SexyTopo and PocketTopo):
 
@@ -439,10 +439,10 @@ def _nearest(pos, p):
     return min(pos, key=lambda k: math.dist(pos[k], p))
 
 
-# -- cross-sections ----------------------------------------------------------------
+# -- cross sections ----------------------------------------------------------------
 
 def gather_section(centre, lines, used, stations, near=1.2, reach=6.0, avoid=()):
-    """Indices of the sketch lines making up the cross-section drawn around
+    """Indices of the sketch lines making up the cross section drawn around
     `centre`: lines within `near` of it or around it, then lines touching those,
     keeping only lines wholly within `reach` of the centre and clear of the
     survey stations (which are on the main drawing, not the section)."""
@@ -509,7 +509,7 @@ def drawn_outline(strokes, centre):
     the outline, each line with its colour's subtype (brown: the floor,
     sand, or debris with pebbles on it; FairyChimneys PX5); one stroke open
     at the bottom is closed by a floor straight across its ends (TridentLeft
-    PX1, PX10). Its station must be inside (Style.md, cross-sections)."""
+    PX1, PX10). Its station must be inside (Style.md, cross sections)."""
     strokes = [(c, list(s)) for c, s in strokes if len(s) > 1]
     if not strokes:
         return None
@@ -572,7 +572,7 @@ def drawn_outline(strokes, centre):
 
 
 def section_outline(strokes, centre=None):
-    """One closed outline for a cross-section, from its wall strokes.
+    """One closed outline for a cross section, from its wall strokes.
 
     The strokes are thickened just enough to close the outline (up to
     0.6 m, so a gap left where the passage carries on is bridged), the
@@ -620,7 +620,7 @@ def section_outline(strokes, centre=None):
 
 
 def section_th2(name, attrs, lines, centre, K, comment):
-    """A cross-section scrap. lines: [(colour, pts)] gathered for it.
+    """A cross section scrap. lines: [(colour, pts)] gathered for it.
     Returns (th2 lines, width, height) or None if it has no walls."""
     # rocks in the section (closed brown loops on its floor) are drawn as rocks, not taken
     # for its outline (Style.md, rocks: the user, rocks in cross sections drawn)
@@ -687,7 +687,7 @@ SECTION_SPLAY_OUT = 0.5    # m: a section's splay end further outside its outlin
 
 
 def section_scraps(sketch, opt, K, view='P'):
-    """Cross-section scraps for every connect line in the sketch, one scrap
+    """Cross section scraps for every connect line in the sketch, one scrap
     each, named survey + PX (plan) or EX (elevation) + station (Style.md:
     FairyChimneysPX5). A section's strokes are those around its own copy
     of the station and clear of the main drawing's shots (a stroke near
@@ -710,17 +710,17 @@ def section_scraps(sketch, opt, K, view='P'):
         name = (f"{survey}{view}X{n}" if SETTINGS['section_names'] else f"{opt.name}_xs_{n}").replace('.', '_')
         r = section_th2(name, opt.attrs(K), mine, centre, K, f"# Cross-section at station {n}.")
         if r is None:
-            print(f"  cross-section {name}: no walls drawn round station {n}", file=sys.stderr)
+            print(f"  cross section {name}: no walls drawn round station {n}", file=sys.stderr)
             continue
         o += r[0]
         W, H = r[1], r[2]
         poly = r[3]
         if poly is not None:
             if not poly.buffer(0.1).contains(Point(centre)):
-                print(f"  cross-section {name}: station {n} outside its outline: check", file=sys.stderr)
+                print(f"  cross section {name}: station {n} outside its outline: check", file=sys.stderr)
             far = [e for e in ends if poly.distance(Point(e)) > SECTION_SPLAY_OUT]
             if far:
-                print(f"  cross-section {name}: {len(far)} of {len(ends)} splay ends more than "
+                print(f"  cross section {name}: {len(far)} of {len(ends)} splay ends more than "
                       f"{SECTION_SPLAY_OUT} m outside: check", file=sys.stderr)
         made.append((n, name, centre, W, H))
     return o, made, used
@@ -775,7 +775,7 @@ SECTION_MARGIN = 0.5    # m: a section line goes this far past the passage, so i
 
 def section_line(geo, n, px):
     """`line section -direction both` right across the passage at station n
-    (Style.md, Cross-sections). Therion draws the arrows on the line's left,
+    (Style.md, Cross sections). Therion draws the arrows on the line's left,
     so the line runs with the view direction, along the survey from n
     towards the next station, on its left. Returns (rows, perp, half width)."""
     P = geo.pos[n]
@@ -805,7 +805,7 @@ def section_line(geo, n, px):
 
 
 def place_sections(geo, made, px, placed):
-    """Put cross-sections drawn in a side view beside the passage on the plan,
+    """Put cross sections drawn in a side view beside the passage on the plan,
     clear of other passages and of each other."""
     obst = geo.obstacles()
     o = []
@@ -972,7 +972,7 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
 
 def extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, below=3.0, above=5.0):
     """th2 text for an extended-elevation sketch, plus a plan scrap placing
-    its cross-sections (if Therion's plan layout is given)."""
+    its cross sections (if Therion's plan layout is given)."""
     if SETTINGS['elevation_wall_colours']:
         # in an elevation the floor is often drawn in another colour (brown) than the roof
         keep = SETTINGS['wall_colours']
@@ -1440,7 +1440,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
             o += water_th2(mine, poly, px, name, flow=False)
             if feats:
                 o += el.th2(feats, poly, walls, px, name)
-            for n, sname, centre, W, H in made:      # cross-sections where they were sketched
+            for n, sname, centre, W, H in made:      # cross sections where they were sketched
                 if n in inside:
                     o += ["point %.2f %.2f section -scrap %s" % (*px(centre), sname), ""]
             for n in inside:
@@ -1468,7 +1468,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
         if madek:
             pname = f"{opt.name}XS"
             xs_plan = [f"scrap {pname} -projection plan{opt.attrs(K)}", "",
-                       "# Where each cross-section is cut (line section) and drawn (point section).", ""]
+                       "# Where each cross section is cut (line section) and drawn (point section).", ""]
             xs_plan += place_sections(geo, madek, px, [])
             for k, *_ in madek:
                 xs_plan += ["point %.2f %.2f station -name %s" % (*px(allpos[k]), opt.station(k.split('@')[0])), ""]

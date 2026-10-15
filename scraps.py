@@ -639,7 +639,7 @@ def meet_ends(text, near, within=False):
     while i < len(lines):
         if lines[i].startswith("scrap "):
             scrap = lines[i].split()[1]
-            section = "-projection none" in lines[i]      # a cross-section joins no other scrap
+            section = "-projection none" in lines[i]      # a cross section joins no other scrap
         if lines[i].startswith("line wall") and "-subtype invisible" not in lines[i] and "-close on" not in lines[i] \
                 and not section:
             j = i + 1
@@ -678,7 +678,7 @@ def meet_ends(text, near, within=False):
 
 def _walls_of(lines):
     """[(scrap, header index, [numeric row indices])] of the walls in th2 lines,
-    cross-sections left out: a section joins no other scrap (TridentLeft PX6
+    cross sections left out: a section joins no other scrap (TridentLeft PX6
     was joined to the plan's wall beside it)."""
     out, scrap, section, i = [], None, False, 0
     while i < len(lines):

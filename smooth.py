@@ -835,7 +835,7 @@ def outline_sound_now(objs):
 
 def _wall_tol(header, objs, K, path):
     """How closely each wall of a scrap is refitted (metres): for a
-    cross-section, in proportion to its size; otherwise, with [convert]
+    cross section, in proportion to its size; otherwise, with [convert]
     wall_tol_rel, in proportion to the legs nearby (scale.py); else TOL."""
     from .settings import SETTINGS
     from . import scale

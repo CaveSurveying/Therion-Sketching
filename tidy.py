@@ -916,7 +916,7 @@ def tidy_scrap(header, body, map_scale=500, elevation=False):
     if ring_obj is not None:
         objs, outline_poly = rebuild_outline(objs, ring_obj, K, header.split()[1])
     else:
-        # a cross-section: its closed wall is the outline
+        # a cross section: its closed wall is the outline
         cw = next((o for o in objs if o.kind == 'line' and o.head.startswith('line wall') and '-close on' in o.head), None)
         if cw:
             pts = bezier_points(cw.segments())

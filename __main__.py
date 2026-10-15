@@ -3,9 +3,9 @@
 """Command line: python3 -m tools.sketch2therion <command> ...
 
   check       how well a sketch fits the survey, before converting it
-  plan        a plan sketch -> th2 (plan scraps and cross-sections)
+  plan        a plan sketch -> th2 (plan scraps and cross sections)
   extended    an extended-elevation sketch -> th2 (elevation scraps,
-              cross-sections, and a plan scrap placing the cross-sections)
+              cross sections, and a plan scrap placing the cross sections)
   xvi         a PocketTopo .top or _th.txt -> XVI, to use as a backdrop
   extend      copy PocketTopo's left/right leg directions into a .th file
   tidy        redraw converted th2 files the conventional Therion way (the
@@ -74,7 +74,7 @@ def cmd_check(a):
         colours[c] = colours.get(c, 0) + 1
     print(f"{a.sketch}: {'extended elevation' if a.elevation else 'plan'}, {sk.scale:.2f} units/m")
     print(f"  {len(pos)} stations, {len(sk.legs())} legs, {len(sk.splays())} splays, "
-          f"{len(sk.sections())} cross-sections")
+          f"{len(sk.sections())} cross sections")
     print("  lines: " + ", ".join(f"{c.lower()} {n}" for c, n in sorted(colours.items(), key=lambda kv: -kv[1])))
     missing = [n for n in pos if not lay.find(n, a.survey)]
     if missing:
@@ -158,7 +158,7 @@ def cmd_plan(a):
         from .scraps import meet_ends
         text = meet_ends(text, 0.3 * sk.scale)
     write_th2(text, a.output)
-    print(f"wrote {a.output}: {len(scraps)} plan scraps, {len(sections)} cross-sections")
+    print(f"wrote {a.output}: {len(scraps)} plan scraps, {len(sections)} cross sections")
     _map_hint(a.survey, scraps, 'plan')
 
 
@@ -178,10 +178,10 @@ def cmd_extended(a):
         from .scraps import meet_ends
         text = meet_ends(text, 0.3 * sk.scale)
     write_th2(text, a.output)
-    print(f"wrote {a.output}: {len(scraps)} elevation scraps, {len(sections)} cross-sections")
+    print(f"wrote {a.output}: {len(scraps)} elevation scraps, {len(sections)} cross sections")
     _map_hint(a.survey, scraps, 'extended')
     if plan_scraps:
-        print("and, for the cross-sections:")
+        print("and, for the cross sections:")
         _map_hint(a.survey, plan_scraps, 'plan')
 
 
@@ -340,7 +340,7 @@ def main(argv=None):
     q = sub.add_parser('extended', help='extended-elevation sketch -> th2')
     common(q, 1.5)
     drawing(q)
-    q.add_argument('--plan-layout', help="unused: cross-sections are placed where they were sketched")
+    q.add_argument('--plan-layout', help="unused: cross sections are placed where they were sketched")
     q.add_argument('--floor-reach', type=float, default=3.0,
                    help='fill down to a floor line up to this far below the legs (default 3 m)')
     q.add_argument('--roof-reach', type=float, default=5.0,

@@ -16,8 +16,8 @@ units per metre differ: PocketTopo writes 39.37, SexyTopo 78.74 and Therion
 19.685 at its default scale. They are read here from XVIgrid and everything
 is converted to metres.
 
-Cross-sections: both SexyTopo and PocketTopo draw a cross-section in the same
-file as the sketch, list its station a second time at the cross-section, and
+Cross sections: both SexyTopo and PocketTopo draw a cross section in the same
+file as the sketch, list its station a second time at the cross section, and
 join the two with a `connect` sketch line. Which end of the connect line is
 the station depends on the program, so `Sketch.sections()` works it out from
 the legs.
@@ -64,7 +64,7 @@ class Sketch:
 
     def positions(self):
         """Each station's place in the sketch: name -> (x, y). A station listed
-        twice (once more at its cross-section) is taken where its legs are."""
+        twice (once more at its cross section) is taken where its legs are."""
         leg_ends = {}
         at = self._index()
         for a, b in self.shots:
@@ -82,7 +82,7 @@ class Sketch:
         return out
 
     def sections(self):
-        """Cross-sections drawn in this sketch: [(station, station_pos, centre)]."""
+        """Cross sections drawn in this sketch: [(station, station_pos, centre)]."""
         pos = self.positions()
         out = []
         for a, b in self.connects:
@@ -150,6 +150,13 @@ def scale_of(txt):
     return 39.37007874 / cell
 
 
+def _colour_map():
+    """[convert] colour_map: purple read as black (a wall where passages overlap), red and orange
+    as grey (Style.md, Sketching in SexyTopo)."""
+    from .settings import SETTINGS
+    return SETTINGS.get('colour_map') or {}
+
+
 def read(path):
     txt = open(path, encoding='utf-8', errors='replace').read()
     s = scale_of(txt)
@@ -168,6 +175,7 @@ def read(path):
             continue
         colour = e[0].upper()
         colour = {'GREY': 'GRAY'}.get(colour, colour)
+        colour = _colour_map().get(colour, colour)
         try:
             v = [m(x) for x in e[1:]]
         except ValueError:
@@ -184,8 +192,8 @@ def read(path):
 # -- writing -----------------------------------------------------------------
 
 def write(sketch, path, scale=39.37007874):
-    """Write a sketch as XVI. Cross-sections are written the SexyTopo way: the
-    station again at the cross-section, and a connect line station -> section."""
+    """Write a sketch as XVI. Cross sections are written the SexyTopo way: the
+    station again at the cross section, and a connect line station -> section."""
     f = lambda v: f"{v * scale:.2f}"
     o = ["set XVIgrids {1.0 m}", "set XVIstations {"]
     for n, ps in sketch.stations.items():

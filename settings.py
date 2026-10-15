@@ -12,7 +12,7 @@ from .. import project as _project
 UPSTREAM = {
     'wall_colours': ['BLACK', 'BROWN', 'GRAY'],  # strokes that can make the passage outline
     'auto_scraps': False,        # True: scraps from the 3D model where [scraps]/[scraps_extended] list none (autoscraps.py)
-    'section_names': False,      # True: cross-sections named survey + PX/EX + station (FairyChimneysPX5); upstream X_xs_n
+    'section_names': False,      # True: cross sections named survey + PX/EX + station (FairyChimneysPX5); upstream X_xs_n
     'outer_walls': False,        # True: a border or `-outline none` wall with passage (by the splays) on one side only is a wall
     'dashed_presumed': False,    # True: black dashed lines (no ticks) are `line wall -subtype presumed`
     'dash_neighbours': False,    # True: a dash joins only its nearest dash ahead and behind (two dashed lines
@@ -106,11 +106,11 @@ UPSTREAM = {
     'wall_presmooth': 0.0,       # walls smoothed (running mean over this many times the tolerance)
                                  # before refitting, so nodes follow bends, not hand wobble (0: off)
     'line_tol_rel': 0.0,         # the same for borders, steps and overhangs (0: a fixed 0.04 m, over 0.5 m)
-    'section_tol_rel': 0.0,      # cross-section walls to within this fraction of the section's size
+    'section_tol_rel': 0.0,      # cross section walls to within this fraction of the section's size
                                  # (0: as other walls)
-    'sections_in_place': False,  # True: a cross-section scrap's coordinates are where it was sketched,
+    'sections_in_place': False,  # True: a cross section scrap's coordinates are where it was sketched,
                                  # by its section mark, so xTherion shows it there
-    'section_shape': False,      # True: a cross-section keeps the shape it was sketched: one open stroke is
+    'section_shape': False,      # True: a cross section keeps the shape it was sketched: one open stroke is
                                  # closed by a floor straight across its ends, the closing distances scale
                                  # with its size, and its walls are not despiked as passage walls are
     'wall_ends_meet': 0.0,       # m: wall ends this close meet, and an end near another wall's side ends
@@ -124,6 +124,9 @@ UPSTREAM = {
     'area_lines': True,          # False: open brown lines lying mostly inside a boulder/debris area are
                                  # dropped (they are part of the rocks' drawing)
     'hand_scraps': False,        # True: plan scraps from [scraps] in project.toml where a survey has them (scraps.py)
+    'colour_map': {},            # sketch colours read as another (purple: walls of a passage where it
+                                 # overlaps another, read as black; red, orange: its other lines, read
+                                 # by shape as grey); upstream: none, red and orange ignored as notes
     'join_local': False,         # True: walls joined end to end are refitted only near the join
                                  # (smooth.py), so the rest of each wall stays as drawn
 }
