@@ -106,10 +106,10 @@ def _opts(a):
         re.sub(r'[^A-Za-z0-9]', '', a.survey or os.path.splitext(os.path.basename(a.output))[0]))
     return convert.Options(name, a.survey, tuple(a.author) if a.author else None,
                            tuple(a.copyright) if a.copyright else None, a.qualify,
-                           (PROJECT.scraps.get(a.survey) or _auto_scraps(a.survey, 'plan')) if a.survey else None)
+                           (PROJECT.scraps.get(a.survey) or _auto_scraps(a.survey, 'plan', a.sketch)) if a.survey else None)
 
 
-def _auto_scraps(survey, view):
+def _auto_scraps(survey, view, sketch):
     """Scraps from the 3D model (autoscraps.py), where [scraps] doesn't list
     them by hand and auto_scraps is on: plans from the splays, elevations
     (after the plans are drawn) from the drawn plans and the splays.
@@ -119,7 +119,7 @@ def _auto_scraps(survey, view):
         return None
     from . import autoscraps
     try:
-        groups, cut, left, cl = autoscraps.scraps_for(PROJECT.path(PROJECT.survey_file(survey)), survey, view,
+        groups, cut, left, cl = autoscraps.scraps_for(_survey_th(survey, sketch), survey, view,
                                                       'splays' if view == 'plan' else 'both')
     except RuntimeError as e:
         print(f"  scraps: {e}", file=sys.stderr)
@@ -159,7 +159,7 @@ def cmd_plan(a):
         text = meet_ends(text, 0.3 * sk.scale)
     write_th2(text, a.output)
     print(f"wrote {a.output}: {len(scraps)} plan scraps, {len(sections)} cross sections")
-    _map_hint(a.survey, scraps, 'plan')
+    _map_hint(a.survey, scraps, 'plan', a.sketch)
 
 
 def cmd_extended(a):
@@ -167,7 +167,7 @@ def cmd_extended(a):
     SETTINGS['_elevation'] = True               # elevation rules (water flow under the floor)
     sk = load(a.sketch, 'elevation')
     opts = _opts(a)
-    opts.scraps = (PROJECT.scraps_extended.get(a.survey) or _auto_scraps(a.survey, 'extended')) if a.survey else None
+    opts.scraps = (PROJECT.scraps_extended.get(a.survey) or _auto_scraps(a.survey, 'extended', a.sketch)) if a.survey else None
     opts.glitches = PROJECT.glitches.get(a.survey, {}).get(os.path.basename(a.sketch)) if a.survey else None
     text, scraps, sections, plan_scraps = convert.extended(
         sk, opts, a.output, _layout_for_drawing(a, EXT_LAYOUT),
@@ -179,22 +179,33 @@ def cmd_extended(a):
         text = meet_ends(text, 0.3 * sk.scale)
     write_th2(text, a.output)
     print(f"wrote {a.output}: {len(scraps)} elevation scraps, {len(sections)} cross sections")
-    _map_hint(a.survey, scraps, 'extended')
+    _map_hint(a.survey, scraps, 'extended', a.sketch)
     if plan_scraps:
         print("and, for the cross sections:")
-        _map_hint(a.survey, plan_scraps, 'plan')
+        _map_hint(a.survey, plan_scraps, 'plan', a.sketch)
 
 
-def _map_hint(survey, scraps, view):
+def _survey_th(survey, near):
+    """The survey's .th: beside the sketch or drawing `near`, else where this
+    cave keeps it."""
+    from .survey import survey_file
+    return survey_file(survey, near) or PROJECT.path(PROJECT.survey_file(survey))
+
+
+def _map_hint(survey, scraps, view, near):
+    th = _survey_th(survey, near) if survey else '<survey>.th'
+    in_cave = survey and os.path.abspath(th) == os.path.abspath(PROJECT.path(PROJECT.survey_file(survey)))
+    th = PROJECT.survey_file(survey) if in_cave else th
     survey = survey or '<survey>'
     if view == 'plan':
         smap = PROJECT.survey_plan_map(survey)
-        print(f"Add to `map {smap}` in {PROJECT.survey_file(survey)}:")
+        print(f"Add to `map {smap}` in {th}:")
         for s in scraps:
             print(f"  {s}")
-        print(f"and {PROJECT.qualified(smap, survey)} to {PROJECT.cave['plan_map']} in {PROJECT.cave['plan_map_file']}.")
+        if in_cave:
+            print(f"and {PROJECT.qualified(smap, survey)} to {PROJECT.cave['plan_map']} in {PROJECT.cave['plan_map_file']}.")
     else:
-        print(f"Add to an extended-elevation map in {PROJECT.survey_file(survey)}:")
+        print(f"Add to an extended-elevation map in {th}:")
         for s in scraps:
             print(f"  {s}")
 
@@ -210,18 +221,16 @@ def cmd_tidy(a):
 
 def cmd_roofs(a):
     from . import roofs
-    splays = roofs.Splays()
-    for f in a.files:
-        done = roofs.redo_file(f, splays, a.map_scale)        # elevation scraps
-        done += roofs.plan_redo_file(f, splays, a.scrap, a.map_scale)
+    for f in a.files:                                      # splays from each drawing's own sketch
+        done = roofs.redo_file(f, None, a.map_scale)        # elevation scraps
+        done += roofs.plan_redo_file(f, None, a.scrap, a.map_scale)
         print(f"  {f}: {', '.join(done) or 'nothing to redo'}")
 
 
 def cmd_details(a):
-    from . import details, roofs
-    splays = roofs.Splays()
+    from . import details
     for f in a.files:
-        for name, steps, blocks in details.redo_file(f, splays, a.scrap):
+        for name, steps, blocks in details.redo_file(f, None, a.scrap):
             print(f"  {name}: {steps} floor steps, {blocks} boulders")
 
 

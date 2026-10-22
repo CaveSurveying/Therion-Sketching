@@ -856,7 +856,7 @@ def _wall_tol(header, objs, K, path):
         prefix = project.load().names['scrap_prefix'].replace('{survey}', '(\\w+?)')
         mm = re.match(prefix + r'[PE]\d', m.group(1)) if m else None
         survey = mm.group(1) if mm else ''
-    legs = scale.legs_of_scrap(objs, survey)
+    legs = scale.legs_of_scrap(objs, path, survey)
     if not legs:
         return None
     scale.use(legs, K)
@@ -1006,17 +1006,15 @@ def wall_subtypes(objs, K, near=0.15):
     return n
 
 
-def survey_shots(objs, K, survey, elevation):
+def survey_shots(objs, K, path, survey, elevation):
     """The survey round a scrap, in its units: ({station: (x, y)}, [(a, b)]
-    legs, {station: [splay end (x, y)]}). In an elevation the splay ends are
-    those straight up and down. None where there is no survey data."""
-    import os
-    from .roofs import Splays, SQL
-    from .. import project
-    path = project.load().path(SQL)
-    if not survey or not os.path.exists(path):
+    legs, {station: [splay end (x, y)]}), from the drawing's sketch. In an
+    elevation the splay ends are those straight up and down. None where
+    there is no survey data."""
+    from .roofs import Splays
+    splays = Splays.from_drawing(path, survey)
+    if not splays.legs:
         return None
-    splays = Splays(path)
     st = {}
     for o in objs:
         m = re.match(r'point (\S+) (\S+) station\b.*-name (\S+)', o.head) if o.kind == 'point' else None
@@ -1815,7 +1813,7 @@ def _redo_scrap(header, body, path):
         from .survey import survey_of
         sv = survey_of(path) or (re.match(r'scrap (\S+?)S[PE]\d', header) or [None, ''])[1]
         OUTER_KEPT.clear()
-        stepped += outer_lines(objs, K, survey_shots(objs, K, sv, SETTINGS['_elevation']))
+        stepped += outer_lines(objs, K, survey_shots(objs, K, path, sv, SETTINGS['_elevation']))
     stepped += no_outline_none(objs, K)
     if SETTINGS['outer_walls']:
         before = _outline_score(objs)
@@ -1852,7 +1850,7 @@ def _redo_scrap(header, body, path):
     from . import scale
     from .survey import survey_of
     survey = survey_of(path) or (re.match(r'scrap (\S+?)S[PE]\d', header) or [None, ''])[1]
-    legs = scale.legs_of_scrap(objs, survey)
+    legs = scale.legs_of_scrap(objs, path, survey)
     scale.use(legs, K)
 
     def at_line(o):                         # metres: the local scale at a line's middle, or None

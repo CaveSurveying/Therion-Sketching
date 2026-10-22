@@ -424,7 +424,7 @@ def projected(survey, angle=315, file_it=False, author=None, copyright=None, out
     os.makedirs(os.path.dirname(xvi_path), exist_ok=True)
     export_centreline(survey, angle, xvi_path)
     lay = register.Layout(xvi_path)
-    splays = Splays(PROJECT.path(SQL))
+    splays = Splays.from_database(PROJECT.path(SQL))
     legs = sorted({tuple(sorted((a.split('@')[0], b.split('@')[0])))
                    for a, bs in splays.legs.items() if a.endswith('@' + survey)
                    for b in bs if b.endswith('@' + survey)})

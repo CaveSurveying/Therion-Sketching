@@ -1,6 +1,7 @@
 # Part of tools/sketch2therion; `fit` is copied from caves-mendip-swildons
 # tools/routes/survey.py (commit 198bf46). GPLv3: see tools/LICENSE.
-"""Which survey a .th2 file belongs to, and fitting a scrap to the survey.
+"""Which survey a .th2 file belongs to, where a survey's .th is, and fitting
+a scrap to the survey.
 
 Replaces two helpers the Swildons version took from `sections.py` and
 `tools/routes/survey.py`, neither of which is ported. `survey_of` looks
@@ -27,6 +28,17 @@ def survey_of(th2):
             found = re.findall(r'^\s*survey (\S+)', t[:m.start()], re.M)
             if found:
                 return found[-1]
+    return None
+
+
+def survey_file(survey, near):
+    """The .th declaring `survey`, beside the file `near` (a sketch or
+    drawing) or one folder up (sketches are often in Notes/), or None."""
+    folder = os.path.dirname(os.path.abspath(near))
+    for f in (folder, os.path.dirname(folder)):
+        for th in sorted(glob.glob(os.path.join(f, '*.th'))):
+            if re.search(rf'(?m)^\s*survey {re.escape(survey)}\b', open(th, encoding='utf-8', errors='replace').read()):
+                return th
     return None
 
 

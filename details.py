@@ -15,7 +15,7 @@
   polygons, and the bigger ones get facet edges from a ridge point to a
   few of their corners instead of one line straight across.
 
-    python3 -m tools.sketch2therion details FILE.th2 [...]   (after a build)
+    python3 -m tools.sketch2therion details FILE.th2 [...]
 """
 import math
 import re
@@ -512,10 +512,10 @@ def pleasing_rocks(objs, K):
 
 
 def redo_file(path, splays=None, only=None):
-    splays = splays or Splays()
     raw = open(path, 'rb').read()
     t = raw.decode('utf-8').replace('\r\n', '\n')
     survey = _survey_of(path)
+    splays = splays or Splays.from_drawing(path, survey)
     out, pos, report = [], 0, []
     for m in re.finditer(r'^(scrap (\S+)[^\n]*)\n(.*?)^endscrap', t, re.S | re.M):
         header, name, body = m.group(1), m.group(2), m.group(3)

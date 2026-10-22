@@ -19,9 +19,13 @@ of each converted elevation scrap from them:
 
 The walls then become the outline again exactly as in tidy.py.
 
-    python3 -m tools.sketch2therion roofs FILE.th2 [...]   (after a build)
+The splays are the drawing's own sketch's (its backdrop .xvi).
+
+    python3 -m tools.sketch2therion roofs FILE.th2 [...]
 """
+import functools
 import math
+import os
 import re
 import sqlite3
 from collections import defaultdict
@@ -34,7 +38,7 @@ from . import tidy
 from .survey import survey_of as _survey_of
 from .tidy import Obj, bezier_points, parse_scrap, scale_of
 
-SQL = _project.load().build['sql']      # exported by tools/layout.thcfg
+SQL = _project.load().build['sql']      # exported by tools/layout.thcfg (Splays.from_database)
 STEEP = 40          # a splay at least this steep (degrees) measures the roof or floor
 NEAR = 1.5         # m: a drawn wall this far beyond the splay roof/floor still counts
 NEAR_PLAN = 0.4     # m: in plan the splay ends are the walls
@@ -49,9 +53,46 @@ def sql_text(text):
 
 
 class Splays:
-    """Up and down at every station, from Therion's database export."""
+    """A survey's legs, station positions and splays: `pos` {station: (x, y)}
+    and `ends` {station: [(dx, dy) of each splay end]} in plan, `up` and
+    `down` {station: metres} from the steep splays, `legs` {station: {next}}.
+    Stations are `name@survey`."""
 
-    def __init__(self, path=SQL):
+    def __init__(self):
+        self.ends = defaultdict(list)
+        self.up, self.down = {}, {}
+        self.pos = {}
+        self.legs = defaultdict(set)
+
+    @classmethod
+    def from_drawing(cls, th2, survey=None):
+        """From the sketch a drawing links as its backdrop (the first .xvi
+        found): plan ends from a plan sketch, up and down from an elevation."""
+        return _drawing_splays(os.path.abspath(th2), survey)
+
+    @classmethod
+    def from_sketch(cls, sketch, survey, elevation):
+        self = cls()
+        key = lambda n: n if '@' in n else f'{n}@{survey}'
+        for n, p in sketch.positions().items():
+            self.pos[key(n)] = p
+        for a, b, *_ in sketch.legs():
+            self.legs[key(a)].add(key(b))
+            self.legs[key(b)].add(key(a))
+        for n, p, end in sketch.splays():
+            dx, dy = end[0] - p[0], end[1] - p[1]
+            if not elevation:
+                self.ends[key(n)].append((dx, dy))
+            elif math.degrees(math.atan2(abs(dy), abs(dx))) >= STEEP:
+                table = self.up if dy > 0 else self.down
+                table[key(n)] = max(table.get(key(n), 0.0), abs(dy))
+        return self
+
+    @classmethod
+    def from_database(cls, path=SQL):
+        """From Therion's database export, in the cave's coordinates (for
+        work across surveys: joins, projected)."""
+        self = cls()
         db = sqlite3.connect(':memory:')
         db.executescript(sql_text(open(path, encoding='utf-8', errors='replace').read()))
         surveys = {i: n for i, n in db.execute('select ID, NAME from SURVEY')}
@@ -60,11 +101,8 @@ class Splays:
         for i, name, sv, x, y, z in db.execute('select ID, NAME, SURVEY_ID, X, Y, Z from STATION'):
             st[i] = (f'{name}@{surveys.get(sv, "")}', z)
             xyz[i] = (x, y, z)
-        self.ends = defaultdict(list)        # station -> [(dx, dy) of each splay end, in plan]
         spl = {s for s, f in db.execute('select SHOT_ID, FLAG from SHOT_FLAG') if f == 'spl'}
-        self.up, self.down = {}, {}
         self.pos = {st[i][0]: xyz[i][:2] for i in st}
-        self.legs = defaultdict(set)
         for sid, a, b, grad in db.execute('select ID, FROM_ID, TO_ID, GRADIENT from SHOT'):
             if a not in st or b not in st:
                 continue
@@ -83,6 +121,23 @@ class Splays:
             else:
                 self.legs[na].add(nb)
                 self.legs[nb].add(na)
+        return self
+
+
+@functools.lru_cache(maxsize=None)
+def _drawing_splays(th2, survey):
+    from . import xvi
+    from .reviewzip import backdrops
+    if not os.path.exists(th2):                 # a drawing not written yet: no survey data
+        return Splays()
+    text = open(th2, encoding='utf-8', errors='replace').read()
+    survey = survey or _survey_of(th2)
+    elevation = re.search(r'(?m)^scrap \S+.*-projection (extended|elevation|\[)', text) is not None
+    for rel in backdrops(text):
+        f = os.path.join(os.path.dirname(th2), rel)
+        if rel.lower().endswith('.xvi') and os.path.exists(f):
+            return Splays.from_sketch(xvi.read(f), survey, elevation)
+    return Splays()
 
 
 def _wall_lines(objs):
@@ -216,10 +271,11 @@ def redo_scrap(header, body, splays, survey, map_scale=200):
     return tidy.tidy_scrap(header, '\n'.join(o.text() for o in rest), map_scale, True)
 
 
-def redo_file(path, splays, map_scale=200):
+def redo_file(path, splays=None, map_scale=200):
     raw = open(path, 'rb').read()
     t = raw.decode('utf-8').replace('\r\n', '\n')
     survey = _survey_of(path)
+    splays = splays or Splays.from_drawing(path, survey)
     out, pos, done = [], 0, []
     for m in re.finditer(r'^(scrap (\S+)[^\n]*)\n(.*?)^endscrap', t, re.S | re.M):
         header, name, body = m.group(1), m.group(2), m.group(3)
@@ -330,10 +386,11 @@ def plan_redo_scrap(header, body, splays, survey, map_scale=500):
     return tidy.tidy_scrap(header, '\n'.join(o.text() for o in rest), map_scale, False)
 
 
-def plan_redo_file(path, splays, only=None, map_scale=500):
+def plan_redo_file(path, splays=None, only=None, map_scale=500):
     raw = open(path, 'rb').read()
     t = raw.decode('utf-8').replace('\r\n', '\n')
     survey = _survey_of(path)
+    splays = splays or Splays.from_drawing(path, survey)
     out, pos, done = [], 0, []
     for m in re.finditer(r'^(scrap (\S+)[^\n]*)\n(.*?)^endscrap', t, re.S | re.M):
         header, name, body = m.group(1), m.group(2), m.group(3)

@@ -176,7 +176,7 @@ def equated_joins(surveys):
 def _legs(d, layout):
     """The survey's legs as lines in the layout's (cave) coordinates."""
     from .roofs import Splays, SQL
-    sp = Splays(PROJECT.path(SQL))
+    sp = Splays.from_database(PROJECT.path(SQL))
     tag = '@' + d.survey
     out = []
     for a, bs in sp.legs.items():
@@ -405,7 +405,7 @@ def picture(new, old, cuts, at, layout, out, R=7.0):
     # legs and splays (thin, the survey's colour, splays paler); the layout is the 3D model's
     # x and y moved, so a splay ends at its station's place plus its plan offset
     from .roofs import Splays, SQL
-    sp = Splays(PROJECT.path(SQL))
+    sp = Splays.from_database(PROJECT.path(SQL))
     for d, col, pale in ((old, 'k', '0.6'), (new, '#06f', '#8bf')):
         tag = '@' + d.survey
         for a, bs in sp.legs.items():

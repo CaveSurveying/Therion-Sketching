@@ -997,20 +997,12 @@ def _plen(pp):
     return sum(math.dist(a, b) for a, b in zip(pp, pp[1:]))
 
 
-def vertical_splays(pos, survey):
+def vertical_splays(sketch, survey):
     """{station: [(x, y) of its splay ends straight up and down]} in the
-    sketch's metres, from the survey's splays (roofs.Splays); {} without
-    them."""
-    import os
-    from .roofs import Splays, SQL
-    from .. import project
-    try:
-        path = project.load().path(SQL)
-        if not survey or not os.path.exists(path):
-            return {}
-        sp = Splays(path)
-    except Exception:
-        return {}
+    sketch's metres, from the sketch's own splays (roofs.Splays)."""
+    from .roofs import Splays
+    sp = Splays.from_sketch(sketch, survey, True)
+    pos = sketch.positions()
     out = {}
     for n, (x, y) in pos.items():
         key = n if '@' in n else f'{n}@{survey}'
@@ -1349,7 +1341,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
         names = sorted(pos, key=register.natural)
         groups = by_hand.complete(by_hand.parse(opt.scraps, names), names, legs_all)
         placed = set()
-        marks = vertical_splays(pos, opt.survey) if SETTINGS['outer_walls'] else None
+        marks = vertical_splays(sketch, opt.survey) if SETTINGS['outer_walls'] else None
         if marks:                                # a grey line the splays end on is a floor or ceiling
             lines = splayed_walls(lines, marks)
         pieces = drawn_on(by_hand.assign(lines, groups, pos, legs_all, share=True, placed=placed, marks=marks),

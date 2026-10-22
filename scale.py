@@ -45,18 +45,12 @@ def tol(p, rel, absolute):
     return rel * s if s else absolute
 
 
-def legs_of_scrap(objs, survey, splays=None):
-    """The legs between the stations drawn in a scrap (tidy.parse_scrap objects),
-    in its own units, from Therion's database export (roofs.Splays)."""
+def legs_of_scrap(objs, path, survey):
+    """The legs between the stations drawn in a scrap (tidy.parse_scrap objects)
+    of the drawing at `path`, in its own units, from its sketch (roofs.Splays)."""
     import re
-    if splays is None:
-        from .roofs import Splays, SQL
-        from .. import project
-        import os
-        path = project.load().path(SQL)
-        if not os.path.exists(path):
-            return []
-        splays = Splays(path)
+    from .roofs import Splays
+    splays = Splays.from_drawing(path, survey)
     st = {}
     for o in objs:
         m = re.match(r'point (\S+) (\S+) station\b.*-name (\S+)', o.head) if o.kind == 'point' else None
