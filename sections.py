@@ -16,7 +16,9 @@ so passages of other surveys are seen too (Style.md, Cross sections):
   the arrow on that side is left off (`-direction begin` or `end`);
 - a section drawing (`-projection none` scrap) that overlaps a passage or
   another section drawing is moved along its section line, the least
-  distance that clears it, and its `point section` with it.
+  distance that clears it, by moving its `point section` only. Therion
+  centres the drawing's bounding box on that point and ignores where the
+  drawing itself is, which stays over its sketch in the backdrop.
 
 Without --write it only reports. With it, each file is read again just
 before it is written and only the changed objects are replaced.
@@ -87,10 +89,13 @@ def plan_sections(d):
             continue
         si, oi, at = owner[m.group(1)]
         f = d.scraps[si][2]
-        pts = [f(p) for o in parse_scrap(m.group(3)) if o.kind == 'line' and len(o.segments()) > 1
+        pts = [p for o in parse_scrap(m.group(3)) if o.kind == 'line' and len(o.segments()) > 1
                for p in bezier_points(o.segments(), 8)]
         if len(pts) > 2:
-            drawings[m.group(1)] = (si, oi, pts, f(at))
+            # where Therion draws it: its bounding box centred on the point
+            xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+            dx, dy = at[0] - (min(xs) + max(xs)) / 2, at[1] - (min(ys) + max(ys)) / 2
+            drawings[m.group(1)] = (si, oi, [f((x + dx, y + dy)) for x, y in pts], f(at))
     return lines, drawings
 
 
@@ -214,39 +219,41 @@ def main(argv):
             write(d, edits, moves)
 
 
+def shift_rows(body, dx, dy):
+    """Th2 text with its coordinate rows and points moved by (dx, dy)."""
+    out = []
+    for line in body.split('\n'):
+        v = line.split()
+        if v and len(v) in (2, 6) and all(re.match(r'^-?[\d.]+$', x) for x in v):
+            out.append('  ' + ' '.join('%.2f' % (float(x) + (dx if i % 2 == 0 else dy)) for i, x in enumerate(v)))
+        else:
+            m = re.match(r'(point )(\S+) (\S+)(.*)', line)
+            out.append('%s%.2f %.2f%s' % (m.group(1), float(m.group(2)) + dx, float(m.group(3)) + dy, m.group(4)) if m else line)
+    return '\n'.join(out)
+
+
+def scrap_span(text, name):
+    """Start and end of a scrap's body in th2 text."""
+    m = re.search(rf'(?ms)^scrap {re.escape(name)}\b[^\n]*\n(.*?)^endscrap', text)
+    return m.start(1), m.end(1)
+
+
 def write(d, edits, moves):
     """Replace the changed objects, reading the file again first."""
     raw = open(d.path, encoding='utf-8', newline='').read()
     nl = '\r\n' if '\r\n' in raw else '\n'
     text = raw.replace('\r\n', '\n')
 
-    def shift_rows(body, dx, dy):
-        out = []
-        for line in body.split('\n'):
-            v = line.split()
-            if v and len(v) in (2, 6) and all(re.match(r'^-?[\d.]+$', x) for x in v):
-                out.append('  ' + ' '.join('%.2f' % (float(x) + (dx if i % 2 == 0 else dy)) for i, x in enumerate(v)))
-            else:
-                m = re.match(r'(point )(\S+) (\S+)(.*)', line)
-                out.append('%s%.2f %.2f%s' % (m.group(1), float(m.group(2)) + dx, float(m.group(3)) + dy, m.group(4)) if m else line)
-        return '\n'.join(out)
-
-    def scrap_span(name):
-        m = re.search(rf'(?ms)^scrap {re.escape(name)}\b[^\n]*\n(.*?)^endscrap', text)
-        return m.start(1), m.end(1)
-
-    # objects in plan scraps (section lines, point sections), by index in the scrap as read now
+    # objects in plan scraps (section lines, point sections), by index in the scrap as read now;
+    # a section drawing is moved by its point only
     by_scrap = {}
     for (sname, oi), new in edits.items():
         by_scrap.setdefault(sname, {})[oi] = new
     for name, (si, oi, (dx, dy)) in moves.items():
-        sname = d.scraps[si][0]
         o = d.scraps[si][1][oi]
-        by_scrap.setdefault(sname, {})[oi] = shift_rows(o.text(), dx, dy)
-        s, e = scrap_span(name)
-        text = text[:s] + shift_rows(text[s:e], dx, dy) + text[e:]
+        by_scrap.setdefault(d.scraps[si][0], {})[oi] = shift_rows(o.text(), dx, dy)
     for sname, reps in by_scrap.items():
-        s, e = scrap_span(sname)
+        s, e = scrap_span(text, sname)
         body = text[s:e]
         objs = parse_scrap(body)
         for oi, new in sorted(reps.items(), key=lambda kv: -kv[0]):
