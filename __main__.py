@@ -289,6 +289,9 @@ def main(argv=None):
     if args[:1] == ['unfold']:                 # an extended elevation from the projected ones
         from . import unfold
         return unfold.main(args[1:])
+    if args[:1] == ['sections']:               # section lines across their passage, drawings clear of passages
+        from . import sections
+        return sections.main(args[1:])
     if args[:1] == ['stxvi']:                  # an old SexyTopo plan xvi with its cross sections linked
         from . import stxvi
         return stxvi.main(args[1:])

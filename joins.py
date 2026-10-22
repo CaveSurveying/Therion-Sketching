@@ -80,7 +80,7 @@ class Drawing:
             objs = parse_scrap(m.group(4))
             pairs = []
             for o in objs:
-                p = re.match(r'point (\S+) (\S+) station .*-name (\S+)', o.head) if o.kind == 'point' else None
+                p = re.match(r'point (\S+) (\S+) station\b.*-name\s+(\S+)', o.head) if o.kind == 'point' else None
                 if p:
                     n, sv = (p.group(3).split('@') + [survey])[:2]
                     ps = layout.find(n, sv.split('.')[0])
@@ -103,19 +103,20 @@ class Drawing:
                 out.append((si, oi, o.head, o.segments(), [f(p) for p in bezier_points(o.segments(), 8)]))
         return out
 
+    def scrap_fill(self, si):
+        """One scrap's passage as Therion fills it (its outline walls joined up), in cave coordinates."""
+        name, objs, f = self.scraps[si]
+        lines = [bezier_points(o.segments(), 8) for o in objs if o.kind == 'line'
+                 and o.head.startswith('line wall') and len(o.segments()) > 1
+                 and '-outline none' not in o.head and '-outline in' not in o.head
+                 and '-subtype invisible' not in o.head]
+        polys = [Polygon([f(p) for p in r]).buffer(0) for r in therion_chain(lines) if len(r) > 3]
+        polys = [g for g in polys if not g.is_empty]
+        return unary_union(polys) if polys else None
+
     def fill(self):
         """The passage as Therion fills it (its outline walls joined up), in cave coordinates."""
-        polys = []
-        for name, objs, f in self.scraps:
-            lines = [bezier_points(o.segments(), 8) for o in objs if o.kind == 'line'
-                     and o.head.startswith('line wall') and len(o.segments()) > 1
-                     and '-outline none' not in o.head and '-outline in' not in o.head
-                     and '-subtype invisible' not in o.head]
-            for r in therion_chain(lines):
-                if len(r) > 3:
-                    g = Polygon([f(p) for p in r]).buffer(0)
-                    if not g.is_empty:
-                        polys.append(g)
+        polys = [g for g in (self.scrap_fill(si) for si in range(len(self.scraps))) if g is not None]
         return unary_union(polys) if polys else None
 
 

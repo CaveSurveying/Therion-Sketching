@@ -187,6 +187,18 @@ def fit_page(pairs):
     return lambda v: (tx + p * v[0] - q * v[1], ty - q * v[0] - p * v[1])
 
 
+def config_with_inputs(path):
+    """A config's text followed by the files it inputs (where its layouts are)."""
+    from ..svn2git.deps import parse_refs
+    text = open(path, encoding='utf-8').read()
+    folder = os.path.dirname(path)
+    for ref in parse_refs(text):
+        f = os.path.join(folder, ref.target)
+        if ref.kind == 'input' and os.path.isfile(f):
+            text += '\n' + open(f, encoding='utf-8').read()
+    return text
+
+
 def sheet_scale_rotation(config_text):
     """(scale denominator, rotation in degrees) from a thconfig's layout."""
     sc = re.search(r'^\s*scale\s+1\s+(\d+(?:\.\d+)?)', config_text, re.M)
@@ -238,7 +250,7 @@ def pdf_rect(stations, pdf=PLAN, pad=15, survey=None):
             names.setdefault(n, []).extend(ps[:1])
         page = pymupdf.open(pdf)[0]
         words = [((w[0] + w[2]) / 2, (w[1] + w[3]) / 2, w[4]) for w in page.get_text('words')]
-        scale, rotate = sheet_scale_rotation(open(PROJECT.path(PROJECT.cave['thconfig']), encoding='utf-8').read())
+        scale, rotate = sheet_scale_rotation(config_with_inputs(PROJECT.path(PROJECT.cave['thconfig'])))
         _PDFMAP[pdf] = (calibrate(words, names, scale, rotate), lay)
     to_page, lay = _PDFMAP[pdf]
     ps = [to_page(lay.find(n, survey)[0]) for n in stations if lay.find(n, survey)]
@@ -315,10 +327,11 @@ def review_config(s, out, select=None, names=True):
         s = s.rstrip('\n') + (f'\n\nlayout review-one\n  copy {lay}\n  legend off\n'
                               '  code tex-map\n    \\def\\maplayout{}\n  endcode\nendlayout\n')
         lay = 'review-one'
-    if not names:
-        return s.rstrip('\n') + f'\n\nexport map -projection plan -layout {lay} -o {out}\n'
-    s = re.sub(r'^\s*symbol-hide (point station|group cave-cent(re|er)line)\b.*$', '', s, flags=re.M)
-    s = re.sub(rf'^(layout {re.escape(lay)}\n)', r'\1  debug station-names\n', s, count=1, flags=re.M)
+    if names:
+        # a layout of its own, as the sheet's may be in an input file
+        s = s.rstrip('\n') + (f'\n\nlayout review-names\n  copy {lay}\n  debug station-names\n'
+                              '  symbol-show point station\n  symbol-show group cave-centreline\nendlayout\n')
+        lay = 'review-names'
     return s.rstrip('\n') + f'\n\nexport map -projection plan -layout {lay} -o {out}\n'
 
 
