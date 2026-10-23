@@ -39,6 +39,10 @@ UPSTREAM = {
     'notation': False,           # True: steps, pitches and overhangs from their notation (notation.py)
     'elevation_step_min': 0.0,   # m: an elevation climb with no notation near gets a guessed step if this high
     'pitch_min': 2.0,            # m: a ticked line where the elevation drops this much is a pitch
+    'elevation_suffix': 'E',     # extended-elevation scraps are <prefix><this><n>: GoSouthSE1 (upstream)
+    'join_runs': False,          # True: lines running on into one of their kind are joined (nodes.join_runs)
+    'pitch_fill': False,         # True: along a steep elevation leg the fill also reaches sideways to
+                                 # the walls, as far as the side splays (a shaft's walls far from its legs)
     'gours': False,              # True: solid green lines are gours (line rimstone-dam)
     'water_to_walls': True,      # False: pools keep their sketched outline (not run along the walls)
     'area_marks': False,         # True: groups of boulders or debris are areas, not single boulders too
@@ -68,8 +72,8 @@ UPSTREAM = {
                                  # on one outline wall is a pocket (a deliberate bulge): the wall goes round it
     'rock_faces': False,         # True: the fill is cut along the wall strokes and faces of it with no
                                  # leg or station that reach its edge (rock it took in) dropped
-    'merge_short': 0,            # nodes: a line of 2 nodes meeting another of its kind end to end is
-                                 # merged into it; of up to this many, if the join turns under 90 degrees
+    'merge_short': 0,            # nodes: a piece of up to this many running on from a border's end is
+                                 # border (joined by join_runs); 0: off
     'ends_meet': False,          # True: lines of different kinds (border, floor step, pit, ...) that end
                                  # close together share that end (within the wall-join reach)
     'despike': 0.0,              # m: a wall node turning right back (over 110 degrees) beside a segment

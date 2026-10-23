@@ -34,7 +34,7 @@ import re
 import sys
 
 from .. import project as _project
-from . import convert, pockettopo, register, tidy, xvi
+from . import convert, labels, pockettopo, register, tidy, xvi
 
 PROJECT = _project.load()
 PLAN_LAYOUT = PROJECT.build['layout_plan']
@@ -62,6 +62,23 @@ def write_th2(text, path, newline=None):
     # Line endings as the cave's drawings have them (tools/project.toml)
     text = text.replace('\r\n', '\n').replace('\n', newline or PROJECT.newline)
     open(path, 'wb').write(text.encode('utf-8'))
+
+
+def _sexytopo_text(a, sk):
+    """Check the drawing may be written, take SexyTopo's labels from its
+    export and leave their letters out of the sketch: the label lines to add."""
+    out = a.output
+    if os.path.exists(out) and not a.force and not labels.is_export(out):
+        sys.exit(f"{out} has drawing in it (not SexyTopo's export): not overwritten; --force to replace it")
+    export = out if os.path.exists(out) and labels.is_export(out) else labels.export_for(a.sketch)
+    if not export:
+        print("no SexyTopo th2 export with this sketch as its backdrop: no labels carried over")
+        return []
+    found = labels.labels(export)
+    drop = labels.letter_strokes(sk.lines, found, sk.scale)
+    sk.lines = [l for i, l in enumerate(sk.lines) if i not in drop]
+    print(f"{len(found)} labels from {export} ({len(drop)} letter strokes left out of the sketch)")
+    return [raw for *_, raw in found]
 
 
 def cmd_check(a):
@@ -151,13 +168,14 @@ def cmd_plan(a):
         from . import floor as fl
         floor = fl.analyse(load(a.floor, 'elevation'))
         print(f"floor: {len(floor['climbs'])} steps, {len(floor['gradients'])} gradients")
+    texts = _sexytopo_text(a, sk)
     opts = _opts(a)
     text, scraps, sections = convert.plan(sk, opts, a.output, _layout_for_drawing(a, PLAN_LAYOUT), floor, a.tol)
     text = tidy.tidy_text(text, a.map_scale)
     if opts.scraps and SETTINGS['hand_scraps']:     # walls between scraps chosen by hand meet (after tidy moves them)
         from .scraps import meet_ends
         text = meet_ends(text, 0.3 * sk.scale)
-    write_th2(text, a.output)
+    write_th2(labels.add_points(text, texts), a.output)
     print(f"wrote {a.output}: {len(scraps)} plan scraps, {len(sections)} cross sections")
     _map_hint(a.survey, scraps, 'plan', a.sketch)
 
@@ -166,6 +184,7 @@ def cmd_extended(a):
     from .settings import SETTINGS
     SETTINGS['_elevation'] = True               # elevation rules (water flow under the floor)
     sk = load(a.sketch, 'elevation')
+    texts = _sexytopo_text(a, sk)
     opts = _opts(a)
     opts.scraps = (PROJECT.scraps_extended.get(a.survey) or _auto_scraps(a.survey, 'extended', a.sketch)) if a.survey else None
     opts.glitches = PROJECT.glitches.get(a.survey, {}).get(os.path.basename(a.sketch)) if a.survey else None
@@ -177,7 +196,7 @@ def cmd_extended(a):
     if opts.scraps and SETTINGS['hand_scraps']:     # walls between scraps chosen by hand meet
         from .scraps import meet_ends
         text = meet_ends(text, 0.3 * sk.scale)
-    write_th2(text, a.output)
+    write_th2(labels.add_points(text, texts), a.output)
     print(f"wrote {a.output}: {len(scraps)} elevation scraps, {len(sections)} cross sections")
     _map_hint(a.survey, scraps, 'extended', a.sketch)
     if plan_scraps:
@@ -339,6 +358,8 @@ def main(argv=None):
                        help='write stations as name@survey, for a th2 input outside the survey')
         q.add_argument('--map-scale', type=int, default=PROJECT.drawing['map_scale'],
                        help='scale of the sheet it will be printed at, for sizing labels (default from tools/project.toml)')
+        q.add_argument('--force', action='store_true',
+                       help='replace an output th2 that is not SexyTopo\'s export (a drawing, maybe edited by hand)')
 
     q = sub.add_parser('check', help='how well a sketch fits the survey')
     common(q, 1.5)

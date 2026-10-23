@@ -854,7 +854,7 @@ def _wall_tol(header, objs, K, path):
         from .. import project
         m = re.match(r'scrap (\S+)', header)
         prefix = project.load().names['scrap_prefix'].replace('{survey}', '(\\w+?)')
-        mm = re.match(prefix + r'[PE]\d', m.group(1)) if m else None
+        mm = re.match(prefix + r'(?:P|Ee?)\d', m.group(1)) if m else None
         survey = mm.group(1) if mm else ''
     legs = scale.legs_of_scrap(objs, path, survey)
     if not legs:
@@ -1262,7 +1262,6 @@ def join_pieces(objs, K):
 GAP_JOIN = 1.0      # m: two free wall ends nearer than this, each the other's nearest, meet ...
 GAP_TURN = 20.0     # degrees: ... if each wall heads this near the line to the other end (a gap in a
                     # wall: the walls run along it; at a continuation they are nearer square to it)
-WALL_TURN = 90.0    # degrees: a wall of 3 or 4 nodes merges into the one it meets if the join turns less
 
 
 def _wall_lines(objs):
@@ -1330,68 +1329,6 @@ def close_gaps(objs, K):
 
 
 SLIVER = 0.05       # m: a wall piece shorter than this on another's end goes
-
-
-def merge_walls(objs, K):
-    """Walls of one kind meeting end to end merged into one line (Style.md,
-    merge_short; Connection, user): always one of 2 nodes, one of 3 or 4
-    if the join turns less than WALL_TURN, where the outline is no worse.
-    Returns how many were merged."""
-    n = 0
-    changed = True
-    while changed:
-        changed = False
-        walls = sorted(_wall_lines(objs), key=lambda o: len(o.segments()))
-        for o in walls:
-            so = o.segments()
-            if len(so) > 4:
-                break
-            for w in walls:
-                if w is o or w.head != o.head:
-                    continue
-                sw = w.segments()
-                hit = next(((we, oe) for we in (0, -1) for oe in (0, -1)
-                            if math.dist(sw[we][-2:], so[oe][-2:]) < 0.01 * K), None)
-                if hit is None:
-                    continue
-                # a third wall ending there too: a junction, not a run on
-                p = sw[hit[0]][-2:]
-                if any(x not in (o, w) and any(math.dist(x.segments()[k][-2:], p) < 0.01 * K for k in (0, -1))
-                       for x in _wall_lines(objs)):
-                    continue
-                first = sw if hit[0] == -1 else reverse_segments(sw)
-                second = so if hit[1] == 0 else reverse_segments(so)
-                pts = bezier_points(so, 8)
-                if sum(math.dist(a, b) for a, b in zip(pts, pts[1:])) < SLIVER * K:
-                    o.kind = 'drop'                  # a sliver on the end of a wall: not drawn (TritonNorth)
-                    objs[:] = [x for x in objs if x.kind != 'drop']
-                    n += 1
-                    changed = True
-                    break
-                if len(so) > 2:
-                    a = bezier_points(first, 8)
-                    b = bezier_points(second, 8)
-                    u = (a[-1][0] - a[-3][0], a[-1][1] - a[-3][1])
-                    v = (b[2][0] - b[0][0], b[2][1] - b[0][1])
-                    if abs(_red(_arg(v) - _arg(u))) >= WALL_TURN:
-                        continue
-                before = _outline_score(objs)
-                rows, wrows = o.rows, w.rows
-                # keep the direction of the longer (its passage on the left)
-                w.set_segments(list(first) + [list(r) for r in second[1:]])
-                if hit[0] == 0:
-                    w.set_segments(reverse_segments(w.segments()))
-                o.kind = 'drop'
-                if _outline_score(objs) > before:
-                    o.kind, w.rows = 'line', wrows
-                    continue
-                objs[:] = [x for x in objs if x.kind != 'drop']
-                n += 1
-                changed = True
-                break
-            if changed:
-                break
-    return n
 
 
 STRAY = 0.5         # m: a wall shorter than this touching no other wall is a stray mark
@@ -1738,7 +1675,7 @@ def no_outline_none(objs, K=1.0):
             o.kind = 'drop'
             continue
         # a short piece running on from the end of another line is that line's kind (it merges
-        # into it: Style.md, merge_short; Connection 13 to 15, hand edit: a 2-node piece of a border)
+        # into it: Style.md, join_runs; Connection 13 to 15, hand edit: a 2-node piece of a border)
         from .settings import SETTINGS
         so = o.segments()
         if SETTINGS['merge_short'] and len(so) <= SETTINGS['merge_short']:
@@ -1811,7 +1748,7 @@ def _redo_scrap(header, body, path):
     stepped = joined
     if SETTINGS['outer_walls'] and '-projection none' not in header:
         from .survey import survey_of
-        sv = survey_of(path) or (re.match(r'scrap (\S+?)S[PE]\d', header) or [None, ''])[1]
+        sv = survey_of(path) or (re.match(r'scrap (\S+?)S(?:P|Ee?)\d', header) or [None, ''])[1]
         OUTER_KEPT.clear()
         stepped += outer_lines(objs, K, survey_shots(objs, K, path, sv, SETTINGS['_elevation']))
     stepped += no_outline_none(objs, K)
@@ -1830,7 +1767,12 @@ def _redo_scrap(header, body, path):
         if score[:2] != (0, 0):                      # an outline still crossing: mended where it can be
             untangle(objs, K, score)
         stepped += close_gaps(objs, K)
-        stepped += merge_walls(objs, K)
+        if SETTINGS['join_runs']:            # walls running on into each other are one line (nodes.join_runs)
+            from .nodes import join_runs
+            from .survey import joined_ids
+            before_join = _outline_score(objs)
+            stepped += join_runs(objs, K, walls=True, ok=lambda: _outline_score(objs) <= before_join,
+                                 named=joined_ids(path))
     if SETTINGS['drawn_rocks']:                  # rocks in every scrap, sections and elevations too
         from .details import pleasing_rocks
         pleasing_rocks(objs, K)
@@ -1844,12 +1786,9 @@ def _redo_scrap(header, body, path):
         from .jogs import join_scrap        # before the refit so the join is smoothed too
         stepped = join_scrap(objs, K, SETTINGS['wall_jog_max'])
     b, a = smooth_scrap(objs, K, _wall_tol(header, objs, K, path))
-    if SETTINGS['wall_jog_max'] > 0:        # borders broken where the sketcher missed (jogs.py)
-        from .jogs import join_borders
-        stepped += join_borders(objs, K)
     from . import scale
     from .survey import survey_of
-    survey = survey_of(path) or (re.match(r'scrap (\S+?)S[PE]\d', header) or [None, ''])[1]
+    survey = survey_of(path) or (re.match(r'scrap (\S+?)S(?:P|Ee?)\d', header) or [None, ''])[1]
     legs = scale.legs_of_scrap(objs, path, survey)
     scale.use(legs, K)
 
@@ -1885,10 +1824,11 @@ def _redo_scrap(header, body, path):
         stepped += thin_scrap(objs, K, gap, err, SETTINGS['node_gap'])
     if SETTINGS['area_over_walls'] and SETTINGS['area_splines']:
         stepped += _areas_to_outline(objs, K, SETTINGS['area_over_walls'], SETTINGS['area_splines'])
-    if SETTINGS['merge_short']:                 # short lines run into the line of their kind they meet
-        from .nodes import merge_short
+    if SETTINGS['join_runs']:                   # lines running on into one of their kind are one line
+        from .nodes import join_runs
         reach = lambda p: rel_abs(SETTINGS['wall_ends_meet_rel'], max(SETTINGS['wall_ends_meet'], 0.05), scale.at(p))
-        stepped += merge_short(objs, K, reach, 2, SETTINGS['merge_short'])
+        from .survey import joined_ids
+        stepped += join_runs(objs, K, reach, named=joined_ids(path))
     if SETTINGS['ends_meet']:                   # lines of different kinds ending close together share the end
         from .nodes import ends_meet
         reach2 = lambda p: rel_abs(SETTINGS['wall_ends_meet_rel'], max(SETTINGS['wall_ends_meet'], 0.05), scale.at(p))

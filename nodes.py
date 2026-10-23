@@ -12,6 +12,7 @@ and the end moved onto it.
 Applied by `smooth` when tools/project.toml sets [convert] end_on_node.
 """
 import math
+import re
 
 REACH = 0.2        # m: an end this close to a wall is meant to meet it
 SNAP = 0.05        # m: use an existing node this close rather than add one
@@ -421,80 +422,102 @@ def align_scrap(objs, corner=60.0):
     return n
 
 
-def merge_short(objs, K, near=0.05, few=2, some=4, turn_max=None):
-    """Short lines joined into the line of the same kind they run on from:
-    a line of `few` nodes whose end meets another's end (within `near` m,
-    a number or a function of the point) is merged into it, even at a sharp
-    turn (the join keeps its corner: align_handles leaves sharp turns); one
-    of up to `some` nodes likewise (or only if the join turns less than
-    `turn_max` degrees, if given). Gours stay separate. Walls are left to smooth.one_line_per_wall
-    (which checks the outline), and section lines are each their own. Returns how many lines were merged."""
+RUN_GAP = 0.3       # m: ends this far apart join if the line carries on ...
+RUN_TURN = 60.0     # degrees: ... turning no more than this across the gap
+TICKED = ('wall', 'floor-step', 'pit', 'overhang', 'ceiling-step', 'chimney')   # never turned round
+
+
+def _end_unit(segs, at_end):
+    """The unit direction a line leaves its end (at_end) or starts from its start."""
+    pts = [(s[-2], s[-1]) for s in segs]
+    if at_end:
+        a = (segs[-1][2], segs[-1][3]) if len(segs[-1]) == 6 else pts[-2]
+        return _unit(a, pts[-1])
+    b = (segs[1][0], segs[1][1]) if len(segs[1]) == 6 else pts[1]
+    return _unit(pts[0], b)
+
+
+def join_runs(objs, K, touch=0.05, gap=RUN_GAP, turn=RUN_TURN, walls=False, ok=None, named=()):
+    """Lines of one kind that run on into each other joined into one line
+    (Style.md, Walls and the outline): ends closer than `touch` (m, a number
+    or a function of the point) always, whatever the angle (the join keeps
+    its corner); ends up to `gap` m apart if the line turns no more than
+    `turn` degrees across it. A wall, step, pitch or overhang is never
+    turned round to fit (its passage side or ticks would move); a border
+    may be. Not joined: a line whose -id a join names (`named`), where a third
+    line of the kind ends at the meeting point (a junction), gours, closed
+    lines, sections. `walls`: join the walls only (else every other kind);
+    `ok()`: a join is undone unless it says so (the outline no worse).
+    Returns how many joins."""
     from .tidy import reverse_segments
 
     def kind(o):
         return o.head.split()[1] if len(o.head.split()) > 1 else ''
 
-    def ok(o):
-        return o.kind == 'line' and len(o.segments()) > 1 \
-            and kind(o) not in ('wall', 'rock-border', 'rock-edge', 'rimstone-dam', 'section') \
-            and '-close on' not in o.head and '-subtype invisible' not in o.head      # (each gour is its own arc)
+    def same(o):                                  # its type and options, the id aside
+        return re.sub(r'\s-id\s+\S+', '', o.head)
 
-    def direction(segs, at_end):
-        pts = [(s[-2], s[-1]) for s in segs]
-        if at_end:
-            a = (segs[-1][2], segs[-1][3]) if len(segs[-1]) == 6 else pts[-2]
-            return _unit(a, pts[-1])
-        b = (segs[1][0], segs[1][1]) if len(segs[1]) == 6 else pts[1]
-        return _unit(pts[0], b)
+    def eligible(o):
+        m = re.search(r'-id\s+(\S+)', o.head)
+        if o.kind != 'line' or len(o.segments()) < 2 or '-close on' in o.head or (m and m.group(1) in named):
+            return False
+        if kind(o) == 'wall':
+            return walls and '-outline none' not in o.head
+        return not walls and kind(o) not in ('rock-border', 'rock-edge', 'rimstone-dam', 'section') \
+            and '-subtype invisible' not in o.head
 
     n = 0
-    changed = True
-    while changed:
-        changed = False
-        lines = [o for o in objs if ok(o)]
-        for o in sorted(lines, key=lambda o: len(o.segments())):
+    tried = set()
+    while True:
+        lines = [o for o in objs if eligible(o)]
+        best = None
+        for o in lines:
             so = o.segments()
-            if len(so) > some:
-                continue
-            best = None
             for w in lines:
-                if w is o or w.head != o.head:
+                if w is o or same(w) != same(o) or (id(o), id(w)) in tried:
                     continue
                 sw = w.segments()
                 for we in (0, -1):
                     for oe in (0, -1):
-                        d = math.dist(sw[we][-2:], so[oe][-2:])
-                        reach = (near(so[oe][-2:]) if callable(near) else near) * K
-                        if d <= reach and (best is None or d < best[0]):
-                            best = (d, w, we, oe)
-            if best is None:
+                        if kind(o) in TICKED and we == oe:        # would turn one round
+                            continue
+                        p, q = sw[we][-2:], so[oe][-2:]
+                        d = math.dist(p, q)
+                        if d > gap * K or (best is not None and d >= best[0]):
+                            continue
+                        best = (d, o, w, we, oe)
+        if best is None:
+            return n
+        d, o, w, we, oe = best
+        tried.add((id(o), id(w)))
+        if we == 0 and oe == -1:                                  # o runs into w: join w onto o
+            o, w, we, oe = w, o, -1, 0
+        sw, so = w.segments(), o.segments()
+        a = sw if we == -1 else reverse_segments(sw)
+        b = so if oe == 0 else reverse_segments(so)
+        p, q = a[-1][-2:], b[0][-2:]
+        reach = (touch(p) if callable(touch) else touch) * K
+        if d > reach:
+            ua, ub = _end_unit(a, True), _end_unit(b, False)
+            if ua is None or ub is None or \
+                    math.degrees(math.acos(max(-1.0, min(1.0, ua[0] * ub[0] + ua[1] * ub[1])))) > turn:
                 continue
-            _, w, we, oe = best
-            sw = w.segments()
-            # orient: w runs into the join, o runs out of it. A step, pitch or overhang has
-            # its ticks on its left: turning one round would move them, so those are only
-            # joined where they already run the same way
-            if kind(o) in ('floor-step', 'pit', 'overhang', 'ceiling-step', 'chimney') and we == oe:
-                continue
-            if we == 0 and oe == -1:
-                w, o, we, oe, sw, so = o, w, -1, 0, so, sw      # o runs into w: join w onto o
-            a = sw if we == -1 else reverse_segments(sw)
-            b = so if oe == 0 else reverse_segments(so)
-            ua, ub = direction(a, True), direction(b, False)
-            if ua is None or ub is None:
-                continue
-            turn = math.degrees(math.acos(max(-1.0, min(1.0, ua[0] * ub[0] + ua[1] * ub[1]))))
-            if turn_max is not None and len(so) > few and turn > turn_max:
-                continue
-            # o's first point becomes the join: its first segment now runs from w's end
-            new = [list(s) for s in a] + [list(s) for s in b[1:]]
-            w.set_segments(new)
-            o.kind = 'drop'
-            objs[:] = [x for x in objs if x.kind != 'drop']
-            n += 1
-            changed = True
-            break
-    return n
+        # a third line of the kind ending there: a junction, not a run on
+        if any(x is not w and x is not o and x.head.split()[:2] == w.head.split()[:2] and len(x.segments()) > 1
+               and any(math.dist(x.segments()[k][-2:], p) <= max(d, reach) or math.dist(x.segments()[k][-2:], q) <= max(d, reach)
+                       for k in (0, -1))
+               for x in objs if x.kind == 'line'):
+            continue
+        rows = w.rows
+        # o's first point stays (the join) when apart: w's end runs on to it
+        w.set_segments([list(s) for s in a] + ([list(b[0])] if d > reach else []) + [list(s) for s in b[1:]])
+        o.kind = 'drop'
+        if ok is not None and not ok():
+            o.kind, w.rows = 'line', rows
+            continue
+        objs[:] = [x for x in objs if x.kind != 'drop']
+        n += 1
+        tried.clear()
 
 
 def ends_meet(objs, K, near):

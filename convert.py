@@ -110,15 +110,31 @@ def plan_fill(walls, legs, extra=()):
     return _polygons(g.buffer(1.8, join_style=1).buffer(-1.72, join_style=1))
 
 
-def elevation_fill(walls, legs, extra=(), below=3.0, above=5.0, stops=()):
+def elevation_fill(walls, legs, extra=(), below=3.0, above=5.0, stops=(), side=0.0):
     """As plan_fill, plus a band from floor to roof along each leg: the nearest
     sketch line below (within `below` m) and above (within `above` m), every
     20 cm. Where either is missing no band is drawn, so a gap in the sketch
     stays a gap instead of filling the space between passages. `stops`: walls
     of other scraps, where a band also stops (a passage above or below this
-    one: its floor is this one's roof)."""
+    one: its floor is this one's roof). Along a steep leg (a pitch) the band
+    also goes sideways, to the nearest line on each side within `side` m."""
     segs = [(a, b) for w in list(walls) + list(stops) for a, b in zip(w, w[1:]) if abs(b[0] - a[0]) > 1e-6]
+    across = [(a, b) for w in list(walls) + list(stops) for a, b in zip(w, w[1:]) if abs(b[1] - a[1]) > 1e-6]
     boxes = []
+    for A, B in legs if side else ():
+        if abs(B[1] - A[1]) <= abs(B[0] - A[0]):        # not steep
+            continue
+        n = max(1, int(abs(B[1] - A[1]) / 0.2))
+        for i in range(n + 1):
+            t = i / n
+            x = A[0] + (B[0] - A[0]) * t
+            y = A[1] + (B[1] - A[1]) * t
+            xs = [a[0] + (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1])
+                  for a, b in across if min(a[1], b[1]) <= y <= max(a[1], b[1])]
+            lo = [v for v in xs if x - side <= v <= x]
+            hi = [v for v in xs if x <= v <= x + side]
+            if lo and hi:
+                boxes.append(box(max(lo), y - 0.15, min(hi), y + 0.15))
     for A, B in legs:
         if abs(B[0] - A[0]) < 0.05:
             continue
@@ -1404,7 +1420,12 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
         if marks:
             ups = [e[1] - pos[n][1] for n in g if n in marks and n in pos for e in marks[n] if e[1] > pos[n][1]]
             reach = max([above] + [u + 0.5 for u in ups])
-        polys = elevation_fill(walls, legs, extra, below, reach, stops)
+        # and in a pitch as far sideways as the splays say the walls are (OIAS_V2 9 to 20: a shaft
+        # 20 to 30 m across, its walls drawn far from the legs)
+        side = max([above] + [abs(e[0] - p[0]) + 0.5 for n, p, e in sketch.splays() if n in gset
+                              and math.degrees(math.atan2(abs(e[1] - p[1]), abs(e[0] - p[0]))) < 40]) \
+            if SETTINGS['pitch_fill'] else 0.0
+        polys = elevation_fill(walls, legs, extra, below, reach, stops, side)
         if SETTINGS['rock_faces'] and SETTINGS['outer_walls']:     # the rock its closing-up took in goes, as in plan
             polys = [drop_rock_faces(p, walls, legs, [pos[n] for n in g if n in pos], seal=ELEVATION_SEAL,
                                      margin=0.1) for p in polys]
@@ -1422,7 +1443,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
             inside = [n for n in g if home.get(n) == pi]
             if not inside:
                 continue
-            name = f"{opt.name}E{len(scraps) + 1}"
+            name = f"{opt.name}{SETTINGS['elevation_suffix']}{len(scraps) + 1}"
             o = [f"scrap {name} -projection extended{opt.attrs(K)}", ""]
             o += presumed_marks(presumed, poly, px)
             if SETTINGS['wall_subtypes']:

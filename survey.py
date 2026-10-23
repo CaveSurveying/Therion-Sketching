@@ -42,6 +42,18 @@ def survey_file(survey, near):
     return None
 
 
+def joined_ids(near):
+    """The ids that `join` statements name, in the .th files beside the file
+    `near` and up to two folders above it (the cave's master)."""
+    folder = os.path.dirname(os.path.abspath(near))
+    out = set()
+    for f in (folder, os.path.dirname(folder), os.path.dirname(os.path.dirname(folder))):
+        for th in glob.glob(os.path.join(f, '*.th')):
+            for line in re.findall(r'(?m)^\s*join\s+([^#\n]*)', open(th, encoding='utf-8', errors='replace').read()):
+                out |= {t.split('@')[0].split(':')[0] for t in line.split() if not t.startswith('-')}
+    return out
+
+
 def fit(pairs):
     """Similarity transform (scale, rotation, shift) from scrap to survey coordinates."""
     n = len(pairs)

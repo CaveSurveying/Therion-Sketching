@@ -245,10 +245,15 @@ def unfold(survey, ext=None, skip=()):
     return vs, ext, lines
 
 
+def _extended_scrap(survey):
+    from .settings import SETTINGS
+    return f"{PROJECT.scrap_prefix(survey)}{SETTINGS['elevation_suffix']}1"
+
+
 def write(survey, out_dir):
     vs, ext, lines = profile(survey)          # a profile, as the .ee walls (log row 159)
     px = lambda p: (K * p[0], K * p[1])
-    name = f"{survey}SE1"
+    name = _extended_scrap(survey)
     o = ["encoding  utf-8", PROJECT.licence_comment, "",
          f"# Extended elevation of {survey}, unfolded from its projected elevations by",
          "# tools/sketch2therion unfold (each leg from the view seeing it most side on):"]
@@ -355,7 +360,7 @@ def file_extended(survey):
     at = m[-1].end() if m else 0
     s = s[:at] + f'{nl}input "{survey}.extended.th2"{nl}' + s[at:]
     open(th, 'w', encoding='utf-8', newline='').write(s)
-    file_map(survey, rf'^input "{survey}\.extended\.th2".*$', [f"{survey}SE1"])
+    file_map(survey, rf'^input "{survey}\.extended\.th2".*$', [_extended_scrap(survey)])
     return path
 
 
