@@ -42,10 +42,14 @@ file is worked out from reviews and may be tuned.
 - New config files are named `name.thcfg` (e.g.
   `LongwoodValleySink/Plan_only.thcfg`). Older names (`thconfig`,
   `thconfig_A0plan`, SexyTopo's `X.thconfig`) stay as they are.
-- A survey `X` lives in `<Cave>/X/`: `X.th`, its plan `X.plan.th2`,
-  its extended elevation `X.extended.th2` (scraps `XSEe1`, …, in `map
-  XMEe`; `XSE1` is an error, the user 2026-10-22), projected elevations `XE315.th2` (and `XE000.th2`,
-  `XE090.th2`), sketches in `X/Notes/*.xvi`. An extended elevation is
+- A survey `X` lives in `<Cave>/X/`. Files keep the names they were
+  imported with, from SexyTopo's export (settings under "Sketching in
+  SexyTopo"): `X.th`, its plan `XP.th2`, its extended elevation
+  `XEe.th2` (scraps `XSEe1`, …, in `map XMEe`; `XSE1` is an error, the
+  user 2026-10-22), sketches `X/Notes/XP.xvi` and `X/Notes/XEe.xvi`
+  (the user, 2026-10-26). Older names (`X.plan.th2`, `X.extended.th2`
+  in Cheddar) stay as they are. Projected elevations are `XE315.th2`
+  (and `XE000.th2`, `XE090.th2`). An extended elevation is
   drawn as sketched: laid out with the survey's own `extend` flags,
   not as it falls in the whole cave.
 - Plan scraps are `XSP1`, `XSP2`, …, cross sections `XPX<station>`; extended
@@ -850,7 +854,7 @@ Build with `therion -l ../output/therion.log Plan_only.thcfg` in
   didn't touch.
 - `python3 -m tools.sketch2therion.th2lint --from LongwoodValleySink/Plan_only.thcfg`
   is clean.
-- `python3 -m tools.sketch2therion review check X/X.plan.th2`: every
+- `python3 -m tools.sketch2therion review check X/XP.th2`: every
   outline valid and its turning number not 0 (0 is MetaPost's
   "intersects itself"), before building; and no "second wall on one side
   of the passage" (hard rule 2: an outer wall within 1 m behind another,

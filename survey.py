@@ -6,7 +6,7 @@ a scrap to the survey.
 Replaces two helpers the Swildons version took from `sections.py` and
 `tools/routes/survey.py`, neither of which is ported. `survey_of` looks
 for the `.th` files beside the drawing, as each survey here lives in
-its own folder (`<Cave>/X/X.th` inputs `X.plan.th2`); `fit` is copied
+its own folder (`<Cave>/X/X.th` inputs its plan, `XP.th2`); `fit` is copied
 unchanged.
 """
 import glob

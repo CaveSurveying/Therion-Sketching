@@ -2,15 +2,16 @@
 # GPLv3: see LICENSE.
 """File a converted plan drawing into its survey and the cave's plan map.
 
-Run after `plan` has written the drawing to its house-style name
-(`<Cave>/X/X.plan.th2`, from tools/project.toml):
+Run after `plan` has written the drawing to its name from
+tools/project.toml (`plan_file`: SexyTopo's `<Cave>/X/XP.th2`, or the
+older `X.plan.th2`):
 
     python3 -m tools.sketch2therion place X
 
 It
 - removes SexyTopo's empty plan file (`XP.th2`, a scrap with no walls),
-  refusing if that file has walls drawn;
-- points the survey's `input` at `X.plan.th2`;
+  refusing if that file has walls drawn, unless the drawing is that file;
+- points the survey's `input` at the drawing;
 - writes `map XMP` listing the drawing's plan scraps, after that input;
 - adds `XMP@X` to the cave's plan map (`LongwoodValleySinkMP`).
 

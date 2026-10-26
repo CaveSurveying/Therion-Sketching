@@ -35,7 +35,7 @@ settings next to the submodule:
 Run everything from the top of the cave's repository, for example
 
 ```bash
-python3 -m tools.sketch2therion plan Cave/X/Notes/XP.xvi --survey X -o Cave/X/X.plan.th2
+python3 -m tools.sketch2therion plan Cave/X/Notes/XP.xvi --survey X -o Cave/X/XP.th2
 python3 -m tools.sketch2therion.th2lint --from Cave/thconfig
 ```
 
