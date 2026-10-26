@@ -78,6 +78,13 @@ file is worked out from reviews and may be tuned.
 - Never use `-outline none` on a wall **[lint: wall-outline-none]**.
   Every outer line of the passage is drawn as a wall; a line inside the
   passage is not a wall (see below).
+- The furthest drawn line out from the passage is usually the wall (the
+  surveyor could only have drawn it by seeing it). Where it is not a
+  wall, it has `-outline out`, so it is still the edge of the passage
+  (the user, 2026-10-26).
+- A sump keeps an opening in its wall about 1 m wide where the dive
+  line goes on (from the Swildons drawings, where the sketch shows the
+  line through the pool; the user, 2026-10-26).
 - Outer or inner is decided by the line's own passage: the legs that
   see it (no other drawn line between), within 1.5 m of the nearest. A
   line is inner (a border) only with those legs' stations on both sides
