@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """A plan xvi re-exported with its cross sections linked, as SexyTopo now does.
 
     python3 -m tools.sketch2therion stxvi X [--xvi PATH] [--out PATH]
@@ -32,7 +32,7 @@ import os
 import re
 import sys
 
-from .. import project as _project
+from . import project as _project
 from . import xvi
 
 PROJECT = _project.load()

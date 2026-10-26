@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """What an extended-elevation sketch shows besides walls, read by shape
 (colour is only a hint):
 

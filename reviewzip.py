@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """A zip of a survey's plan drawing for review on another computer.
 
     python3 -m tools.sketch2therion zip X OUT.zip [--extra DIR]
@@ -18,7 +18,7 @@ import re
 import sys
 import zipfile
 
-from .. import project as _project
+from . import project as _project
 
 BACKDROP = re.compile(r'(?m)^##XTHERION## xth_me_image_insert \{[^}]*\} \{[^}]*\} (?:\{([^}]*)\}|"([^"]*)"|(\S+))')
 

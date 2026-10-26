@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """A projected elevation's walls from the survey's extended elevation drawing.
 
     python3 -m tools.sketch2therion projected X [--angle 315] [--file]
@@ -34,7 +34,7 @@ import tempfile
 
 from shapely.geometry import LineString, MultiPoint, Point
 
-from .. import project as _project
+from . import project as _project
 from . import register
 from .tidy import bezier_points, parse_scrap, scale_of
 from .walls import bezier_lines

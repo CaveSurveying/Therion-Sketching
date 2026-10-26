@@ -1,0 +1,6 @@
+# Python libraries for tools/ (pip install -r tools/sketch2therion/requirements.txt).
+shapely>=2.0        # sketch2therion: geometry
+numpy               # sketch2therion review: fitting
+matplotlib          # sketch2therion review show: the sketch panel
+pillow              # sketch2therion review show: the picture
+pymupdf             # sketch2therion review show: reading the plan PDF (AGPL; used, not distributed)

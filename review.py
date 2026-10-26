@@ -1,5 +1,5 @@
 # Ported from caves-mendip-swildons, tools/sketch2therion (commit 198bf46,
-# https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see tools/LICENSE.
+# https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see LICENSE.
 """Reviewing a drawing against the surveyor's sketch, with someone who
 knows the cave.
 
@@ -31,7 +31,7 @@ import sys
 
 from shapely.geometry import LineString, Point
 
-from .. import project as _project
+from . import project as _project
 from . import pockettopo, register, xvi
 from .survey import survey_of
 from .tidy import bezier_points, parse_scrap, reverse_segments, therion_rings
@@ -189,7 +189,7 @@ def fit_page(pairs):
 
 def config_with_inputs(path):
     """A config's text followed by the files it inputs (where its layouts are)."""
-    from ..svn2git.deps import parse_refs
+    from .deps import parse_refs
     text = open(path, encoding='utf-8').read()
     folder = os.path.dirname(path)
     for ref in parse_refs(text):

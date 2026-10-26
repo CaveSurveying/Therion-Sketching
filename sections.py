@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """Cross sections on the assembled plan: section lines evenly across their
 passage, and section drawings clear of the passages and of each other.
 
@@ -31,7 +31,7 @@ import re
 from shapely.geometry import LineString, MultiPoint, Point
 from shapely.ops import unary_union
 
-from .. import project as _project
+from . import project as _project
 from . import register
 from .joins import Drawing, plan_file
 from .tidy import bezier_points, parse_scrap

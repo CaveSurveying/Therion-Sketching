@@ -1,5 +1,5 @@
 # Ported from caves-mendip-swildons, tools/sketch2therion (commit 198bf46,
-# https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see tools/LICENSE.
+# https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see LICENSE.
 """Turning sketch strokes into clean wall lines.
 
 Strokes drawn twice are dropped, pieces whose ends meet are joined, and the

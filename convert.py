@@ -1,5 +1,5 @@
 # Ported from caves-mendip-swildons, tools/sketch2therion (commit 198bf46,
-# https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see tools/LICENSE.
+# https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see LICENSE.
 """Sketch -> th2: plan scraps, extended-elevation scraps and cross sections.
 
 What each colour becomes (the same in SexyTopo and PocketTopo):

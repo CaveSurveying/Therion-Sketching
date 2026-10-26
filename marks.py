@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """Floor marks and interior lines, for caves whose sketches use brown for
 the floor (tools/project.toml, [convert] brown = "floor").
 
@@ -439,7 +439,7 @@ def th2(lines, passage, px, idbase, wall_colours, boulder_min, barriers=()):
             g = max(g.geoms, key=lambda q: q.area)
         ring = list(g.simplify(0.03).exterior.coords) if g is not None and not g.is_empty else pp
         if len(ring) >= 4:
-            # straight segments, ending on the first point (tools/Style.md: rocks)
+            # straight segments, ending on the first point (tools/sketch2therion/Style.md: rocks)
             ring = list(ring[:-1]) + [ring[0]]
             o += ["line rock-border -close on"] + ["  %.2f %.2f" % px(p) for p in ring] + ["endline", ""]
     for i, (kind, g) in enumerate(areas):

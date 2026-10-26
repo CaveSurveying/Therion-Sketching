@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """Scraps chosen by hand: which stations each plan scrap holds.
 
 Where a survey goes from one passage into another that overlaps it in

@@ -1,5 +1,5 @@
 # Ported from caves-mendip-swildons, tools/sketch2therion (commit 198bf46,
-# https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see tools/LICENSE.
+# https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see LICENSE.
 """Plan details that read as sketching: ledge lines and boulders.
 
 - Lines inside the passage (the converter's borders, from brown and grey

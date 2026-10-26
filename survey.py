@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion; `fit` is copied from caves-mendip-swildons
-# tools/routes/survey.py (commit 198bf46). GPLv3: see tools/LICENSE.
+# tools/routes/survey.py (commit 198bf46). GPLv3: see LICENSE.
 """Which survey a .th2 file belongs to, where a survey's .th is, and fitting
 a scrap to the survey.
 

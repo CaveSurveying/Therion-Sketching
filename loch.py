@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """Therion's 3D model of a survey, as Loch shows it.
 
 Therion 6.4 writes the passage walls it builds from the splays only to

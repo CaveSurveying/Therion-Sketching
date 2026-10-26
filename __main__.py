@@ -1,5 +1,5 @@
 # Ported from caves-mendip-swildons, tools/sketch2therion (commit 198bf46,
-# https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see tools/LICENSE.
+# https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see LICENSE.
 """Command line: python3 -m tools.sketch2therion <command> ...
 
   check       how well a sketch fits the survey, before converting it
@@ -33,7 +33,7 @@ import os
 import re
 import sys
 
-from .. import project as _project
+from . import project as _project
 from . import convert, labels, pockettopo, register, tidy, xvi
 
 PROJECT = _project.load()

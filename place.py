@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """File a converted plan drawing into its survey and the cave's plan map.
 
 Run after `plan` has written the drawing to its house-style name
@@ -21,7 +21,7 @@ import re
 import subprocess
 import sys
 
-from .. import project as _project
+from . import project as _project
 
 
 class PlaceError(Exception):

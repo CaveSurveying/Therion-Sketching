@@ -1,5 +1,5 @@
 # Ported from caves-mendip-swildons, tools/sketch2therion (commit 198bf46,
-# https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see tools/LICENSE.
+# https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see LICENSE.
 """Tidy converted drawings so they follow Therion drawing conventions.
 
 The converter first draws a scrap's walls with their outline switched off
@@ -35,7 +35,7 @@ import re
 from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import substring, unary_union
 
-from .. import project as _project
+from . import project as _project
 
 # The drawings' licence (tools/project.toml), written at the top of each file.
 LICENCE = _project.load().licence_comment

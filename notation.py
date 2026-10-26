@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """Steps, pitches and overhangs read from their notation in the sketch.
 
 Colours are only a hint (and sometimes wrong); the notation decides:

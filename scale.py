@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """The local scale of a drawing: how long the survey legs are around a point.
 
 Whoever draws or checks a scrap zooms so that the legs fit the screen,

@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """Steps in walls: a short cross-piece where a wall jogs sideways.
 
 Where the sketcher's wall strokes do not quite meet (drawn underground in

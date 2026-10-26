@@ -1,5 +1,5 @@
 # Ported from caves-mendip-swildons, tools/sketch2therion (commit 198bf46,
-# https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see tools/LICENSE.
+# https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see LICENSE.
 """Walls with fewer, smoother points.
 
 Converted walls follow the sketch stroke by stroke: four or five points a
@@ -851,7 +851,7 @@ def _wall_tol(header, objs, K, path):
     from .survey import survey_of
     survey = survey_of(path)
     if not survey:                      # a copy outside the survey's folder: the scrap's name says
-        from .. import project
+        from . import project
         m = re.match(r'scrap (\S+)', header)
         prefix = project.load().names['scrap_prefix'].replace('{survey}', '(\\w+?)')
         mm = re.match(prefix + r'(?:P|Ee?)\d', m.group(1)) if m else None

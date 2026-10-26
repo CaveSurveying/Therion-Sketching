@@ -1,6 +1,6 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
-"""Legs and splays against Therion's fill (tools/Style.md, Checking).
+# GPLv3: see LICENSE.
+"""Legs and splays against Therion's fill (tools/sketch2therion/Style.md, Checking).
 
 The fill is where Therion thinks the passage is: inside the scraps'
 outlines. Legs are all inside it, except at passage ends where the

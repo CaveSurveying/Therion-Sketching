@@ -1,5 +1,5 @@
 # Ported from caves-mendip-swildons, tools/sketch2therion (commit 198bf46,
-# https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see tools/LICENSE.
+# https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see LICENSE.
 """Extended-elevation fill from the splay shots.
 
 Where the sketch has no roof or floor drawn, the converter had to guess
@@ -33,7 +33,7 @@ from collections import defaultdict
 from shapely.geometry import LineString, Polygon, box
 from shapely.ops import unary_union
 
-from .. import project as _project
+from . import project as _project
 from . import tidy
 from .survey import survey_of as _survey_of
 from .tidy import Obj, bezier_points, parse_scrap, scale_of

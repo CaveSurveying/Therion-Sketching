@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """Where a new survey's plan joins an earlier one: the earlier drawing's
 walls cut back to where the new survey starts.
 
@@ -27,7 +27,7 @@ import re
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
-from .. import project as _project
+from . import project as _project
 from . import register
 from .tidy import bezier_points, parse_scrap, therion_chain
 

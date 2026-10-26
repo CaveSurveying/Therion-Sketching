@@ -1,6 +1,6 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
-"""Lines that end at a wall end on a node of it (tools/Style.md).
+# GPLv3: see LICENSE.
+"""Lines that end at a wall end on a node of it (tools/sketch2therion/Style.md).
 
 A border, step, pitch, overhang or gour that stops at a wall should end
 exactly on one of the wall's points, so the two meet in Therion and in

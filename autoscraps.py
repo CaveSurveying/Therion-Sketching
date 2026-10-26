@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """Scraps chosen from Therion's 3D model of the survey (Style.md, Scraps).
 
 Passages drawn over one another in a view go in separate scraps. Which

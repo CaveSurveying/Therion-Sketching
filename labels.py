@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """Text from SexyTopo's own Therion export, carried into the drawing.
 
 SexyTopo writes a sketch's labels into its exported th2 (`point x y label

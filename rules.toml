@@ -1,5 +1,5 @@
 # The house drawing rules: how tools/sketch2therion reads sketches.
-# Shared by every cave. tools/Style.md says why each rule is as it is.
+# Shared by every cave. tools/sketch2therion/Style.md says why each rule is as it is.
 # What each setting means, and the upstream defaults these replace:
 # tools/sketch2therion/settings.py. A cave changes a rule only where it
 # must, in [convert] in its own tools/project.toml, with the reason.

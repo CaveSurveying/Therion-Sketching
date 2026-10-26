@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """How the converter reads a cave's sketches: the house drawing rules
 (rules.toml, shared by every cave), then the cave's own changes to them
 ([convert] in tools/project.toml), over defaults that reproduce the
@@ -12,7 +12,7 @@ regression test still holds).
 import os
 import tomllib
 
-from .. import project as _project
+from . import project as _project
 
 UPSTREAM = {
     'wall_colours': ['BLACK', 'BROWN', 'GRAY'],  # strokes that can make the passage outline

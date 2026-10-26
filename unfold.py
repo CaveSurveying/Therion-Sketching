@@ -1,5 +1,5 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
-# GPLv3: see tools/LICENSE.
+# GPLv3: see LICENSE.
 """An extended elevation for a survey that has none, unfolded from its
 hand-drawn projected elevations.
 
@@ -27,7 +27,7 @@ import tempfile
 
 from shapely.geometry import LineString, Point
 
-from .. import project as _project
+from . import project as _project
 from . import register
 from .tidy import bezier_points, parse_scrap
 from .walls import bezier_lines
