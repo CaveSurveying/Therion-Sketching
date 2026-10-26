@@ -1,12 +1,17 @@
 # Part of tools/sketch2therion (new for the Cheddar Catchment survey).
 # GPLv3: see tools/LICENSE.
-"""How the converter reads a cave's sketches: the [convert] table in
-tools/project.toml, over defaults that reproduce the upstream converter
-exactly (caves-mendip-swildons; so the upstream regression test still holds).
+"""How the converter reads a cave's sketches: the house drawing rules
+(rules.toml, shared by every cave), then the cave's own changes to them
+([convert] in tools/project.toml), over defaults that reproduce the
+upstream converter exactly (caves-mendip-swildons; so the upstream
+regression test still holds).
 
     from .settings import SETTINGS
     SETTINGS['wall_colours']
 """
+import os
+import tomllib
+
 from .. import project as _project
 
 UPSTREAM = {
@@ -138,18 +143,27 @@ UPSTREAM = {
 SETTINGS = dict(UPSTREAM)
 
 
+RULES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rules.toml')
+
+
+def house_rules(path=RULES):
+    """The [convert] table of the house drawing rules."""
+    with open(path, 'rb') as f:
+        return tomllib.load(f)['convert']
+
+
 def load(p=None):
-    """SETTINGS from tools/project.toml's [convert] table."""
+    """SETTINGS from the house rules, changed by tools/project.toml's [convert] table."""
     p = p or _project.load()
-    use(p.convert)
+    use(dict(house_rules(), **p.convert))
 
 
 def use(values):
     unknown = set(values) - set(UPSTREAM)
     if unknown:
-        raise ValueError(f"project.toml [convert]: unknown {', '.join(sorted(unknown))}")
+        raise ValueError(f"[convert] (rules.toml or project.toml): unknown {', '.join(sorted(unknown))}")
     if values.get('brown', 'level') not in ('level', 'floor'):
-        raise ValueError('project.toml [convert]: brown must be "level" or "floor"')
+        raise ValueError('[convert] (rules.toml or project.toml): brown must be "level" or "floor"')
     SETTINGS.clear()
     SETTINGS.update(UPSTREAM)
     SETTINGS.update(values)

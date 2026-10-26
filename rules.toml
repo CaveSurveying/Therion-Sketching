@@ -1,0 +1,89 @@
+# The house drawing rules: how tools/sketch2therion reads sketches.
+# Shared by every cave. tools/Style.md says why each rule is as it is.
+# What each setting means, and the upstream defaults these replace:
+# tools/sketch2therion/settings.py. A cave changes a rule only where it
+# must, in [convert] in its own tools/project.toml, with the reason.
+# Log rows are in the Cheddar Catchment's docs/lvs-phase5-log.md.
+#
+# Colours: black walls; brown boulders, debris (closed loops, told apart
+# by size), sand (dots), mud (dashes); grey and other lines inside the
+# passage are steps or ledges, drawn as borders; blue water; green
+# flowstone and pretties, solid green lines gours. Colours are hints:
+# the notation (ticks, dashes) decides steps, pitches and overhangs.
+
+[convert]
+wall_colours = ["BLACK"]
+colour_map = { PURPLE = "BLACK", RED = "GRAY", ORANGE = "GRAY" }   # where passages overlap: purple walls (they may join black ones), red and orange other lines, read by shape (log row 166)
+elevation_wall_colours = ["BLACK", "BROWN", "GREEN"]   # in elevations the floor is often drawn brown or green ...
+auto_scraps = true          # scraps from the 3D model where the cave's project.toml lists none (log row 133)
+section_names = true        # cross sections named FairyChimneysPX5 (log row 125)
+elevation_suffix = "Ee"     # extended-elevation scraps GoSouthSEe1, as plans GoSouthSP1 (log row 184)
+outer_walls = true          # every outer line is a wall: passage on one side only, by the splays (log row 125)
+join_runs = true            # lines of a kind running on into each other are one line, walls too (log row 184)
+pitch_fill = true           # a shaft fills sideways to its walls, as far as the side splays (log row 183)
+dashed_presumed = true      # black dashed lines are wall -subtype presumed (log row 125)
+dash_neighbours = true      # a dash joins only its nearest neighbours: dashed lines side by side stay apart (log row 148)
+short_links = true          # short wall-coloured pieces joining walls end to end are wall (log row 148)
+section_arrows = true       # cross section lines with arrows (Style.md, Cross sections)
+layout_split = false        # never split or flip a drawing to fit where Therion puts the stations today (plan 5d)
+elevation_features = true   # elevations: pools, water flow, curtains, blocks, rocks, rubble, by shape
+wall_subtypes = true        # ... and is then sand (brown: mud too, no clay), debris (rocks along it) or, green, flowstone (smooth) or blocks (lumpy, rock on the floor)
+interior_borders = true
+brown = "floor"
+boulder_min = 0.3           # m: a closed loop this wide or wider is a boulder
+drawn_rocks = true          # each boulder drawn as a rock of its own with rock edges, not an area of blocks
+wall_jog_max = 0.4
+pool_min_area = 0.05
+pools_first = true
+climb_whole = true
+notation = true             # ticked lines: steps/pitches; dashed with ticks: overhangs
+elevation_data = false      # draw only what the plan sketch shows: nothing inferred from the elevation
+gours = true                # solid green lines
+water_to_walls = false      # pools keep their sketched outline
+area_marks = true           # groups of boulders/debris as areas, isolated boulders alone
+one_rock_edge = true
+smooth_lines = true
+end_on_node = true
+boulder_over_wall = 0.1     # m: a boulder at a wall just crosses it, without growing
+mark_max = 0.15             # m: smaller marks are dirt: ignored alone, sand or mud in groups
+area_min_width = 0.5        # m: areas need room for their symbols: thinner parts dropped
+area_min_area = 0.4         # m2
+area_over_walls = 0.15      # m: areas run just over the walls, which clip them (no more: it makes odd shapes)
+area_splines = 0.25         # m: area outlines simplified to this, drawn as splines (few nodes)
+green_loops = true          # a single green loop is a boulder or debris (the colour was wrong)
+corner_cone = 60            # degrees: at a corner the passage's leg is off to one side of the wall
+area_lines = false          # brown lines inside boulder/debris areas are part of the rocks: dropped
+presumed_walls = false      # no presumed walls where nothing was sketched: gaps left open for Therion
+notation_rel = 2.2          # m: ticks and dashes scale with the legs' length over this (Trident's are drawn bigger)
+tick_reach = 0.35           # m: ticks drawn a little clear of their line still mark it a step
+chain_gap = 1.0             # m: brown line strokes this close end to end, carrying on, are one line
+mud_ticks = 1.5             # m: a brown line's brown ticks among many mud dashes are mud, not a step
+brown_ticks = false         # brown short strokes are mud or rocks, never the ticks of a step
+dash_max = 1.5              # m: brown dashes up to this long (roughly straight) are mud
+mud_near = 2.0              # m: mud marks this close are one patch
+mud_grow = 0.7              # m: a patch is grown this far round its marks, kept off rocks, sand on it merged in
+rock_curves = true          # curved brown strokes are rock outlines
+area_grow = 1.0             # m: rock areas grown round their rocks within the passage, up to walls, steps and long lines
+barrier_min = 1.5           # m: shorter lines inside the passage do not stop an area, and go among rocks
+curls_closed = true         # a brown stroke curled round on itself is a boulder
+wall_tol_rel = 0.02         # walls follow the sketch to within this share of the nearby legs' length ...
+wall_presmooth = 3          # ... after smoothing out hand wobble over 3 times that (nodes where the wall bends)
+rock_faces = true           # the fill is cut along the walls; rock it took in (bends, tongues, hooks) dropped
+pockets = true              # a wall piece out beyond the outline with both ends on one wall is a pocket: the wall goes round it
+wall_hooks = true           # a small black loop left open at a wall is a hook of the wall, not a boulder
+merge_short = 4             # a piece of up to 4 nodes running on from a border's end is border (Connection 13 to 15)
+ends_meet = true            # lines of different kinds ending close together share the end (border to floor step to pit)
+despike = 0.3               # m: a wall turning right back over less than this is an overshoot, not a corner
+smooth_nodes = 60           # degrees: control points either side of a node in line, unless it turns more (a corner)
+wall_links = 0.4            # m: a piece of wall off the outline, this long or more, joining two outline walls' ends is wall (no hole)
+area_inside_min = 0.2       # an area less than this share inside the passage (its marks along a wall) is not drawn
+line_tol_rel = 0.02         # borders, steps and overhangs likewise
+section_tol_rel = 0.05      # a cross section's wall to within this share of its size
+sections_in_place = true    # a cross section is drawn where it was sketched, by its section mark
+section_shape = true        # a cross section keeps its sketched shape: an open stroke closed by a floor across its ends
+wall_ends_meet = 0.15       # m: wall ends this close meet (not across a leg, and only if the outline stays sound) ...
+wall_ends_meet_rel = 0.12   # ... or within this share of the nearby legs' length, if larger
+node_gap = 0.05             # m: no two nodes of a line closer than this, so each can be picked when editing ...
+node_gap_rel = 0.4         # ... or this share of the nearby legs' length: nodes go wherever the shape allows (flowing curves need few)
+hand_scraps = true          # plan scraps from [scraps] in the cave's project.toml, where a survey has them
+join_local = true           # joined walls refitted only near the join, not along their length
