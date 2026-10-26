@@ -20,7 +20,9 @@ These are never broken, by the converter or by hand. They are added,
 removed or changed only with the user's confirmation; the rest of this
 file is worked out from reviews and may be tuned.
 
-1. Every outer line of the passage is a wall. Never `-outline none`.
+1. Every outer line of the passage is a wall. Only in exceptional
+   circumstances is it not, and then it has `-outline out`. Never
+   `-outline none`.
 2. A scrap has only one outer wall on each side of the passage: in an
    elevation one floor and one roof wherever it is cut across. A line
    along a wall inside the passage is a border, or not drawn (debris is
@@ -78,10 +80,10 @@ file is worked out from reviews and may be tuned.
 - Never use `-outline none` on a wall **[lint: wall-outline-none]**.
   Every outer line of the passage is drawn as a wall; a line inside the
   passage is not a wall (see below).
-- The furthest drawn line out from the passage is usually the wall (the
-  surveyor could only have drawn it by seeing it). Where it is not a
-  wall, it has `-outline out`, so it is still the edge of the passage
-  (the user, 2026-10-26).
+- The furthest drawn line out from the passage is the wall (the
+  surveyor could only have drawn it by seeing it). Only in exceptional
+  circumstances is it not a wall, and then it has `-outline out`, so it
+  is still the edge of the passage (hard rule 1; the user, 2026-10-26).
 - A sump keeps an opening in its wall about 1 m wide where the dive
   line goes on (from the Swildons drawings, where the sketch shows the
   line through the pool; the user, 2026-10-26).
