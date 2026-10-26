@@ -539,21 +539,38 @@ def _floor_marks(line, marks):
     return 'sand' if len(dashes) >= 2 else None
 
 
-SECTION_WATER = 0.3       # m: under a section's water surface its walls go this far down, closed below
+SECTION_WATER = 0.3       # m: under a section's water surface its walls carry on this far down
 SECTION_BLUE = 0.15       # m: a blue stroke this long is water, never a mark
 SECTION_WET = 0.1         # m: the water reaches this far past the walls (clipped), as smoothing moves them
+
+
+def _carried_down(line, y):
+    """A wall carried on from its end down to y, the way it was going, or
+    straight down if it was not going down (steeper than 30 degrees): both
+    walls under a water surface end level (the user, 2026-10-26)."""
+    L, e = LineString(line), line[-1]
+    if e[1] <= y:
+        return e
+    q = L.interpolate(max(0.0, L.length - 0.2))
+    dx, dy = e[0] - q.x, e[1] - q.y
+    n = math.hypot(dx, dy)
+    if n == 0 or dy / n > -0.5:
+        dx, dy = 0.0, -1.0
+    return (e[0] + dx / -dy * (e[1] - y), y)
 
 
 def chained_outline(strokes, centre):
     """A section drawn as strokes end to end, any number and colour: each
     its own wall with its colour's subtype (green flowstone, brown sand or
     debris); one open at the bottom is closed by a floor straight across.
-    A blue stroke is the water surface: under it the walls go down
-    SECTION_WATER and close below, and the water is an area with a level
-    surface (the user, Tratmans 2026-10-26). Returns (outline polygon,
+    A blue stroke in the outline is the water surface: under it the walls
+    either side carry on the way they were going to SECTION_WATER under it, level, and
+    the section is left open there, as no floor is drawn; a blue stroke
+    inside it is water on the floor drawn. The water is an area with a
+    level surface (the user, Tratmans 2026-10-26). Returns (outline polygon,
     [(points, subtype)], strokes taken, [(x0, x1, y, water polygon)]) or
     None. Its station must be inside (Style.md, cross sections)."""
-    from .elevation import bowl_under, _water
+    from .elevation import _water
     strokes = [(c, list(s)) for c, s in strokes if len(s) > 1]
     if not strokes:
         return None
@@ -594,27 +611,36 @@ def chained_outline(strokes, centre):
         pieces.append([None, [pieces[-1][1][-1], pieces[0][1][0]]])
     lines, surfaces = [], []
     for c, p in pieces:
-        if c == 'BLUE':
-            y = sum(q[1] for q in p) / len(p)
-            lines.append((bowl_under(p[0], p[-1], y, SECTION_WATER), None))
-            surfaces.append(y)
+        if c == 'BLUE':             # the surface: the walls either side carry on under it (below)
+            surfaces.append((len(lines), sum(q[1] for q in p) / len(p)))
         elif c is None:
-            lines.append((p, _floor_marks(LineString(p), marks)))
+            lines.append([p, _floor_marks(LineString(p), marks)])
         else:
-            lines.append((_smooth_open(p), _stroke_subtype(c, LineString(p), marks)))
-    out = Polygon([q for p, _ in lines for q in p[:-1]]).buffer(0)
+            lines.append([_smooth_open(p), _stroke_subtype(c, LineString(p), marks)])
+    spans = []
+    for k, y in surfaces:           # lines[k - 1] ends at the surface, the next line starts there
+        a, b = lines[k - 1], lines[k % len(lines)]
+        a[0] = a[0] + [_carried_down(a[0], y - SECTION_WATER)]
+        b[0] = [_carried_down(b[0][::-1], y - SECTION_WATER)] + b[0]
+        spans.append(([a[0][-1], b[0][0], a[0][-2], b[0][1]], y))
+    out = Polygon([q for p, _ in lines for q in p]).buffer(0)
     if out.geom_type != 'Polygon':
         out = max(getattr(out, 'geoms', []), key=lambda p: p.area, default=Polygon())
     if out.is_empty or (centre is not None and not out.buffer(0.1).contains(Point(centre))):
         return None
+    taken = [s for _, s in marks] + [s for _, _, s in chain]
+    for s in [s for c, s in strokes if c == 'BLUE' and LineString(s).length >= SECTION_BLUE
+              and not any(s is t for t in taken) and out.contains(LineString(s).centroid)]:
+        spans.append((s, sum(q[1] for q in s) / len(s)))      # water on a floor drawn under it
+        taken.append(s)
     pools = []
-    for (c, p), y in zip([cp for cp in pieces if cp[0] == 'BLUE'], surfaces):
-        water = _water(min(p[0][0], p[-1][0]) - SECTION_WET, max(p[0][0], p[-1][0]) + SECTION_WET, y, None,
-                       out.buffer(SECTION_WET, join_style=2))
+    for p, y in spans:
+        xs = [q[0] for q in p]
+        water = _water(min(xs) - SECTION_WET, max(xs) + SECTION_WET, y, None, out.buffer(SECTION_WET, join_style=2))
         top = [q[0] for q in water.exterior.coords if abs(q[1] - y) < 1e-6] if not water.is_empty else []
         if len(top) >= 2:
             pools.append((min(top), max(top), y, water))
-    return out, lines, [s for _, s in marks] + [s for _, _, s in chain], pools
+    return out, [tuple(x) for x in lines], taken, pools
 
 
 def drawn_outline(strokes, centre):
@@ -790,7 +816,7 @@ def section_th2(name, attrs, lines, centre, K, comment, station=None):
     for pp in clean(rest, min_len=0.3):
         o += ["line border -clip off"] + bezier_lines(pp, xpx) + ["endline", ""]
     if pools:                            # its water surfaces are drawn above
-        lines = [(c, pp) for c, pp in lines if not any(pp is m for m in taken)]
+        lines = [(c, pp) for c, pp in lines if not any(pp is m or pp == m for m in taken)]
     o += water_th2(lines, poly, xpx, name, flow=False)
     if chain and station:
         o += ["point %.2f %.2f station -name %s" % (*xpx(centre), station), ""]

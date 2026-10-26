@@ -619,10 +619,12 @@ file is worked out from reviews and may be tuned.
   under the floor had been taken for its walls; Tratmans, the user
   2026-10-26: the subtypes were not followed).
 - A blue line across the bottom of a section is the water's surface.
-  The walls either side go down about 0.3 m under it and close below
-  (a bowl), and the water is an `area water` whose border is invisible,
-  its surface kept level with `adjust horizontal` (the user,
-  2026-10-26).
+  Where no wall is drawn under it, the walls either side carry on the
+  way they were going to 0.3 m below it, both ending level (Therion
+  cannot keep them so: by their lengths), and the section is left open there: it
+  is closed below only where the floor is drawn. The water is an
+  `area water` whose border is invisible, its surface kept level with
+  `adjust horizontal` (the user, 2026-10-26).
 - A cross section is a drawing of its own: its walls never join or end
   on another scrap's (TridentLeft PX6 was joined to the plan's wall
   beside it).
