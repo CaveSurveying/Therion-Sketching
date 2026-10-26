@@ -214,7 +214,7 @@ def build(cfg, log):
 
 def main(argv):
     import argparse
-    from ..project import load, REPO
+    from .project import load, REPO
     p = argparse.ArgumentParser(prog='python3 -m tools.sketch2therion fillcheck')
     p.add_argument('--build', action='store_true', help="run the cave's whole-cave check build first")
     p.add_argument('--survey', nargs='+', help='only these surveys (default: all)')

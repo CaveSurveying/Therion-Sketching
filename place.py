@@ -76,7 +76,7 @@ def set_map(th_text, name, scraps, after):
 
 def add_to_map(text, map_name, entry):
     """`entry` added as the last line of `map map_name`, if not already there."""
-    m = re.search(rf'(?ms)^map {re.escape(map_name)}\b[^\n]*\n(.*?)^endmap', text)
+    m = re.search(rf'(?ms)^[ \t]*map {re.escape(map_name)}\b[^\n]*\n(.*?)^[ \t]*endmap', text)   # maps may be indented in a survey
     if not m:
         raise PlaceError(f'no map {map_name}')
     if re.search(rf'(?m)^\s*{re.escape(entry)}\s*$', m.group(1)):

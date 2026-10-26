@@ -1049,7 +1049,7 @@ def survey_legs(th):
 
 def main(argv):
     import argparse
-    from ..project import load
+    from .project import load
     p = argparse.ArgumentParser(prog='python3 -m tools.sketch2therion scraps')
     p.add_argument('survey', nargs='*')
     p.add_argument('--calibrate', action='store_true',
