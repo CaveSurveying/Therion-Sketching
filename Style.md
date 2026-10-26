@@ -64,11 +64,16 @@ file is worked out from reviews and may be tuned.
 
 ## Licence and authorship
 
-- Survey data and drawings: **CC BY-NC-SA 4.0**. The tools: GPLv3.
-- Every new scrap has `-author <year> "<Name>"` and
-  `-copyright <year> "CC BY-NC-SA 4.0"`. **[lint: scrap-author-copyright]**
+- Survey data and drawings have the cave's licence, set in
+  `tools/project.toml` (`[drawing] licence`), e.g. CC BY-NC-SA 4.0 for
+  the Cheddar Catchment and GPLv3.0+ for Swildons (the user,
+  2026-10-26). The tools are GPLv3.
+- Every new scrap has `-author <date> "<Name>"` and
+  `-copyright <year> "<Name>, <licence>"`, the cave's licence
+  (Swildons `-copyright 2026 "Andrew Atkinson, GPLv3.0+"`). Older Cheddar
+  scraps give the licence only. **[lint: scrap-author-copyright]**
 - Sheets print the licence and credits from `map-comment` in the
-  layout; it says CC BY-NC-SA 4.0.
+  layout, giving the cave's licence.
 
 ## Walls and the outline
 
@@ -806,7 +811,7 @@ file is worked out from reviews and may be tuned.
     only the xvi sketches and names its own scraps (`XPX5`, `XEX5`), so
     these names do not change what it draws.
   - Trip information: the date, each person's role (the sketcher as
-    `notes`) and the licence (GPLv3.0+, the user).
+    `notes`) and the cave's licence (above).
   - Splay a cross section at every station, the first and last too,
     even where one was taken before. Every passage has a leg down it,
     even where nobody can get there. The passage is drawn on a little

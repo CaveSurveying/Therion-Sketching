@@ -333,14 +333,14 @@ def file_map(survey, after, scraps):
 
 
 def _attribution(survey):
-    """' -author DATE "NAME" -copyright YEAR "LICENCE"' from the survey's date and its notes
+    """' -author DATE "NAME" -copyright YEAR "NAME, LICENCE"' (the cave's licence) from the survey's date and its notes
     team member (who drew the elevations it is unfolded from), or '' if not given."""
     th = open(PROJECT.path(PROJECT.survey_file(survey)), encoding='utf-8', errors='replace').read()
     d = re.search(r'^\s*date\s+(\d{4})([\d.]*)', th, re.M)
     t = re.search(r'^\s*team\s+"([^"]+)"\s+.*\bnotes\b', th, re.M)
     if not d or not t:
         return ''
-    return f' -author {d.group(1)}{d.group(2)} "{t.group(1).strip()}" -copyright {d.group(1)} "{PROJECT.drawing['licence']}"'
+    return f' -author {d.group(1)}{d.group(2)} "{t.group(1).strip()}" -copyright {d.group(1)} "{t.group(1).strip()}, {PROJECT.drawing['licence']}"'
 
 
 def file_extended(survey):
