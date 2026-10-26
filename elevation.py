@@ -35,6 +35,7 @@ DEBRIS_REACH = 0.5      # m: floor within this of a curl is debris
 FLOW_BELOW = 0.3        # m: a water-flow point this far under the floor (as drawn by hand)
 POOL_SLOPE = 0.15       # a pool surface rises at most this per metre
 POOL_DEPTH = 0.15       # a bowl drawn under a pool: this times its width deep
+POOL_GAP = 0.06         # m: no two nodes of a pool's border closer (lint node-gap)
 LOOP_GAP = 0.15         # m: ends this close make a closed loop (or 15% of its length)
 
 
@@ -361,9 +362,14 @@ def bowls(f, walls, deep=1.0):
         if floor >= 2:
             f.bowls.append(None)
             continue
-        d = min(0.5, max(0.1, POOL_DEPTH * w))
-        f.bowls.append([(x0, y), (x0 + w / 4, y - d), (x1 - w / 4, y - d), (x1, y)])
+        f.bowls.append(bowl_under((x0, y), (x1, y), y, min(0.5, max(0.1, POOL_DEPTH * w))))
     return [b for b in f.bowls if b]
+
+
+def bowl_under(a, b, y, d):
+    """A bowl from a to b, d m below a surface at y."""
+    w = b[0] - a[0]
+    return [a, (a[0] + w / 4, y - d), (b[0] - w / 4, y - d), b]
 
 
 def _water(x0, x1, y, bowl, poly):
@@ -388,6 +394,20 @@ def _under_surface(water, y):
     return [p for p in reversed(cs) if abs(p[1] - y) >= 1e-6]
 
 
+def pool_th2(x0, x1, y, water, px, lid):
+    """An area of water under a level surface from x0 to x1 at y: its border
+    invisible, the surface kept level with `adjust horizontal`, no two
+    nodes closer than POOL_GAP."""
+    ring = [(x1, y)]
+    for p in _under_surface(water, y):
+        if math.dist(p, ring[-1]) >= POOL_GAP and math.dist(p, (x0, y)) >= POOL_GAP:
+            ring.append(p)
+    return [f"line border -id {lid} -close on -subtype invisible",
+            "  %.2f %.2f" % px((x0, y)), "  %.2f %.2f" % px((x1, y)), "  adjust horizontal"] + \
+           ["  %.2f %.2f" % px(p) for p in ring[1:]] + ["  %.2f %.2f" % px((x0, y)), "endline", "",
+            "area water", f"  {lid}", "endarea", ""]
+
+
 def th2(f, poly, walls, px, name):
     """th2 lines for the features inside scrap polygon `poly`."""
     o = []
@@ -399,12 +419,7 @@ def th2(f, poly, walls, px, name):
         water = _water(x0, x1, y, bowl, poly)
         if water.is_empty:
             continue
-        lid = f"{name}-pool{k + 1}"
-        ring = _under_surface(water, y)
-        o += [f"line border -id {lid} -close on -subtype invisible",
-              "  %.2f %.2f" % px((x0, y)), "  %.2f %.2f" % px((x1, y)), "  adjust horizontal"] + \
-             ["  %.2f %.2f" % px(p) for p in ring] + ["endline", "",
-              "area water", f"  {lid}", "endarea", ""]
+        o += pool_th2(x0, x1, y, water, px, f"{name}-pool{k + 1}")
     for pp in f.rocks:
         if near.contains(Point(pp[0])):
             o += ["line rock-border -close on"] + ["  %.2f %.2f" % px(p) for p in

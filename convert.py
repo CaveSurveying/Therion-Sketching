@@ -517,6 +517,106 @@ def _smooth_open(pp):
     return q
 
 
+def _stroke_subtype(colour, line, marks):
+    """A section stroke's wall subtype by its colour: brown sand, or debris
+    with pebbles on it; green flowstone (with section_chain)."""
+    if colour == 'GREEN':
+        return 'flowstone'
+    if colour != 'BROWN':
+        return None
+    near = [s for _, s in marks if line.distance(LineString(s).centroid) < FLOOR_NEAR]
+    pebbles = [s for s in near if _floor_mark(s)]
+    return 'debris' if len(pebbles) >= 2 and len(pebbles) >= len(near) / 2 else 'sand'
+
+
+def _floor_marks(line, marks):
+    """A floor drawn straight across: debris or sand by the marks on it."""
+    near = [(c, s) for c, s in marks if line.distance(LineString(s).centroid) < FLOOR_NEAR]
+    pebbles = [s for c, s in near if _floor_mark(s)]
+    dashes = [s for c, s in near if c == 'BROWN' and not _floor_mark(s)]
+    if len(pebbles) >= 2 and len(pebbles) >= len(dashes):
+        return 'debris'
+    return 'sand' if len(dashes) >= 2 else None
+
+
+SECTION_WATER = 0.3       # m: under a section's water surface its walls go this far down, closed below
+SECTION_BLUE = 0.15       # m: a blue stroke this long is water, never a mark
+SECTION_WET = 0.1         # m: the water reaches this far past the walls (clipped), as smoothing moves them
+
+
+def chained_outline(strokes, centre):
+    """A section drawn as strokes end to end, any number and colour: each
+    its own wall with its colour's subtype (green flowstone, brown sand or
+    debris); one open at the bottom is closed by a floor straight across.
+    A blue stroke is the water surface: under it the walls go down
+    SECTION_WATER and close below, and the water is an area with a level
+    surface (the user, Tratmans 2026-10-26). Returns (outline polygon,
+    [(points, subtype)], strokes taken, [(x0, x1, y, water polygon)]) or
+    None. Its station must be inside (Style.md, cross sections)."""
+    from .elevation import bowl_under, _water
+    strokes = [(c, list(s)) for c, s in strokes if len(s) > 1]
+    if not strokes:
+        return None
+    longest = max(LineString(s).length for _, s in strokes)
+    mark = lambda c, s: _section_mark(s, longest) and not (c == 'BLUE' and LineString(s).length >= SECTION_BLUE)
+    marks = [(c, s) for c, s in strokes if mark(c, s)]
+    rest = [(c, s) for c, s in strokes if not mark(c, s) and math.dist(s[0], s[-1]) >= 0.15]   # loops are rocks
+    if not rest:
+        return None
+    x0, y0, x1, y1 = unary_union([LineString(s) for _, s in rest]).bounds
+    size = math.hypot(x1 - x0, y1 - y0)
+    meet = max(SECTION_MEET[0], SECTION_MEET[1] * size)
+    first = max(rest, key=lambda cs: LineString(cs[1]).length)
+    chain, free = [(first[0], first[1], first[1])], [cs for cs in rest if cs is not first]
+    while free:                     # the nearest end each time, until back at the start
+        end, start = chain[-1][1][-1], chain[0][1][0]
+        d, k, j = min((math.dist(end, s[j]), k, j) for k, (_, s) in enumerate(free) for j in (0, -1))
+        if d >= meet or (len(chain) > 1 and math.dist(end, start) <= d):
+            break
+        c, s = free.pop(k)
+        chain.append((c, s if j == 0 else s[::-1], s))
+    gap = math.dist(chain[-1][1][-1], chain[0][1][0])
+    closed = len(chain) > 1 and gap < meet
+    if not closed and not (sum(LineString(s).length for _, s, _ in chain) >= SECTION_MAIN * sum(
+            LineString(s).length for _, s in rest) and gap <= SECTION_OPEN * size):
+        return None
+    pieces = []                     # [colour, points], blue strokes end to end as one surface
+    for c, s, _ in chain:
+        if pieces and c == 'BLUE' and pieces[-1][0] == 'BLUE':
+            pieces[-1][1] += s[1:]
+        else:
+            pieces.append([c, list(s)])
+    for i in range(1, len(pieces)):
+        pieces[i][1][0] = pieces[i - 1][1][-1]
+    if closed:
+        pieces[-1][1][-1] = pieces[0][1][0]
+    else:
+        pieces.append([None, [pieces[-1][1][-1], pieces[0][1][0]]])
+    lines, surfaces = [], []
+    for c, p in pieces:
+        if c == 'BLUE':
+            y = sum(q[1] for q in p) / len(p)
+            lines.append((bowl_under(p[0], p[-1], y, SECTION_WATER), None))
+            surfaces.append(y)
+        elif c is None:
+            lines.append((p, _floor_marks(LineString(p), marks)))
+        else:
+            lines.append((_smooth_open(p), _stroke_subtype(c, LineString(p), marks)))
+    out = Polygon([q for p, _ in lines for q in p[:-1]]).buffer(0)
+    if out.geom_type != 'Polygon':
+        out = max(getattr(out, 'geoms', []), key=lambda p: p.area, default=Polygon())
+    if out.is_empty or (centre is not None and not out.buffer(0.1).contains(Point(centre))):
+        return None
+    pools = []
+    for (c, p), y in zip([cp for cp in pieces if cp[0] == 'BLUE'], surfaces):
+        water = _water(min(p[0][0], p[-1][0]) - SECTION_WET, max(p[0][0], p[-1][0]) + SECTION_WET, y, None,
+                       out.buffer(SECTION_WET, join_style=2))
+        top = [q[0] for q in water.exterior.coords if abs(q[1] - y) < 1e-6] if not water.is_empty else []
+        if len(top) >= 2:
+            pools.append((min(top), max(top), y, water))
+    return out, lines, [s for _, s in marks] + [s for _, _, s in chain], pools
+
+
 def drawn_outline(strokes, centre):
     """A section drawn as open strokes: (outline polygon, [(points, subtype)],
     strokes taken: the outline's and the marks), or None if it is not drawn so (then the strokes are closed up
@@ -541,22 +641,8 @@ def drawn_outline(strokes, centre):
     if math.dist(a, b) < 0.05:
         return None                                    # closed already: as before
     meet = max(SECTION_MEET[0], SECTION_MEET[1] * size)
-
-    def subtype(colour, line):
-        if colour != 'BROWN':
-            return None
-        near = [s for _, s in marks if line.distance(LineString(s).centroid) < FLOOR_NEAR]
-        pebbles = [s for s in near if _floor_mark(s)]
-        return 'debris' if len(pebbles) >= 2 and len(pebbles) >= len(near) / 2 else 'sand'
-
-    def floor_marks(line):
-        near = [(c, s) for c, s in marks if line.distance(LineString(s).centroid) < FLOOR_NEAR]
-        pebbles = [s for c, s in near if _floor_mark(s)]
-        dashes = [s for c, s in near if c == 'BROWN' and not _floor_mark(s)]
-        if len(pebbles) >= 2 and len(pebbles) >= len(dashes):
-            return 'debris'
-        return 'sand' if len(dashes) >= 2 else None
-
+    subtype = lambda colour, line: _stroke_subtype(colour, line, marks)
+    floor_marks = lambda line: _floor_marks(line, marks)
     out, used = None, [main]
     partners = []
     for c, s in rest:
@@ -635,9 +721,12 @@ def section_outline(strokes, centre=None):
     return p if p.is_valid and not p.is_empty else out
 
 
-def section_th2(name, attrs, lines, centre, K, comment):
-    """A cross section scrap. lines: [(colour, pts)] gathered for it.
+def section_th2(name, attrs, lines, centre, K, comment, station=None):
+    """A cross section scrap. lines: [(colour, pts)] gathered for it; station:
+    its name, a station point at centre (with section_chain).
     Returns (th2 lines, width, height) or None if it has no walls."""
+    chain = SETTINGS['section_chain']
+    walls = WALLS + ('GREEN',) if chain else WALLS
     # rocks in the section (closed brown loops on its floor) are drawn as rocks, not taken
     # for its outline (Style.md, rocks: the user, rocks in cross sections drawn)
     rocks = []
@@ -645,13 +734,17 @@ def section_th2(name, attrs, lines, centre, K, comment):
         rocks = [pp for c, pp in lines if c == 'BROWN' and len(pp) > 3 and math.dist(pp[0], pp[-1]) < 0.15
                  and Polygon(pp).buffer(0).area > 0.005]
         lines = [(c, pp) for c, pp in lines if not any(pp is r for r in rocks)]
-    wl = [pp for c, pp in lines if c in WALLS and len(pp) > 1]
+    wl = [pp for c, pp in lines if c in walls and len(pp) > 1]
     if not wl:
         return None
-    drawn = drawn_outline([(c, pp) for c, pp in lines if c in WALLS] + [('BROWN', r) for r in rocks], centre) \
-        if SETTINGS['section_shape'] else None
+    drawn, pools = None, []
+    if chain:
+        drawn = chained_outline([(c, pp) for c, pp in lines if c in walls + ('BLUE',)], centre)
+    elif SETTINGS['section_shape']:
+        drawn = drawn_outline([(c, pp) for c, pp in lines if c in WALLS] + [('BROWN', r) for r in rocks], centre)
     if drawn:
-        poly, outline, taken = drawn
+        poly, outline, taken = drawn[:3]
+        pools = drawn[3] if chain else []
         # the outline's strokes, and marks (pebbles, sand dashes) showing the floor's subtype; nor
         # are small rocks on it drawn (Style.md, rocks along a wall line)
         wl = [pp for pp in wl if not any(pp is m or pp == m for m in taken)]
@@ -674,6 +767,9 @@ def section_th2(name, attrs, lines, centre, K, comment):
             o += [f"line wall{' -subtype ' + sub if sub else ''}"] + body + ["endline", ""]
     else:
         o += ["line wall -close on"] + bezier_closed(list(poly.exterior.coords), xpx) + ["endline", ""]
+    from .elevation import pool_th2
+    for k, (x0, x1, y, water) in enumerate(pools):
+        o += pool_th2(x0, x1, y, water, xpx, f"{name}-water{k + 1}")
     # marks inside: boulders, and ledges or other lines as borders
     inner = []
     edge = poly.exterior
@@ -693,7 +789,11 @@ def section_th2(name, attrs, lines, centre, K, comment):
             o += ["line rock-border -close on"] + ["  %.2f %.2f" % xpx(q) for q in ring] + ["endline", ""]
     for pp in clean(rest, min_len=0.3):
         o += ["line border -clip off"] + bezier_lines(pp, xpx) + ["endline", ""]
+    if pools:                            # its water surfaces are drawn above
+        lines = [(c, pp) for c, pp in lines if not any(pp is m for m in taken)]
     o += water_th2(lines, poly, xpx, name, flow=False)
+    if chain and station:
+        o += ["point %.2f %.2f station -name %s" % (*xpx(centre), station), ""]
     o += ["endscrap", ""]
     b = poly.bounds
     return o, b[2] - b[0], b[3] - b[1], poly
@@ -724,7 +824,7 @@ def section_scraps(sketch, opt, K, view='P'):
         used |= set(idx)
         mine = [sketch.lines[i] for i in idx]
         name = (f"{survey}{view}X{n}" if SETTINGS['section_names'] else f"{opt.name}_xs_{n}").replace('.', '_')
-        r = section_th2(name, opt.attrs(K), mine, centre, K, f"# Cross-section at station {n}.")
+        r = section_th2(name, opt.attrs(K), mine, centre, K, f"# Cross-section at station {n}.", opt.station(n))
         if r is None:
             print(f"  cross section {name}: no walls drawn round station {n}", file=sys.stderr)
             continue
@@ -734,7 +834,8 @@ def section_scraps(sketch, opt, K, view='P'):
         if poly is not None:
             if not poly.buffer(0.1).contains(Point(centre)):
                 print(f"  cross section {name}: station {n} outside its outline: check", file=sys.stderr)
-            far = [e for e in ends if poly.distance(Point(e)) > SECTION_SPLAY_OUT]
+            # splays out of the section's plane may end outside it (with section_chain)
+            far = [e for e in ends if poly.distance(Point(e)) > SECTION_SPLAY_OUT and not SETTINGS['section_chain']]
             if far:
                 print(f"  cross section {name}: {len(far)} of {len(ends)} splay ends more than "
                       f"{SECTION_SPLAY_OUT} m outside: check", file=sys.stderr)
