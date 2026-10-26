@@ -28,6 +28,7 @@ NEAR = 0.6            # m: marks this close are one area
 DOT = 0.12            # m: a stroke shorter than this is a dot
 DASH = 0.6            # m: a straight open stroke shorter than this is a dash
 NOT_INTERIOR = ('BLUE', 'GREEN', 'RED', 'ORANGE', 'PURPLE')
+PATCHES = ('sand', 'flowstone')   # areas drawn as patches round their marks, merged where they overlap
 
 
 def length(pp):
@@ -113,6 +114,59 @@ def is_gour(pp):
     return L >= 0.6 and not is_closed(pp) and math.dist(pp[0], pp[-1]) >= 0.5 * L
 
 
+CHEVRON = (0.3, 2.0)   # m: the length of a flowstone mark
+CHEVRON_BEND = 45      # degrees: a ^ turns at least this much within 0.2 m (a gour's arc less)
+CHEVRON_GROUP = 3      # ^ marks near each other that make an area of flowstone
+CHEVRON_SMALL = 0.8    # m: a straight stroke shorter than this among them is a mark too (an X)
+
+
+def bends(pp, step=0.05):
+    """(sharpest turn within 0.2 m, total turn) along a stroke, in degrees."""
+    line = LineString(pp)
+    n = max(4, round(line.length / step))
+    q = [line.interpolate(k / n, normalized=True).coords[0] for k in range(n + 1)]
+    head = lambda a, b: math.atan2(b[1] - a[1], b[0] - a[0])
+    turn = lambda u, v: (math.degrees(v - u) + 180) % 360 - 180
+    hd = [head(a, b) for a, b in zip(q, q[1:])]
+    h = max(1, round(0.1 / (line.length / n)))
+    sharp = max((abs(turn(head(q[k - h], q[k]), head(q[k], q[k + h]))) for k in range(h, n + 1 - h)), default=0)
+    return sharp, sum(turn(u, v) for u, v in zip(hd, hd[1:]))
+
+
+def is_bent(pp):
+    """A short open stroke bent over (a ^, u or hook), not a ring or curl."""
+    L = length(pp) if len(pp) > 1 else 0
+    return CHEVRON[0] <= L <= CHEVRON[1] and not is_closed(pp) and \
+        math.dist(pp[0], pp[-1]) <= 0.9 * L and abs(bends(pp)[1]) <= 270
+
+
+def is_chevron(pp):
+    """A ^ mark: bent sharply (Style.md: ^ marks are flowstone; shape decides, green is a clue)."""
+    return is_bent(pp) and bends(pp)[0] >= CHEVRON_BEND
+
+
+def flowstone_marks(lines, colours=('GREEN',)):
+    """The strokes [(colour, points)] that are a group of flowstone marks: at
+    least CHEVRON_GROUP ^ marks near each other, with the bent strokes among
+    them (a ^ drawn rounder) and any other small marks among them. A ^ on
+    its own is not a group, nor is one touching another stroke (part of a
+    formation's drawing, a stal's Y) counted towards one."""
+    bent = [(c, pp) for c, pp in lines if c in colours and len(pp) > 1 and is_bent(pp)]
+    mine = [LineString(pp) for c, pp in lines if c in colours and len(pp) > 1]
+    apart = lambda g: sum(1 for m in mine if m.distance(g) < 0.05) == 1      # (itself)
+    out = []
+    geoms = [LineString(pp) for _, pp in bent]
+    for grp in cluster(geoms):
+        if sum(1 for i in grp if is_chevron(bent[i][1]) and apart(geoms[i])) >= CHEVRON_GROUP:
+            out += [bent[i] for i in sorted(grp)]
+    # and the other small marks among them (an X, a ^ touching another): part of the flowstone
+    took = unary_union([LineString(pp) for _, pp in out]) if out else None
+    out += [(c, pp) for c, pp in lines if took is not None and c in colours and len(pp) > 1
+            and not any(pp is q for _, q in out) and not is_closed(pp)
+            and (is_bent(pp) or length(pp) < CHEVRON_SMALL) and LineString(pp).distance(took) < NEAR]
+    return out
+
+
 def kind_of(pp, boulder_min, mark_max=0.0):
     """'boulder', 'debris', 'sand' or 'line' for one brown stroke.
 
@@ -186,8 +240,11 @@ def large_rock(pp, passage):
     return w is not None and size >= LARGE_ROCK * w
 
 
-def brown(strokes, passage, boulder_min, barriers=()):
+def brown(strokes, passage, boulder_min, barriers=(), flowstone=()):
     """(boulders [closed point lists], areas [(kind, Polygon)], lines [point lists]).
+
+    `flowstone`: strokes of flowstone marks (flowstone_marks), made into
+    `area flowstone` as patches of mud are.
 
     With [convert] area_marks, boulders near other loops go into an area
     (`blocks` if most loops are boulder-sized, else `debris`) instead of
@@ -252,14 +309,15 @@ def brown(strokes, passage, boulder_min, barriers=()):
         rocks = unary_union([LineString(pp).buffer(0.3) if len(pp) > 1 else Point(pp[0]).buffer(0.3)
                              for _, ms, _ in groups for pp in ms])
         sorted_['sand'] = [pp for pp in sorted_['sand'] if not rocks.contains(Point(pp[len(pp) // 2]))]
-    groups += [('sand', sorted_['sand'], 3)]
+    groups += [('sand', sorted_['sand'], 3), ('flowstone', list(flowstone), CHEVRON_GROUP)]
 
     areas = []
     for kind, marks, need in groups:
         mark_kind = 'debris' if kind in ('debris', 'blocks') else kind
         geoms = [shape(mark_kind, pp) for pp in marks]
-        mud = kind == 'sand' and SETTINGS['mud_grow']
-        groups_ = cluster(geoms, SETTINGS['mud_near'] or NEAR) if kind == 'sand' else \
+        patch = kind in PATCHES
+        mud = patch and SETTINGS['mud_grow']
+        groups_ = cluster(geoms, SETTINGS['mud_near'] or NEAR) if patch else \
             (cluster(geoms) if not SETTINGS['area_marks'] else [set(range(len(marks)))])
         for grp in groups_:
             if len(grp) < need:
@@ -268,7 +326,7 @@ def brown(strokes, passage, boulder_min, barriers=()):
                 continue
             pts = [p for i in grp for p in marks[i]]
             if mud:
-                # a patch of mud or sand: round its marks, following the passage, not a hull across it
+                # a patch of mud, sand or flowstone: round its marks, following the passage, not a hull across it
                 r = SETTINGS['mud_grow']
                 g = unary_union([geoms[i].buffer(r, join_style=1) for i in grp]) \
                     .buffer(r, join_style=1).buffer(-r, join_style=1).intersection(passage)
@@ -333,19 +391,18 @@ def brown(strokes, passage, boulder_min, barriers=()):
 
 
 def _mud_patches(areas):
-    """Sand areas (mud is drawn as sand) that overlap merged into one, and kept off the
-    boulder and debris areas (the rocks are drawn there, not mud)."""
+    """Sand (mud is drawn as sand) and flowstone areas that overlap merged into one of each
+    kind, and kept off the boulder and debris areas (the rocks are drawn there, not mud)."""
     from .settings import SETTINGS
     rocks = unary_union([g for k, g in areas if k in ('blocks', 'debris')])
-    out = [(k, g) for k, g in areas if k not in ('sand', 'blocks', 'debris')]
+    out = [(k, g) for k, g in areas if k not in PATCHES + ('blocks', 'debris')]
     for kind in ('blocks', 'debris'):        # rock areas that overlap are one
         g = unary_union([g for k, g in areas if k == kind])
         for part in getattr(g, 'geoms', [g]):
             if part.geom_type == 'Polygon' and not part.is_empty:
                 out.append((kind, Polygon(part.exterior).simplify(SETTINGS['area_splines'] or 0.03)))
-    merged = {'sand': unary_union([g for k, g in areas if k == 'sand'])}
-    for kind in ('sand',):
-        g = merged[kind]
+    for kind in PATCHES:
+        g = unary_union([g for k, g in areas if k == kind])
         if g.is_empty:
             continue
         if not rocks.is_empty:
@@ -417,8 +474,9 @@ def chain_lines(lines, boulder_min, gap, turn=45.0):
     return out + [('BROWN', pp) for pp in pieces.values()]
 
 
-def th2(lines, passage, px, idbase, wall_colours, boulder_min, barriers=()):
-    """th2 text for the floor marks and interior lines of one scrap."""
+def th2(lines, passage, px, idbase, wall_colours, boulder_min, barriers=(), flowstone=()):
+    """th2 text for the floor marks, flowstone areas (`flowstone`: the
+    strokes of its marks) and interior lines of one scrap."""
     from .settings import SETTINGS
     if SETTINGS['chain_gap']:              # a line sketched in pieces is one line
         lines = chain_lines(lines, boulder_min, SETTINGS['chain_gap'])
@@ -431,7 +489,7 @@ def th2(lines, passage, px, idbase, wall_colours, boulder_min, barriers=()):
         # long brown lines (a ledge, a step drawn without ticks) also stop areas
         inner += [LineString(pp) for c, pp in lines if c == 'BROWN' and len(pp) > 1
                   and kind_of(pp, boulder_min, SETTINGS['mark_max']) == 'line' and LineString(pp).length >= bmin]
-    boulders, areas, brown_lines = brown(strokes, passage, boulder_min, list(barriers) + inner)
+    boulders, areas, brown_lines = brown(strokes, passage, boulder_min, list(barriers) + inner, flowstone)
     o = []
     for pp in boulders:
         g = Polygon(pp).buffer(0) if len(pp) > 2 else None

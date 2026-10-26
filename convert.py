@@ -913,17 +913,26 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
             notes, used_n = notation.find(mine)
             mine = [l for k, l in enumerate(mine) if k not in used_n]
         mine, presumed = presumed_strokes(mine)
+        flowstone, carried, beside = [], [], []
+        if SETTINGS['flowstone_areas'] and (SETTINGS['brown'] == 'floor' or SETTINGS['interior_borders']):
+            from .marks import flowstone_marks      # groups of ^ marks: an area of flowstone (marks.th)
+            flowstone = [pp for _, pp in flowstone_marks(mine)]
+            mine = [(c, pp) for c, pp in mine if not any(pp is f for f in flowstone)]
+        if SETTINGS['plan_green_walls']:            # green on a wall: the wall is flowstone there
+            carried, beside, mine = green_on_walls(mine, [(pos[a], pos[b]) for a, b in geo.legs])
         gours = []
         if SETTINGS['gours']:             # solid green lines: gours
-            from .marks import is_gour
-            gours = [pp for c, pp in mine if c == 'GREEN' and len(pp) > 1 and is_gour(pp)]
+            from .marks import is_gour, is_chevron
+            # (a gour is a smooth arc: a ^ is a flowstone mark, Style.md)
+            gours = [pp for c, pp in mine if c == 'GREEN' and len(pp) > 1 and is_gour(pp)
+                     and not (SETTINGS['flowstone_areas'] and is_chevron(pp))]
             mine = [(c, pp) for c, pp in mine if not (c == 'GREEN' and any(pp is g for g in gours))]
         if SETTINGS['green_loops']:       # single green loops are boulders/debris, drawn like brown
             from .marks import green_loops
             loops = set(green_loops([(k, pp) for k, (c, pp) in enumerate(mine) if c == 'GREEN']))
             mine = [('BROWN', pp) if k in loops else (c, pp) for k, (c, pp) in enumerate(mine)]
         walls, boulders, arrows = wall_strokes(mine)
-        walls = clean(walls)
+        walls = clean(walls + carried)
         if SETTINGS['outer_walls']:
             walls = corners(walls)
         gset = set(g)
@@ -940,7 +949,9 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
             if not inside:
                 inside = [_nearest({n: pos[n] for n in g}, poly.representative_point().coords[0])]
             o = [f"scrap {name} -projection plan{opt.attrs(K)}", ""]
-            o += presumed_marks(presumed, poly, px)
+            o += subtype_lines('presumed', presumed, poly, px) + subtype_lines('flowstone', carried, poly, px)
+            for pp, reach in beside:
+                o += subtype_lines('flowstone', [pp], poly, px, reach)
             o += walls_th2(walls, poly, px, legs, [e for _, _, e in sketch.splays()])
             o += symbols_th2([b for b in boulders if poly.contains(b.centroid)],
                              [a for a in arrows if poly.contains(Point(a[0]))], px)
@@ -953,7 +964,8 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
                 barriers += [LineString(p) for k, p, _ in notes]
                 o += marks.th2(mine if SETTINGS['brown'] == 'floor' else
                                [(c, pp) for c, pp in mine if c != 'BROWN'],
-                               poly, px, name, SETTINGS['wall_colours'], SETTINGS['boulder_min'], barriers)
+                               poly, px, name, SETTINGS['wall_colours'], SETTINGS['boulder_min'], barriers,
+                               [pp for pp in flowstone if poly.buffer(0.3).intersects(LineString(pp))])
             if notes:
                 from . import notation
                 climbs = [(_lerp_pt(pos[a], pos[b], fr), d) for a, b, fr, d in (floor or {}).get('climbs', [])
@@ -1269,6 +1281,108 @@ def green_walls(lines, walls):
     return out
 
 
+BESIDE = (1.5, 30, 0.7, 0.6, 45)   # a green stroke beside a wall: within 1.5 m, heading within 30 degrees
+                                   # of it for this share of its length; or within 0.6 m, within 45 degrees
+
+
+def green_on_walls(lines, legs):
+    """Long green strokes on a plan's walls (Style.md: a wall's colour says
+    what it is). One running along a wall on the passage's side, or drawn
+    close by it on either side, with no leg between, is the wall's
+    flowstone and is not drawn itself (hard rule 2); otherwise one carrying
+    a wall on from its end, in line with it and not ending on a leg, is
+    the wall there (green_walls). A green stroke (not a ^) drawn on from
+    one of these goes with it. They make the wall `-subtype flowstone`:
+    beside one, the wall as far from it as it runs, but not past the legs
+    (not the other wall of a narrow passage).
+    Returns (carrying, [(beside, reach m)], the other lines)."""
+    from shapely.ops import nearest_points
+    from .marks import is_closed, is_chevron
+    walls = [LineString(w) for w in wall_strokes(lines)[0] if len(w) > 1]
+    G = unary_union([LineString(l) for l in legs if l[0] != l[1]])
+    if not walls:
+        return [], [], lines
+    nearest = lambda p: min(walls, key=lambda w: w.distance(p))
+
+    def by(p, w, inside=True):
+        """p is beside wall w (not past its end), no leg between; `inside`: on the passage's side."""
+        q = nearest_points(p, w)[1]
+        if min(q.distance(Point(w.coords[0])), q.distance(Point(w.coords[-1]))) < 0.05:
+            return False
+        return G.is_empty or (not LineString([p, q]).intersects(G) and (not inside or G.distance(p) < G.distance(q)))
+
+    def heading(line, s, h=0.25):
+        a, b = line.interpolate(max(0.0, s - h)), line.interpolate(min(line.length, s + h))
+        return math.atan2(b.y - a.y, b.x - a.x)
+
+    def turn(u, v):
+        """Degrees between two headings, either way along (0 to 90)."""
+        return abs((math.degrees(v - u) + 90) % 180 - 90)
+
+    def beside_wall(pp):
+        """How far the stroke runs from the wall it is beside (m), or None."""
+        L = LineString(pp)
+        if L.length < GREEN_WALL[0]:
+            return None
+        far, ok, close = 0.0, 0, 0
+        for k in range(11):
+            s = L.length * k / 10
+            p = L.interpolate(s)
+            w = nearest(p)
+            d = w.distance(p)
+            far = max(far, d)
+            ok += turn(heading(L, s), heading(w, w.project(p))) < BESIDE[1] and by(p, w)
+            # (drawn close by, either side, over a wavy wall: compared over a metre)
+            close += d < BESIDE[3] and turn(heading(L, s, 0.5), heading(w, w.project(p), 0.5)) < BESIDE[4] \
+                and by(p, w, False)
+        runs_on = L.length >= 1.0 and math.dist(pp[0], pp[-1]) >= 0.5 * L.length     # not a curl
+        return far if (far <= BESIDE[0] and ok >= BESIDE[2] * 11) or (runs_on and close >= BESIDE[2] * 11) else None
+
+    def reach(pp, far):
+        return min(far, G.distance(LineString(pp))) if not G.is_empty else far
+    green = [pp for c, pp in lines if c == 'GREEN' and len(pp) > 1 and not is_closed(pp)
+             and LineString(pp).length >= LINK_MIN]
+    beside = [(pp, reach(pp, far)) for pp, far in ((pp, beside_wall(pp)) for pp in green) if far is not None]
+
+    def in_line(pp):
+        """The stroke carries a wall on from its end, turning no more than 60 degrees (Style.md: joins),
+        and does not end on a leg, out in the passage (a gour across it: Trident's, kept by the user)."""
+        if not G.is_empty and min(G.distance(Point(pp[0])), G.distance(Point(pp[-1]))) < 0.2:
+            return False
+        for e, nxt in ((pp[0], LineString(pp).interpolate(0.3)), (pp[-1], LineString(pp[::-1]).interpolate(0.3))):
+            for w in walls:
+                for f, back in ((w.coords[0], w.interpolate(0.3)), (w.coords[-1], w.interpolate(w.length - 0.3))):
+                    if math.dist(e, f) < GREEN_WALL[1]:
+                        u = math.atan2(f[1] - back.y, f[0] - back.x)
+                        v = math.atan2(nxt.y - e[1], nxt.x - e[0])
+                        if abs((math.degrees(v - u) + 180) % 360 - 180) <= 60:
+                            return True
+        return False
+    carried = [pp for pp in green_walls([('GREEN', pp) for pp in green if pp not in [q for q, _ in beside]],
+                                        [list(w.coords) for w in walls]) if in_line(pp)]
+    found = True
+    while found:                     # strokes drawn on from these
+        found = False
+        for pp in green:
+            if pp in carried or pp in [q for q, _ in beside] or is_chevron(pp):
+                continue
+            # an end on the other stroke (drawn on from it, or started again a little back along it),
+            # carrying on in line with it (no more than 60 degrees: Style.md, joins)
+            L = LineString(pp)
+            meets = lambda qs: any(LineString(q).distance(Point(e)) < GREEN_WALL[1] and
+                                   turn(heading(L, s), heading(LineString(q), LineString(q).project(Point(e)))) <= 60
+                                   for q in qs for e, s in ((pp[0], 0.0), (pp[-1], L.length)))
+            if meets(carried):
+                carried.append(pp)
+                found = True
+            elif meets([q for q, _ in beside]):
+                beside.append((pp, reach(pp, max(nearest(Point(p)).distance(Point(p)) for p in pp))))
+                found = True
+    taken = carried + [pp for pp, _ in beside]
+    return carried, [(pp, far + 0.15) for pp, far in beside], \
+        [(c, pp) for c, pp in lines if not (c == 'GREEN' and pp in taken)]
+
+
 def presumed_strokes(lines, dash_gap=None):
     """(lines with each black dashed line as one stroke, [those strokes]) with
     dashed_presumed; the dashes themselves are gone."""
@@ -1280,11 +1394,13 @@ def presumed_strokes(lines, dash_gap=None):
     return [l for k, l in enumerate(lines) if k not in used] + [('BLACK', pp) for pp in found], found
 
 
-def presumed_marks(presumed, poly, px):
-    """`# wall-subtype presumed: ...` for the dashed lines at this scrap's
-    passage, for smooth.wall_subtypes to apply to the walls made from them."""
-    out = ["# wall-subtype presumed: " + " ".join("%.1f %.1f" % px(p) for p in pp)
-           for pp in presumed if LineString(pp).distance(poly) < 0.5]
+def subtype_lines(kind, strokes, poly, px, reach=None):
+    """`# wall-subtype <kind> [reach]: ...` for the strokes at this scrap's
+    passage (dashed lines: presumed), for smooth.wall_subtypes to apply to
+    the walls made from them, or within `reach` m of them."""
+    r = " %.2f" % reach if reach else ""
+    out = [f"# wall-subtype {kind}{r}: " + " ".join("%.1f %.1f" % px(p) for p in pp)
+           for pp in strokes if LineString(pp).distance(poly) < 0.5]
     return out + ([""] if out else [])
 
 
@@ -1445,7 +1561,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
                 continue
             name = f"{opt.name}{SETTINGS['elevation_suffix']}{len(scraps) + 1}"
             o = [f"scrap {name} -projection extended{opt.attrs(K)}", ""]
-            o += presumed_marks(presumed, poly, px)
+            o += subtype_lines('presumed', presumed, poly, px)
             if SETTINGS['wall_subtypes']:
                 o += (el.debris_marks(feats, px) if feats else []) + \
                     subtype_marks(mine, px, feats.kinds if feats else {})

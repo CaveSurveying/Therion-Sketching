@@ -678,7 +678,9 @@ file is worked out from reviews and may be tuned.
   - blue: water (a closed outline is a pool, kept to its sketched
     outline: not run along a wall it only touches);
   - green: flowstone and pretties (area fills, and point symbols for the
-    different stals); solid green lines are gours (`line rimstone-dam`);
+    different stals); solid green lines are gours (`line rimstone-dam`),
+    but shape decides (below: ^ marks are flowstone, a line on a wall is
+    its flowstone);
   - purple, red and orange: a passage where it overlaps another (rare;
     elsewhere it is drawn in the normal colours). Purple is its walls,
     read as black (they may join a black wall); red and orange have no
@@ -717,7 +719,26 @@ file is worked out from reviews and may be tuned.
 - An area needs room to draw its symbols: leave out thin parts (under
   about 0.5 m) and small areas; this matters most for boulders and debris.
 - Gours (`line rimstone-dam`) are smooth, regular arcs, not every wobble
-  of the hand sketch.
+  of the hand sketch. A ^ (a short stroke bent sharply) is a flowstone
+  mark, never a gour.
+- Flowstone is drawn as ^ marks. Shape decides and green is a clue (the
+  user, 2026-10-26, after Tratman's Temple's large flowstone became 29
+  flowstone points and 33 gours). Three or more ^ marks near each other
+  (standing apart, not one drawing such as a stal's Y), with the small
+  marks among them, are one `area flowstone`, grown round its marks and
+  following the passage as a patch of mud is. A ^ on its own is a point
+  `flowstone`. Only green ^ marks are read so, as bent strokes in other
+  colours are rock outlines, step ticks and wall jogs.
+- A green line along a wall in a plan is the wall's flowstone. The wall
+  there is `line wall -subtype flowstone` and the green line is not
+  drawn (hard rule 2). Along means beside it on the passage's side with
+  no leg between, heading with it, or drawn close by it (within 0.6 m)
+  on either side. A green line carrying a wall on from its end, in line
+  with it and not ending on a leg, is the wall there, also `-subtype
+  flowstone` (Tratman's Temple, the corner where the passage turns
+  south). One ending on a leg, out in the passage, is a gour (Trident by
+  the junction, kept by the user). A green line drawn on from one of
+  these, in line with it, goes with it.
 - Where there are several boulders or much debris, use an area
   (`area blocks` or `area debris`) rather than drawing each one as well;
   an area stops at a trench or step and does not cross to the other
@@ -808,7 +829,8 @@ file is worked out from reviews and may be tuned.
     boulders with no line drawn runs through their tops, a line drawn
     under or through them is the wall and the boulders its debris; a
     row of short straight brown dashes on a wall line is mud. (The
-    converter does these in elevations only so far.)
+    converter does these in elevations only so far, except green walls,
+    in plans too.)
 
 ## Git and CI
 

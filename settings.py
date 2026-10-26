@@ -65,6 +65,8 @@ UPSTREAM = {
     'area_min_area': 0.0,
     'area_inside_min': 0.0,      # share of an area (as drawn, run over the walls) that must be inside the
                                  # passage, or it is not drawn (0: no check)        # m2: smaller areas are dropped (no room for their symbols)
+    'flowstone_areas': False,    # True: groups of ^ marks (green) are area flowstone; a ^ is never a gour
+    'plan_green_walls': False,   # True: in plans a green stroke on or beside a wall makes it -subtype flowstone
     'green_loops': False,        # True: single green loops are boulders/debris (colour mistaken);
                                  # only nested rings stay a formation
     'area_over_walls': 0.0,      # m: areas run out this far over the walls, which clip them (0: cut at the walls)
