@@ -127,6 +127,8 @@ UPSTREAM = {
     'section_chain': False,      # True: a cross section's strokes end to end, any number, green and blue too,
                                  # each a wall with its colour's subtype; blue the water surface (walls 0.3 m
                                  # down and closed below, area water, level); a station point; splays may end outside
+    'section_left': False,       # True: a cross section's walls go round it with the section on their left
+                                 # (Style.md, hard rule 6)
     'pool_floors': False,        # True: elevation blue strokes end to end are one pool (apart at a step in level,
                                  # a wall or boulder); with no floor drawn, a floor 0.3 m under it, the dry floor
                                  # carried on into it at its angle

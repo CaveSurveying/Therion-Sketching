@@ -35,6 +35,8 @@ import re
 from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import substring, unary_union
 
+from .outline import reverse_segments, therion_rings
+
 from . import project as _project
 
 # The drawings' licence (tools/project.toml), written at the top of each file.
@@ -156,22 +158,6 @@ def bezier_points(segs, n=8):
             pts.append((u ** 3 * p0[0] + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t ** 3 * p3[0],
                         u ** 3 * p0[1] + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t ** 3 * p3[1]))
     return pts
-
-
-def reverse_segments(segs):
-    """The same line drawn the other way."""
-    if not segs:
-        return segs
-    ends = [(s[-2], s[-1]) for s in segs]
-    out = [[ends[-1][0], ends[-1][1]]]
-    for i in range(len(segs) - 1, 0, -1):
-        s = segs[i]
-        e = ends[i - 1]
-        if len(s) == 6:
-            out.append([s[2], s[3], s[0], s[1], e[0], e[1]])
-        else:
-            out.append([e[0], e[1]])
-    return out
 
 
 def _cross(a, b, c, d):
@@ -739,59 +725,6 @@ def _station_legs(objs):
             if q:
                 legs.append(LineString([p, q]))
     return legs
-
-
-def therion_rings(lines):
-    """Join outline lines into closed outlines as Therion does
-    (thscrap::get_outline): the lines in order of the distance between
-    their ends, longest first; each outline starts from the first line not
-    yet used, and goes on to the line with an end at its end, else to the
-    nearest end that no other line shares, else to the nearest end, as long
-    as that is nearer than the outline's own start.
-    [[(index into lines, reversed)]]"""
-    order = sorted([i for i, l in enumerate(lines) if len(l) > 1],
-                   key=lambda i: -math.dist(lines[i][0], lines[i][-1]))
-    ends = [lines[i][k] for i in order for k in (0, -1)]
-    free = {i: [lines[i][0] != lines[i][-1] and ends.count(lines[i][0]) == 1,
-                lines[i][0] != lines[i][-1] and ends.count(lines[i][-1]) == 1] for i in order}
-    used = set()
-    out = []
-    for n, i in enumerate(order):
-        if i in used:
-            continue
-        used.add(i)
-        ring = [(i, False)]
-        start, last = lines[i][0], lines[i][-1]
-        while start != last or len(ring) > 1:     # a closed line is an outline on its own
-            best = None
-            for search_all in (False, True):
-                mind = math.dist(last, start)
-                for j in order[n + 1:]:
-                    if j in used:
-                        continue
-                    m = lines[j]
-                    # Therion's order of tests, later ones winning ties
-                    if m[-1] == last:
-                        best, mind = (j, True), 0.0
-                    if search_all or free[j][1]:
-                        d = math.dist(m[-1], last)
-                        if d <= mind:
-                            best, mind = (j, True), d
-                    if m[0] == last:
-                        best, mind = (j, False), 0.0
-                    if search_all or free[j][0]:
-                        d = math.dist(m[0], last)
-                        if d <= mind:
-                            best, mind = (j, False), d
-                if best is not None:
-                    break
-            if best is None:
-                break
-            used.add(best[0])
-            ring.append(best)
-            last = lines[best[0]][0] if best[1] else lines[best[0]][-1]
-        out.append(ring)
-    return out
 
 
 def therion_chain(lines):

@@ -34,8 +34,10 @@ file is worked out from reviews and may be tuned.
 5. Legs and splays are inside the passage fill, except at passage ends
    not drawn yet (a splay crossing a wall by a little is a drawing
    error).
-6. The converter never writes `-reverse on`: walls are drawn with the
-   passage on their left. `-reverse on` is for hand edits only.
+6. The converter never writes `-reverse on`: in every projection,
+   cross sections included, walls are drawn with the passage on their
+   left **[lint: wall-side]**. `-reverse on` is for hand edits only (the
+   user, 2026-10-28: cross sections came out either way round).
 
 ## Names and files
 
@@ -79,7 +81,10 @@ file is worked out from reviews and may be tuned.
 
 - `line wall` has `-outline out` by default; do not set it.
 - Walls are the scrap's outline. Draw each wall with the passage on its
-  **left**, or add `-reverse on` if the passage is on its right.
+  **left** (the side of xTherion's tick), in plans, elevations and cross
+  sections alike, or add `-reverse on` if the passage is on its right.
+  `python3 -m tools.sketch2therion turn` turns round the walls that go
+  the wrong way, changing nothing else (not walls with `-reverse on`).
 - A wall round an internal pillar has `-outline in`.
 - Do not bridge real gaps between walls with made-up lines: Therion
   closes the outline itself (but ends that nearly meet are one point,
