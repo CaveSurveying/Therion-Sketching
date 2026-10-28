@@ -761,7 +761,12 @@ def section_th2(name, attrs, lines, centre, K, comment, station=None):
     if SETTINGS['drawn_rocks']:
         rocks = [pp for c, pp in lines if c == 'BROWN' and len(pp) > 3 and math.dist(pp[0], pp[-1]) < 0.15
                  and Polygon(pp).buffer(0).area > 0.005]
-        lines = [(c, pp) for c, pp in lines if not any(pp is r for r in rocks)]
+        rest = [(c, pp) for c, pp in lines if not any(pp is r for r in rocks)]
+        # a section drawn all in brown: its loop is its outline, not a rock
+        if any(c in walls and len(pp) > 1 for c, pp in rest):
+            lines = rest
+        else:
+            rocks = []
     wl = [pp for c, pp in lines if c in walls and len(pp) > 1]
     if not wl:
         return None
@@ -849,8 +854,11 @@ def section_scraps(sketch, opt, K, view='P'):
         ends = [b if math.dist(a, centre) < 0.01 else a for a, b in sketch.shots
                 if math.dist(a, centre) < 0.01 or math.dist(b, centre) < 0.01]
         reach = 8.0
+        # the main drawing's shot ends; in an elevation the section's own station's splays
+        # reach up and down into it, drawn above or below the passage, so not theirs
+        own = set() if view == 'P' else {(round(e[0], 2), round(e[1], 2)) for s, _, e in sketch.splays() if s == n}
         main = [e for a, b in sketch.shots if math.dist(a, centre) >= 0.01 and math.dist(b, centre) >= 0.01
-                for e in (a, b)]
+                for e in (a, b) if (round(e[0], 2), round(e[1], 2)) not in own]
         idx = gather_section(centre, sketch.lines, used, list(pos.values()), reach=reach, avoid=main)
         used |= set(idx)
         mine = [sketch.lines[i] for i in idx]
