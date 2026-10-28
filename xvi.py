@@ -192,7 +192,27 @@ def read(path):
                 connects.append((pts[0], pts[-1]))
         elif len(pts) >= 1:
             lines.append((colour, pts))
+    _missing_stations(stations, shots, connects)
     return Sketch(stations, shots, lines, connects, s, path)
+
+
+def _missing_stations(stations, shots, connects):
+    """PocketTopo leaves a station at the sketch's origin out of XVIstations
+    and lists only its copy at its cross section:
+    a connect line from a listed station to an unlisted point where shots
+    meet puts the station there too."""
+    listed = {_key(p) for ps in stations.values() for p in ps}
+    ends = {}
+    for a, b in shots:
+        for p in (a, b):
+            ends[_key(p)] = ends.get(_key(p), 0) + 1
+    for a, b in connects:
+        for here, there in ((a, b), (b, a)):
+            name = next((n for n, ps in stations.items() if len(ps) == 1 and _key(ps[0]) == _key(here)), None)
+            if name and _key(there) not in listed and ends.get(_key(there), 0) >= 2:
+                stations[name].append(there)
+                listed.add(_key(there))
+                break
 
 
 # -- writing -----------------------------------------------------------------
