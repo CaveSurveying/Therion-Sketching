@@ -761,7 +761,12 @@ def section_th2(name, attrs, lines, centre, K, comment, station=None):
     if SETTINGS['drawn_rocks']:
         rocks = [pp for c, pp in lines if c == 'BROWN' and len(pp) > 3 and math.dist(pp[0], pp[-1]) < 0.15
                  and Polygon(pp).buffer(0).area > 0.005]
-        lines = [(c, pp) for c, pp in lines if not any(pp is r for r in rocks)]
+        rest = [(c, pp) for c, pp in lines if not any(pp is r for r in rocks)]
+        # a section drawn all in brown: its loop is its outline, not a rock
+        if any(c in walls and len(pp) > 1 for c, pp in rest):
+            lines = rest
+        else:
+            rocks = []
     wl = [pp for c, pp in lines if c in walls and len(pp) > 1]
     if not wl:
         return None
