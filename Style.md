@@ -375,7 +375,13 @@ file is worked out from reviews and may be tuned.
   (border, ledge, step, rock-border and so on).
 - A pool is an `area water` in an invisible closed border whose first two
   points are its surface, the second with `adjust horizontal` so the
-  surface is level; a bowl wall under it where no floor was drawn.
+  surface is level. In an elevation, blue strokes meeting end to end are
+  one surface, separate pools only where their levels clearly differ or
+  a wall or boulder is between them. A floor drawn under a pool is its
+  floor; where none is drawn, a wall 0.3 m under the surface is, the dry
+  floor at each end carried on into the pool at its own angle down to
+  it, the two joined where they meet first (the user, Tratmans
+  2026-10-26).
 - Water flow is a `water-flow` point just under the floor, pointing
   downhill along it.
 - A curtain is a point `curtain`; a group of stalactites `stalactites`;
