@@ -849,11 +849,11 @@ def section_scraps(sketch, opt, K, view='P'):
         ends = [b if math.dist(a, centre) < 0.01 else a for a, b in sketch.shots
                 if math.dist(a, centre) < 0.01 or math.dist(b, centre) < 0.01]
         reach = 8.0
-        # the main drawing's shot ends; in an elevation its splays reach up and down into the
-        # sections drawn above and below the passage, so only its legs' ends
-        shots = sketch.shots if view == 'P' else [(pa, pb) for _, _, pa, pb in sketch.legs()]
-        main = [e for a, b in shots if math.dist(a, centre) >= 0.01 and math.dist(b, centre) >= 0.01
-                for e in (a, b)]
+        # the main drawing's shot ends; in an elevation the section's own station's splays
+        # reach up and down into it, drawn above or below the passage, so not theirs
+        own = set() if view == 'P' else {(round(e[0], 2), round(e[1], 2)) for s, _, e in sketch.splays() if s == n}
+        main = [e for a, b in sketch.shots if math.dist(a, centre) >= 0.01 and math.dist(b, centre) >= 0.01
+                for e in (a, b) if (round(e[0], 2), round(e[1], 2)) not in own]
         idx = gather_section(centre, sketch.lines, used, list(pos.values()), reach=reach, avoid=main)
         used |= set(idx)
         mine = [sketch.lines[i] for i in idx]
