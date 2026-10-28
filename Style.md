@@ -38,6 +38,13 @@ file is worked out from reviews and may be tuned.
    cross sections included, walls are drawn with the passage on their
    left **[lint: wall-side]**. `-reverse on` is for hand edits only (the
    user, 2026-10-28: cross sections came out either way round).
+7. A cross section is drawn over its sketch, wherever it is sketched
+   (plan or elevation): its scrap (`-projection none`) is in the th2
+   file of the xvi it is sketched in, at the coordinates it is sketched
+   at, so xTherion shows it there. Its `line section` and
+   `point section` are in the scrap that holds its station, and its own
+   scrap is never in a map: the `point section` places it (the user,
+   2026-10-28).
 
 ## Names and files
 
@@ -812,8 +819,7 @@ file is worked out from reviews and may be tuned.
 - Walls follow the sketch closely (within about 2% of the nearby legs'
   length), with nodes where the wall bends rather than where the hand
   wobbled.
-- A cross section is its own scrap, with its wall drawn, placed (in the
-  file's coordinates) by its section mark, so xTherion shows it there.
+- A cross section is its own scrap, drawn over its sketch (hard rule 7).
 - A boulder's edge lines meet at a ridge point and end on its corners;
   more than one may be needed, but as few as possible.
 - The guide for surveyors is the Claude Doc "Sketching in SexyTopo"
