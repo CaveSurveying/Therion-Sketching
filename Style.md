@@ -83,8 +83,6 @@ file is worked out from reviews and may be tuned.
 - Walls are the scrap's outline. Draw each wall with the passage on its
   **left** (the side of xTherion's tick), in plans, elevations and cross
   sections alike, or add `-reverse on` if the passage is on its right.
-  `python3 -m tools.sketch2therion turn` turns round the walls that go
-  the wrong way, changing nothing else (not walls with `-reverse on`).
 - A wall round an internal pillar has `-outline in`.
 - Do not bridge real gaps between walls with made-up lines: Therion
   closes the outline itself (but ends that nearly meet are one point,

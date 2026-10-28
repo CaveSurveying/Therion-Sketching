@@ -19,7 +19,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 
-from .outline import reverse_segments, wrong_way
+from .outline import wrong_way
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
@@ -301,46 +301,6 @@ def check_wall_side(scrap):
     for o in wrong_way_walls(scrap):
         why = " (it has -reverse on)" if o.opt("reverse") == "on" else ""
         yield "wall-side", o.line, f"wall with the passage on its right{why}"
-
-
-POINT_OPTIONS = ("smooth", "mark")     # line point options belonging to the point before them
-
-
-def turn_text(text, scraps=None):
-    """Walls with the passage on their right drawn the other way round:
-    their points reversed, nothing else changed, in every scrap or those
-    named in `scraps`. A point's own options (smooth, mark) go with it.
-    Not walls with -reverse on (hand edits) or with other options among
-    their points (a subtype part way along means a different thing the
-    other way round). Returns (text,
-    [(scrap, line) turned], [(scrap, line, why) left])."""
-    rows = text.split("\n")
-    turned, left = [], []
-    wrong = [(scrap.id, o) for scrap in parse(text) if not scraps or scrap.id in scraps
-             for o in wrong_way_walls(scrap)]
-    for name, o in sorted(wrong, key=lambda w: -w[1].line):     # from the end, so line numbers hold
-        if o.opt("reverse") == "on":
-            left.append((name, o.line, "-reverse on"))
-            continue
-        end = next(k for k in range(o.line, len(rows)) if rows[k].strip() == "endline")
-        points, opts = [], []        # each point's rows, and the options after it
-        for r in (r for r in rows[o.line:end] if r.strip()):
-            if _numbers(r.split()):
-                points.append(r.split())
-                opts.append([])
-            elif points and r.split()[0] in POINT_OPTIONS:
-                opts[-1].append(r)
-            else:
-                points = None
-                break
-        if not points:
-            left.append((name, o.line, "options among its points"))
-            continue
-        indent = re.match(r"\s*", next(r for r in rows[o.line:end] if r.strip())).group(0)
-        segs = reverse_segments(points)
-        rows[o.line:end] = [x for s, op in zip(segs, opts[::-1]) for x in [indent + " ".join(s)] + op]
-        turned.append((name, o.line))
-    return "\n".join(rows), turned[::-1], left[::-1]
 
 
 def _curve(coords, n=12):
