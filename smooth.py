@@ -1782,8 +1782,10 @@ def _redo_scrap(header, body, path):
               f"to check (passages over one another: separate scraps?) at "
               + ", ".join("%d %d" % p for p in OUTER_KEPT), file=sys.stderr)
         OUTER_KEPT.clear()
-    if SETTINGS['wall_jog_max'] > 0:        # walls joined through the sketcher's steps (jogs.py),
-        from .jogs import join_scrap        # before the refit so the join is smoothed too
+    if SETTINGS['wall_jog_max'] > 0 and not (SETTINGS['section_chain'] and '-projection none' in header):
+        # walls joined through the sketcher's steps (jogs.py), before the refit so the join is
+        # smoothed too; not a section's, kept as drawn, its water's bowl too (section_chain)
+        from .jogs import join_scrap
         stepped = join_scrap(objs, K, SETTINGS['wall_jog_max'])
     b, a = smooth_scrap(objs, K, _wall_tol(header, objs, K, path))
     from . import scale

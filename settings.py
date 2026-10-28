@@ -124,6 +124,12 @@ UPSTREAM = {
     'section_shape': False,      # True: a cross section keeps the shape it was sketched: one open stroke is
                                  # closed by a floor straight across its ends, the closing distances scale
                                  # with its size, and its walls are not despiked as passage walls are
+    'section_chain': False,      # True: a cross section's strokes end to end, any number, green and blue too,
+                                 # each a wall with its colour's subtype; blue the water surface (walls 0.3 m
+                                 # down and closed below, area water, level); a station point; splays may end outside
+    'pool_floors': False,        # True: elevation blue strokes end to end are one pool (apart at a step in level,
+                                 # a wall or boulder); with no floor drawn, a floor 0.3 m under it, the dry floor
+                                 # carried on into it at its angle
     'wall_ends_meet': 0.0,       # m: wall ends this close meet, and an end near another wall's side ends
                                  # on it, unless the gap crosses a survey leg (nodes.walls_meet; 0: off)
     'wall_ends_meet_rel': 0.0,   # ... or within this share of the local leg length, if larger

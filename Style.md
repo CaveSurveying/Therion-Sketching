@@ -375,7 +375,13 @@ file is worked out from reviews and may be tuned.
   (border, ledge, step, rock-border and so on).
 - A pool is an `area water` in an invisible closed border whose first two
   points are its surface, the second with `adjust horizontal` so the
-  surface is level; a bowl wall under it where no floor was drawn.
+  surface is level. In an elevation, blue strokes meeting end to end are
+  one surface, separate pools only where their levels clearly differ or
+  a wall or boulder is between them. A floor drawn under a pool is its
+  floor; where none is drawn, a wall 0.3 m under the surface is, the dry
+  floor at each end carried on into the pool at its own angle down to
+  it, the two joined where they meet first (the user, Tratmans
+  2026-10-26).
 - Water flow is a `water-flow` point just under the floor, pointing
   downhill along it.
 - A curtain is a point `curtain`; a group of stalactites `stalactites`;
@@ -597,10 +603,10 @@ file is worked out from reviews and may be tuned.
 
 - One scrap each, named survey + `PX` + station in a plan
   (`FairyChimneysPX5`), `EX` in an elevation.
-- The leg and splay rule applies: the section's station and its splays
-  (the station's copy at the section in the xvi) are inside its
-  outline, splay ends no more than 0.5 m outside. Only the section's own
-  strokes go in it, never a stroke of the main drawing.
+- The section's station (its copy at the section in the xvi) is inside
+  its walls, with a `point station` there. Splays out of the section's
+  plane may end outside it (the user, 2026-10-26). Only the section's
+  own strokes go in it, never a stroke of the main drawing.
 - A cross section keeps the shape it was sketched: its outline encloses
   its station and splays, and a small section is not simplified as if
   it were passage walls (no corner taken for an overshoot because it is
@@ -611,11 +617,20 @@ file is worked out from reviews and may be tuned.
   (TridentLeft PX1, PX6, PX10).
 - A section's outline is made only of its long strokes: pebbles and
   short dashes (sand marks under a floor) show what the floor is and are
-  never part of the outline. Two strokes meeting end to end (a black
-  roof and walls, a brown floor) are the outline, each its own line
-  meeting at their ends; a brown floor is `-subtype sand`, or `debris`
-  with pebbles on it (FairyChimneys PX5, fixed by the user: the sand
-  dashes under the floor had been taken for its walls).
+  never part of the outline. Its strokes meeting end to end, however
+  many and whatever their colour, are the outline, each its own line
+  meeting at their ends with its colour's subtype: green
+  `-subtype flowstone`, brown `sand`, or `debris` with pebbles on it,
+  black plain (FairyChimneys PX5, fixed by the user: the sand dashes
+  under the floor had been taken for its walls; Tratmans, the user
+  2026-10-26: the subtypes were not followed).
+- A blue line across the bottom of a section is the water's surface.
+  Where no wall is drawn under it, the walls either side carry on the
+  way they were going to 0.3 m below it, both ending level (Therion
+  cannot keep them so: by their lengths), and the section is left open there: it
+  is closed below only where the floor is drawn. The water is an
+  `area water` whose border is invisible, its surface kept level with
+  `adjust horizontal` (the user, 2026-10-26).
 - A cross section is a drawing of its own: its walls never join or end
   on another scrap's (TridentLeft PX6 was joined to the plan's wall
   beside it).

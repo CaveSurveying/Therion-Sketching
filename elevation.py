@@ -28,6 +28,7 @@ from shapely.ops import unary_union
 
 from .marks import span, length
 from .walls import bezier_closed, bezier_lines
+from .settings import SETTINGS
 
 CURL_RATIO = 1.5        # brown: path over span at least this ...
 CURL_SPAN = 1.5         # ... and spanning under this (m) is a curl of rubble
@@ -35,6 +36,12 @@ DEBRIS_REACH = 0.5      # m: floor within this of a curl is debris
 FLOW_BELOW = 0.3        # m: a water-flow point this far under the floor (as drawn by hand)
 POOL_SLOPE = 0.15       # a pool surface rises at most this per metre
 POOL_DEPTH = 0.15       # a bowl drawn under a pool: this times its width deep
+POOL_GAP = 0.06         # m: no two nodes of a pool's border closer (lint node-gap)
+POOL_JOIN = 0.3         # m: blue strokes this close end to end are one water surface ...
+POOL_STEP = 0.1         # ... unless their levels differ by more (pool_floors)
+POOL_FLOOR = 0.3        # m: with no floor drawn under a pool, its floor this far below the surface
+POOL_WET = 0.1          # m: its water reaches this far past that floor, clipped by the scrap
+POOL_END = 0.3          # m: a floor ending this close to a pool's end is the dry floor it meets
 LOOP_GAP = 0.15         # m: ends this close make a closed loop (or 15% of its length)
 
 
@@ -258,24 +265,50 @@ def _overhangs(lines):
     return out, [l for k, l in enumerate(lines) if k not in used]
 
 
+def _add_flow(f, pp):
+    """A blue stroke of flowing water, one group with those near it."""
+    hit = [g for g in f.flows if any(LineString(q).distance(LineString(pp)) < 0.6 for q in g)]
+    for g in hit:
+        f.flows.remove(g)
+    f.flows.append(sum(hit, []) + [pp])
+
+
+def _surfaces(blues, apart):
+    """Blue strokes joined end to end, left to right, into water surfaces:
+    one pool unless their levels differ by more than POOL_STEP or a wall or
+    boulder (`apart`) is between them (the user, Tratmans 2026-10-26)."""
+    level = lambda pp: sum(p[1] for p in pp) / len(pp)
+    runs = []
+    for pp in sorted((pp if pp[0][0] <= pp[-1][0] else pp[::-1] for pp in blues), key=lambda pp: pp[0][0]):
+        if runs:
+            last = runs[-1][-1]
+            gap = LineString([last[-1], pp[0]]).buffer(0.05)
+            if pp[0][0] - last[-1][0] <= POOL_JOIN and math.dist(last[-1], pp[0]) <= POOL_JOIN + POOL_STEP \
+                    and abs(level(pp) - level(last)) <= POOL_STEP and not any(a.intersects(gap) for a in apart):
+                runs[-1].append(pp)
+                continue
+        runs.append([pp])
+    return runs
+
+
 def features(lines, stations=()):
     f = Features()
     st = [Point(p) for p in stations]
     f.overhangs, lines = _overhangs(list(lines))
-    green_small, hung = [], []
+    green_small, hung, blues = [], [], []
     for c, pp in lines:
         if not pp or len(pp) < 2:
             f.lines.append((c, pp))
+            continue
+        if c == 'BLUE' and SETTINGS['pool_floors']:
+            blues.append(pp)            # joined end to end below
             continue
         if c == 'BLUE':
             if is_pool_surface(pp):
                 y = sum(p[1] for p in pp) / len(pp)
                 f.pools.append((min(pp[0][0], pp[-1][0]), max(pp[0][0], pp[-1][0]), y))
             elif length(pp) >= 0.3:
-                hit = [g for g in f.flows if any(LineString(q).distance(LineString(pp)) < 0.6 for q in g)]
-                for g in hit:
-                    f.flows.remove(g)
-                f.flows.append(sum(hit, []) + [pp])
+                _add_flow(f, pp)
             continue
         if c == 'BLACK' and _closed(pp) and length(pp) >= 0.5:
             poly = Polygon(pp).buffer(0)
@@ -295,6 +328,17 @@ def features(lines, stations=()):
                 green_small.append(pp)
                 continue
         f.lines.append((c, pp))
+    if blues:
+        apart = [LineString(pp) for _, pp in f.lines if len(pp) > 1] + [LineString(pp) for pp in f.rocks]
+        for run in _surfaces(blues, apart):
+            pts = [p for pp in run for p in pp]
+            if is_pool_surface(pts):
+                y = sum(length(pp) * sum(p[1] for p in pp) / len(pp) for pp in run) / sum(length(pp) for pp in run)
+                f.pools.append((min(p[0] for p in pts), max(p[0] for p in pts), y))
+            else:
+                for pp in run:
+                    if length(pp) >= 0.3:
+                        _add_flow(f, pp)
     # short green strokes at a curtain are part of it
     by_curtain = lambda pp: any(h.distance(LineString(pp)) < 0.3 for h in hung)
     f.lines = [(c, pp) for c, pp in f.lines if not (c == 'GREEN' and len(pp) > 1 and by_curtain(pp))]
@@ -360,15 +404,58 @@ def bowls(f, walls, deep=1.0):
             floor += any(LineString(q).intersects(ray) for q in walls if len(q) > 1)
         if floor >= 2:
             f.bowls.append(None)
-            continue
-        d = min(0.5, max(0.1, POOL_DEPTH * w))
-        f.bowls.append([(x0, y), (x0 + w / 4, y - d), (x1 - w / 4, y - d), (x1, y)])
+        elif SETTINGS['pool_floors']:
+            f.bowls.append(_pool_floor(x0, x1, y, walls))
+        else:
+            f.bowls.append(bowl_under((x0, y), (x1, y), y, min(0.5, max(0.1, POOL_DEPTH * w))))
     return [b for b in f.bowls if b]
 
 
+def _pool_floor(x0, x1, y, walls):
+    """A floor under a pool with none drawn: POOL_FLOOR below its surface,
+    the dry floor at each end carried on into the pool at its own angle
+    (straight down where there is none, or it does not go down into the
+    pool), the two joined where they meet first (the user, Tratmans
+    2026-10-26)."""
+    deep = y - POOL_FLOOR
+
+    def end(p, inward):          # (start, the point it reaches at the floor's depth)
+        best = None
+        for w in walls:
+            if len(w) < 2:
+                continue
+            for q, back in ((w[-1], w), (w[0], w[::-1])):
+                d = math.dist(q, p)
+                if d < POOL_END and (best is None or d < best[0]):
+                    best = (d, q, back)
+        e, (dx, dy) = p, (0.0, -1.0)
+        if best:
+            e = best[1]
+            L = LineString(best[2])
+            r = L.interpolate(max(0.0, L.length - 0.2))
+            vx, vy = e[0] - r.x, e[1] - r.y
+            if vy < 0 and vx * inward > 0:
+                dx, dy = vx, vy
+        if e[1] <= deep:
+            return e, e
+        return e, (e[0] + dx / -dy * (e[1] - deep), deep)
+
+    (a, a2), (b, b2) = end((x0, y), 1), end((x1, y), -1)
+    meet = LineString([a, a2]).intersection(LineString([b, b2]))
+    if meet.geom_type == 'Point':
+        return [a, (meet.x, meet.y), b]
+    return [a, a2, b2, b]
+
+
+def bowl_under(a, b, y, d):
+    """A bowl from a to b, d m below a surface at y."""
+    w = b[0] - a[0]
+    return [a, (a[0] + w / 4, y - d), (b[0] - w / 4, y - d), b]
+
+
 def _water(x0, x1, y, bowl, poly):
-    if bowl:
-        return Polygon(bowl)
+    if bowl:                     # from the surface's ends, the bowl may start on the dry floor by them
+        return Polygon([(x0, y)] + list(bowl[1:-1]) + [(x1, y)]).buffer(0)
     under = poly.intersection(box(x0, y - 2.0, x1, y))
     if under.geom_type != 'Polygon':
         parts = [g for g in getattr(under, 'geoms', []) if g.geom_type == 'Polygon']
@@ -388,6 +475,20 @@ def _under_surface(water, y):
     return [p for p in reversed(cs) if abs(p[1] - y) >= 1e-6]
 
 
+def pool_th2(x0, x1, y, water, px, lid):
+    """An area of water under a level surface from x0 to x1 at y: its border
+    invisible, the surface kept level with `adjust horizontal`, no two
+    nodes closer than POOL_GAP."""
+    ring = [(x1, y)]
+    for p in _under_surface(water, y):
+        if math.dist(p, ring[-1]) >= POOL_GAP and math.dist(p, (x0, y)) >= POOL_GAP:
+            ring.append(p)
+    return [f"line border -id {lid} -close on -subtype invisible",
+            "  %.2f %.2f" % px((x0, y)), "  %.2f %.2f" % px((x1, y)), "  adjust horizontal"] + \
+           ["  %.2f %.2f" % px(p) for p in ring[1:]] + ["  %.2f %.2f" % px((x0, y)), "endline", "",
+            "area water", f"  {lid}", "endarea", ""]
+
+
 def th2(f, poly, walls, px, name):
     """th2 lines for the features inside scrap polygon `poly`."""
     o = []
@@ -397,14 +498,17 @@ def th2(f, poly, walls, px, name):
             continue
         bowl = f.bowls[k] if k < len(getattr(f, 'bowls', [])) else None
         water = _water(x0, x1, y, bowl, poly)
-        if water.is_empty:
+        if bowl and SETTINGS['pool_floors'] and not water.is_empty:
+            # past the floor under it (Therion clips the area to the scrap), so the pool is
+            # filled wherever smoothing moves the floor (the user, Tratmans 2026-10-26)
+            water = water.buffer(POOL_WET, join_style=2).intersection(
+                box(x0 - POOL_WET, y - 2 * POOL_FLOOR - POOL_WET, x1 + POOL_WET, y))
+            top = [q[0] for q in getattr(water, 'exterior', Polygon()).coords if abs(q[1] - y) < 1e-6]
+            if len(top) >= 2:
+                x0, x1 = min(top), max(top)
+        if water.is_empty or water.geom_type != 'Polygon':
             continue
-        lid = f"{name}-pool{k + 1}"
-        ring = _under_surface(water, y)
-        o += [f"line border -id {lid} -close on -subtype invisible",
-              "  %.2f %.2f" % px((x0, y)), "  %.2f %.2f" % px((x1, y)), "  adjust horizontal"] + \
-             ["  %.2f %.2f" % px(p) for p in ring] + ["endline", "",
-              "area water", f"  {lid}", "endarea", ""]
+        o += pool_th2(x0, x1, y, water, px, f"{name}-pool{k + 1}")
     for pp in f.rocks:
         if near.contains(Point(pp[0])):
             o += ["line rock-border -close on"] + ["  %.2f %.2f" % px(p) for p in
