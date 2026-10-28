@@ -18,8 +18,6 @@
               boulders (after a build)
   smooth      refit converted walls with fewer, smooth points (last, after
               roofs and details)
-  turn        turn walls round so the passage is on their left, nothing
-              else changed (lint wall-side; not walls with -reverse on)
   review      check a drawing against the sketch with someone who knows the
               cave: split-screen pictures, outline gaps, outline checks
   place       file a converted plan into its survey and the cave's plan map
@@ -264,19 +262,6 @@ def cmd_smooth(a):
                       f"{borders} made borders, {stepped} wall steps joined or line ends put on wall nodes; wall points {before} -> {after}")
 
 
-def cmd_turn(a):
-    from .th2lint import turn_text
-    for f in a.files:
-        raw = open(f, 'rb').read().decode('utf-8')
-        crlf = '\r\n' in raw
-        text, turned, left = turn_text(raw.replace('\r\n', '\n'), a.scrap)
-        if turned:
-            open(f, 'wb').write((text.replace('\n', '\r\n') if crlf else text).encode('utf-8'))
-        print(f"  {f}: {len(turned)} walls turned round" + ''.join(f"\n    {s} line {n}" for s, n in turned))
-        for s, n, why in left:
-            print(f"    {s} line {n}: passage on its right, left as it is ({why})")
-
-
 def cmd_xvi(a):
     sk = load(a.sketch, a.view)
     xvi.write(sk, a.output)
@@ -420,11 +405,6 @@ def main(argv=None):
     q.add_argument('--scrap', nargs='+', help="only these scraps (default: every scrap in the file; "
                    "name them in files with hand-drawn scraps too)")
     q.set_defaults(func=cmd_smooth)
-
-    q = sub.add_parser('turn', help='turn walls round so the passage is on their left (not -reverse on)')
-    q.add_argument('files', nargs='+')
-    q.add_argument('--scrap', nargs='+', help='only these scraps (default: every scrap in the file)')
-    q.set_defaults(func=cmd_turn)
 
     q = sub.add_parser('xvi', help='PocketTopo .top or _th.txt -> XVI')
     q.add_argument('sketch')
