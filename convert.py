@@ -24,10 +24,12 @@ import os
 import sys
 
 from shapely.geometry import LineString, Point, Polygon, box
+from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
 
 from . import register
 from .features import classify, centroid
+from .outline import wrong_way
 from .symbols import split_symbols, symbols_th2
 from .walls import clean, bezier_lines, bezier_closed, chaikin, split_by_edge
 from .settings import SETTINGS
@@ -787,12 +789,15 @@ def section_th2(name, attrs, lines, centre, K, comment, station=None):
         xpx = lambda p: (K * (p[0] - centre[0]) + 1000, K * (p[1] - centre[1]) + 1000)
     o = [f"scrap {name} -projection none{attrs}", "", comment, ""]
     if drawn:
-        # the strokes as drawn, meeting end to end (a floor straight across an open one)
+        # the strokes as drawn, meeting end to end (a floor straight across an open one),
+        # each turned round where need be so the section is on its left (hard rule 6)
+        back = set(wrong_way([list(pp) for pp, _ in outline])) if SETTINGS['section_left'] else set()
+        outline = [(pp[::-1] if k in back else pp, sub) for k, (pp, sub) in enumerate(outline)]
         for pp, sub in outline:
             body = bezier_lines(pp, xpx) if len(pp) > 2 else ["  %.2f %.2f" % xpx(q) for q in pp]
             o += [f"line wall{' -subtype ' + sub if sub else ''}"] + body + ["endline", ""]
     else:
-        o += ["line wall -close on"] + bezier_closed(list(poly.exterior.coords), xpx) + ["endline", ""]
+        o += ["line wall -close on"] + bezier_closed(list((orient(poly, 1.0) if SETTINGS['section_left'] else poly).exterior.coords), xpx) + ["endline", ""]
     from .elevation import pool_th2
     for k, (x0, x1, y, water) in enumerate(pools):
         o += pool_th2(x0, x1, y, water, xpx, f"{name}-water{k + 1}")
