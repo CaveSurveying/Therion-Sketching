@@ -123,7 +123,24 @@ def _opts(a):
         re.sub(r'[^A-Za-z0-9]', '', a.survey or os.path.splitext(os.path.basename(a.output))[0]))
     return convert.Options(name, a.survey, tuple(a.author) if a.author else None,
                            tuple(a.copyright) if a.copyright else None, a.qualify,
-                           (PROJECT.scraps.get(a.survey) or _auto_scraps(a.survey, 'plan', a.sketch)) if a.survey else None)
+                           (PROJECT.scraps.get(a.survey) or _auto_scraps(a.survey, 'plan', a.sketch)) if a.survey else None,
+                           _surveyed(a.survey, a.sketch) if a.survey else None)
+
+
+def _surveyed(survey, sketch):
+    """The stations on the survey's legs in its .th (None if it can't be read)."""
+    from .autoscraps import survey_legs
+    try:
+        legs = survey_legs(_survey_th(survey, sketch))
+    except OSError:
+        return None
+    return {n for leg in legs for n in leg} or None
+
+
+def _unsurveyed_note(opts):
+    if opts.unsurveyed:
+        print("left out, not stations of the survey's legs (taken out of its .th?): "
+              + " ".join(sorted(opts.unsurveyed, key=register.natural)))
 
 
 def _auto_scraps(survey, view, sketch):
@@ -177,6 +194,7 @@ def cmd_plan(a):
         text = meet_ends(text, 0.3 * sk.scale)
     write_th2(labels.add_points(text, texts), a.output)
     print(f"wrote {a.output}: {len(scraps)} plan scraps, {len(sections)} cross sections")
+    _unsurveyed_note(opts)
     _map_hint(a.survey, scraps, 'plan', a.sketch)
 
 
@@ -198,6 +216,7 @@ def cmd_extended(a):
         text = meet_ends(text, 0.3 * sk.scale)
     write_th2(labels.add_points(text, texts), a.output)
     print(f"wrote {a.output}: {len(scraps)} elevation scraps, {len(sections)} cross sections")
+    _unsurveyed_note(opts)
     _map_hint(a.survey, scraps, 'extended', a.sketch)
     if plan_scraps:
         print("and, for the cross sections:")

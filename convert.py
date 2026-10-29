@@ -432,8 +432,10 @@ def header(xvi_path, out_path, anchor, anchor_xy, polys, px):
 
 
 class Options:
-    def __init__(self, name, survey=None, author=None, copyright=None, qualify=False, scraps=None):
+    def __init__(self, name, survey=None, author=None, copyright=None, qualify=False, scraps=None, surveyed=None):
         self.name = name
+        self.surveyed = surveyed        # stations on the survey's legs (None: not known, all written)
+        self.unsurveyed = set()         # sketch stations left out: not in the survey (a leg taken out)
         self.scraps = scraps            # [scraps] in project.toml: station specs per plan scrap (scraps.py)
         self.survey = survey
         self.author = author            # (date, name)
@@ -451,6 +453,12 @@ class Options:
 
     def station(self, n):
         return f"{n}@{self.survey}" if self.qualify and self.survey else n
+
+    def stations(self, names):
+        """The names Therion knows: a station the survey doesn't have would stop the build."""
+        out = [n for n in names if self.surveyed is None or n.split('@')[0] in self.surveyed]
+        self.unsurveyed |= {n.split('@')[0] for n in names} - {n.split('@')[0] for n in out}
+        return out
 
 
 def _nearest(pos, p):
@@ -1124,7 +1132,7 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
                 if n in inside:
                     o += section_line(geo, n, px)[0]
                     o += ["point %.2f %.2f section -scrap %s" % (*px(centre), sname), ""]
-            for n in inside:
+            for n in opt.stations(inside):
                 o += ["point %.2f %.2f station -name %s" % (*px(pos[n]), opt.station(n)), ""]
             o += ["endscrap", ""]
             body += o
@@ -1712,7 +1720,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
             for n, sname, centre, W, H in made:      # cross sections where they were sketched
                 if n in inside:
                     o += ["point %.2f %.2f section -scrap %s" % (*px(centre), sname), ""]
-            for n in inside:
+            for n in opt.stations(inside):
                 o += ["point %.2f %.2f station -name %s" % (*px(pos[n]), opt.station(n)), ""]
             o += ["endscrap", ""]
             body += o
@@ -1739,7 +1747,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
             xs_plan = [f"scrap {pname} -projection plan{opt.attrs(K)}", "",
                        "# Where each cross section is cut (line section) and drawn (point section).", ""]
             xs_plan += place_sections(geo, madek, px, [])
-            for k, *_ in madek:
+            for k in opt.stations([k for k, *_ in madek]):
                 xs_plan += ["point %.2f %.2f station -name %s" % (*px(allpos[k]), opt.station(k.split('@')[0])), ""]
             xs_plan += ["endscrap", ""]
     anchor = next(iter(pos)) if pos else ''
