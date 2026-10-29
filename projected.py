@@ -8,7 +8,7 @@ For survey X (in <Cave>/X/):
 1. exports Therion's centreline of X alone, projected to the angle the
    viewer faces (`-proj [elevation 315]`), as the backdrop
    `X/Notes/XE315.xvi` (as tools/ElevationsExx.py does);
-2. projects the walls of `X/X.extended.th2` onto it (walls only, each with
+2. projects the walls of `X/XEe.th2` onto it (walls only, each with
    its subtype): a point of the extended drawing keeps its place along its
    nearest leg and its height above or below it; its offset along the
    passage is scaled by how much of that leg is seen across the view
@@ -416,7 +416,7 @@ def projected(survey, angle=315, file_it=False, author=None, copyright=None, out
     from . import convert
     from .roofs import Splays, SQL
     folder = os.path.dirname(PROJECT.path(PROJECT.survey_file(survey)))
-    ext_path = os.path.join(folder, f"{survey}.extended.th2")
+    ext_path = PROJECT.path(PROJECT.extended_file(survey))
     if not os.path.exists(ext_path):
         sys.exit(f"{ext_path} not found: draw the extended elevation first")
     tag = f"E{angle:03d}"
