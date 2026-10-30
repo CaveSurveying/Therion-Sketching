@@ -7,17 +7,17 @@ result is smoothed (Chaikin) and written as Bezier curves (Catmull-Rom).
 """
 import math
 from shapely.geometry import LineString, Point
+from .geom import length
 def _dp(pp,tol):
     if len(pp)<3: return pp
     ls=LineString(pp).simplify(tol,preserve_topology=False)
     return list(ls.coords)
-def _len(pp): return sum(math.dist(a,b) for a,b in zip(pp,pp[1:]))
 def _sample(pp,step=0.1):
     ls=LineString(pp); n=max(2,int(ls.length/step))
     return [ls.interpolate(i/(n-1),normalized=True) for i in range(n)]
 def drop_retraces(strokes, near=0.12, frac=0.75):
     """Remove strokes that mostly run along a longer stroke (pen gone over twice)."""
-    order=sorted(range(len(strokes)),key=lambda i:-_len(strokes[i]))
+    order=sorted(range(len(strokes)),key=lambda i:-length(strokes[i]))
     kept=[]
     for i in order:
         pp=strokes[i]
@@ -71,7 +71,7 @@ def clean(strokes, min_len=0.25):
     s=join(s)
     out=[]
     for pp in s:
-        if _len(pp)<min_len: continue
+        if length(pp)<min_len: continue
         pp=_dp(pp,0.05)
         if len(pp)>=3: pp=_dp(chaikin(pp,2),0.025)
         out.append(pp)
@@ -107,10 +107,10 @@ def split_by_edge(pp, ring, near=0.3, min_run=0.4):
     # fold runs that are too short into their neighbour
     merged=[]
     for f,r in runs:
-        if merged and (_len(r)<min_run or merged[-1][0]==f):
+        if merged and (length(r)<min_run or merged[-1][0]==f):
             merged[-1][1]+=r[1:]
         else: merged.append([f,r])
-    if len(merged)>1 and _len(merged[0][1])<min_run:
+    if len(merged)>1 and length(merged[0][1])<min_run:
         merged[1][1]=merged[0][1]+merged[1][1][1:]; merged.pop(0)
     return [(f,r) for f,r in merged if len(r)>1]
 

@@ -31,6 +31,7 @@ from shapely.ops import unary_union
 
 from . import register, scale
 from .features import classify, centroid
+from .geom import length
 from .outline import wrong_way
 from .symbols import split_symbols, symbols_th2
 from .walls import clean, bezier_lines, bezier_closed, chaikin, split_by_edge
@@ -42,7 +43,7 @@ WALLS = ('BLACK', 'BROWN', 'GRAY')
 def is_outline(pp):
     """False for short marks and straight out-and-back strokes (a dive line
     or a leader to a note)."""
-    path = sum(math.dist(a, b) for a, b in zip(pp, pp[1:]))
+    path = length(pp)
     if path < 1.0:
         return False
     s = pp[::3] + [pp[-1]]
@@ -59,7 +60,7 @@ LINK_MEET = 0.3     # m: ends this close are joined
 def wall_strokes(lines):
     """(wall strokes, boulders, slope arrows) from the sketch lines."""
     black = [pp for c, pp in lines if c == 'BLACK' and len(pp) > 1
-             and sum(math.dist(a, b) for a, b in zip(pp, pp[1:])) >= 0.15]
+             and length(pp) >= 0.15]
     hooks = []
     if SETTINGS['wall_hooks']:
         # a small loop left open with an end at another black stroke is a hook
@@ -83,7 +84,7 @@ def wall_strokes(lines):
     if not SETTINGS.get('short_links'):
         return walls, boulders, arrows
     short = [pp for c, pp in lines if c in cols and len(pp) > 1 and not any(pp is q for q in other)
-             and LINK_MIN <= sum(math.dist(a, b) for a, b in zip(pp, pp[1:])) and math.dist(pp[0], pp[-1]) >= LINK_MIN]
+             and LINK_MIN <= length(pp) and math.dist(pp[0], pp[-1]) >= LINK_MIN]
     meets = lambda e, qs: any(min(math.dist(e, q[0]), math.dist(e, q[-1])) < LINK_MEET for q in qs)
     changed = True
     while changed:
@@ -1196,10 +1197,6 @@ def _lumpy(pp, simplify=0.15, ratio=1.3, closed=0.1):
     return L.length > ratio * max(L.simplify(simplify).length, 1e-6)
 
 
-def _plen(pp):
-    return sum(math.dist(a, b) for a, b in zip(pp, pp[1:]))
-
-
 def vertical_splays(sketch, survey):
     """{station: [(x, y) of its splay ends straight up and down]} in the
     sketch's metres, from the sketch's own splays (roofs.Splays)."""
@@ -1588,7 +1585,7 @@ def subtype_marks(lines, px, kinds={}):
     out = []
     from .elevation import _closed, BOULDER_MAX
     rocks = [LineString(pp) for c, pp in lines if len(pp) > 3 and _closed(pp)
-             and sum(math.dist(a, b) for a, b in zip(pp, pp[1:])) <= BOULDER_MAX * scale.factor(pp[0])]
+             and length(pp) <= BOULDER_MAX * scale.factor(pp[0])]
     for c, pp in lines:
         if c not in ('BROWN', 'GREEN') or len(pp) < 2 or not is_outline(pp):
             continue

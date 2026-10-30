@@ -22,6 +22,7 @@ import math
 from shapely.geometry import LineString, MultiPoint, Point, Polygon
 from shapely.ops import unary_union
 
+from .geom import length, span
 from .walls import bezier_closed, bezier_lines
 
 NEAR = 0.6            # m: marks this close are one area
@@ -29,14 +30,6 @@ DOT = 0.12            # m: a stroke shorter than this is a dot
 DASH = 0.6            # m: a straight open stroke shorter than this is a dash
 NOT_INTERIOR = ('BLUE', 'GREEN', 'RED', 'ORANGE', 'PURPLE')
 PATCHES = ('sand', 'flowstone')   # areas drawn as patches round their marks, merged where they overlap
-
-
-def length(pp):
-    return sum(math.dist(a, b) for a, b in zip(pp, pp[1:]))
-
-
-def span(pp):
-    return max((math.dist(a, b) for a in pp for b in pp), default=0.0)
 
 
 def is_closed(pp):

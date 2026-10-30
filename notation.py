@@ -22,6 +22,7 @@ import math
 from shapely.geometry import LineString, Point, Polygon
 
 from . import scale
+from .geom import length
 
 TICK_MAX = 0.45      # m: a tick is at most this long
 TICK_MIN = 0.06
@@ -35,10 +36,6 @@ DASH_GAP = 0.55      # m: dashes of one line are at most this far apart
 MIN_DASHES = 3
 JOIN = 1.2           # m: overhang pieces with ends this close are one overhang
 SKIP = ('BLUE', 'GREEN', 'RED', 'ORANGE', 'PURPLE')
-
-
-def length(pp):
-    return sum(math.dist(a, b) for a, b in zip(pp, pp[1:]))
 
 
 def _axis(pp):
