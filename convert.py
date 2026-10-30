@@ -1050,22 +1050,39 @@ def _split(sketch, layout, survey, tol):
     return sk, gs or [list(pos)], flipped
 
 
-def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
-    """th2 text for a plan sketch."""
+def _converting(sketch, opt, layout, tol, convert, *args):
+    """What plan and extended conversions share before they part: slips of
+    the pen cut out ([glitches]), the sketch split to fit the layout, the
+    local scale set (scale.factor) while `convert(sketch, groups, flipped,
+    *args)` runs."""
+    if getattr(opt, 'glitches', None):        # slips of the pen ([glitches] in project.toml)
+        sketch.lines = cut_glitches(sketch.lines, opt.glitches)
     sketch, groups, flipped = _split(sketch, layout, opt.survey, tol)
     scale.use_splays(sketch)                  # marks drawn bigger in a bigger passage (scale.factor)
     try:
-        return _plan_split(sketch, groups, flipped, opt, out_path, floor)
+        return convert(sketch, groups, flipped, *args)
     finally:
         scale.use_splays()
 
 
-def _plan_split(sketch, groups, flipped, opt, out_path, floor):
+def _start(sketch, opt, view):
+    """Drawing units, station positions and the strokes left once the cross
+    sections drawn on the sketch are taken out (view 'P' or 'E')."""
     K = sketch.scale
     pos = sketch.positions()
     px = lambda p: (K * p[0], K * p[1])
-    xs_text, made, used = section_scraps(sketch, opt, K, 'P')
+    xs_text, made, used = section_scraps(sketch, opt, K, view)
     lines = [l for i, l in enumerate(sketch.lines) if i not in used]
+    return K, pos, px, xs_text, made, lines
+
+
+def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
+    """th2 text for a plan sketch."""
+    return _converting(sketch, opt, layout, tol, _plan_split, opt, out_path, floor)
+
+
+def _plan_split(sketch, groups, flipped, opt, out_path, floor):
+    K, pos, px, xs_text, made, lines = _start(sketch, opt, 'P')
     geo = PlanGeometry(pos, sketch.shots)
     scale.use(                            # the legs nearby set how closely lines follow the sketch
         [(pos[a], pos[b]) for a, b in geo.legs])
@@ -1627,22 +1644,11 @@ def cut_glitches(lines, boxes):
 
 
 def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, below=3.0, above=5.0):
-    if getattr(opt, 'glitches', None):        # slips of the pen ([glitches] in project.toml)
-        sketch.lines = cut_glitches(sketch.lines, opt.glitches)
-    sketch, groups, flipped = _split(sketch, layout, opt.survey, tol)
-    scale.use_splays(sketch)                  # marks drawn bigger in a bigger passage (scale.factor)
-    try:
-        return _extended_split(sketch, groups, flipped, opt, out_path, plan_layout, below, above)
-    finally:
-        scale.use_splays()
+    return _converting(sketch, opt, layout, tol, _extended_split, opt, out_path, plan_layout, below, above)
 
 
 def _extended_split(sketch, groups, flipped, opt, out_path, plan_layout, below, above):
-    K = sketch.scale
-    pos = sketch.positions()
-    px = lambda p: (K * p[0], K * p[1])
-    xs_text, made, used = section_scraps(sketch, opt, K, 'E')
-    lines = [l for i, l in enumerate(sketch.lines) if i not in used]
+    K, pos, px, xs_text, made, lines = _start(sketch, opt, 'E')
     # dashed lines found before the strokes are shared out between scraps (one crossing two
     # scraps would break into runs too short to count)
     lines, presumed_all = presumed_strokes(lines, ELEVATION_DASH_GAP)
