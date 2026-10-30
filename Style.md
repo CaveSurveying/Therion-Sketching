@@ -57,11 +57,12 @@ file is worked out from reviews and may be tuned.
   `XEe.th2` (scraps `XSEe1`, …, in `map XMEe`; `XSE1` is an error, the
   user 2026-10-22) and a projected elevation `XE###.th2`, where `###` is
   the bearing looked towards in three digits (`XE000.th2`, `XE090.th2`,
-  `XE315.th2`). Sketches are `X/Notes/XP.xvi` and `X/Notes/XEe.xvi`.
-  Every drawing has these names, older ones renamed to them
-  (`X.plan.th2`, `X.extended.th2`, `X.ee.th2`, `XE90.th2`; the user,
-  2026-10-29). An extended elevation is
-  drawn as sketched: laid out with the survey's own `extend` flags,
+  `XE315.th2`). Sketches are `X/Notes/XP.xvi` and `X/Notes/XEe.xvi`
+  (the user, 2026-10-26). The tools find a drawing's sketch from its
+  backdrop, never by these names (the user, 2026-10-30). Every drawing
+  has these names, older ones renamed to them (`X.plan.th2`,
+  `X.extended.th2`, `X.ee.th2`, `XE90.th2`; the user, 2026-10-29). An
+  extended elevation is drawn as sketched: laid out with the survey's own `extend` flags,
   not as it falls in the whole cave.
 - Plan scraps are `XSP1`, `XSP2`, …, cross sections `XPX<station>`; extended
   elevation scraps `XSEe1`, …; projected elevation scraps `XSE315_1`, ….
@@ -407,7 +408,7 @@ file is worked out from reviews and may be tuned.
   decide it (the user, 2026-10-22). `projected`, `unfold` and `joins`
   still read the database for now.
 - For now (walls parked): one scrap, `XSE315_1`, with the stations on the
-  dots of `Notes/XE315.xvi`, laid out as `tools/ElevationsExx.py` does
+  dots of `XE315.xvi`, laid out as `tools/ElevationsExx.py` does
   (xvi units, offset from the lowest station, the xvi as backdrop). The
   walls are drawn round them. The rules below are for when the walls are
   generated again.
@@ -459,8 +460,8 @@ file is worked out from reviews and may be tuned.
 
 - 315 is the direction the viewer faces (`-projection [elevation 315]`).
   A survey X has `X/XE315.th2` (scraps `XSE315_1`, ...) with the
-  backdrop `X/Notes/XE315.xvi`, Therion's centreline of X alone so
-  projected; `X.th` inputs it with `map XME315`, and `XME315@X` is in
+  backdrop `XE315.xvi` (beside the extended elevation's sketch), Therion's
+  centreline of X alone so projected; `X.th` inputs it with `map XME315`, and `XME315@X` is in
   `LongwoodValleySinkM315` (`LongwoodValleySink.th`).
 - Walls only, drawn from the extended elevation
   (`python3 -m tools.sketch2therion projected X --file`): a wall point

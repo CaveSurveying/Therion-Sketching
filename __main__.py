@@ -154,7 +154,8 @@ def _auto_scraps(survey, view, sketch):
     from . import autoscraps
     try:
         groups, cut, left, cl = autoscraps.scraps_for(_survey_th(survey, sketch), survey, view,
-                                                      'splays' if view == 'plan' else 'both')
+                                                      'splays' if view == 'plan' else 'both',
+                                                      sketch if view == 'extended' else None)
     except RuntimeError as e:
         print(f"  scraps: {e}", file=sys.stderr)
         return None

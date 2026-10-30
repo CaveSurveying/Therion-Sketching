@@ -89,17 +89,20 @@ def relink(text, plan, data):
 def main(argv):
     p = argparse.ArgumentParser(prog='python3 -m tools.sketch2therion stxvi')
     p.add_argument('survey')
-    p.add_argument('--xvi', help='the plan xvi (default: X/XVI/X.plan.xvi, X/X.plan.xvi, X/Notes/X.plan.xvi or X/Notes/XP.xvi)')
+    p.add_argument('--xvi', help="the plan xvi (default: the backdrop of X's plan drawing)")
     p.add_argument('--out', help='where to write it (default: in place)')
     p.add_argument('--export', choices=('plan', 'ee'),
                    help='write a whole new xvi from the SexyTopo files instead (needs --out)')
     a = p.parse_args(argv)
-    folder = os.path.dirname(PROJECT.path(PROJECT.survey_file(a.survey)))
+    from .survey import survey_sketch
+    th = PROJECT.path(PROJECT.survey_file(a.survey))
+    plan_xvi = survey_sketch(th, 'plan')
+    # SexyTopo writes its files beside its sketches: beside the plan xvi, else the .th
+    where = next((d for d in (os.path.dirname(a.xvi or plan_xvi or th), os.path.dirname(th))
+                  if os.path.exists(os.path.join(d, f'{a.survey}.data.json'))), None)
     if a.export:
         if not a.out:
             sys.exit('--export needs --out')
-        where = next((d for d in (folder, os.path.join(folder, 'Notes'))
-                      if os.path.exists(os.path.join(d, f'{a.survey}.data.json'))), None)
         if not where:
             sys.exit(f"{a.survey}: no {a.survey}.data.json")
         data = load_json(os.path.join(where, f'{a.survey}.data.json'))
@@ -107,16 +110,11 @@ def main(argv):
         open(a.out, 'w', encoding='utf-8', newline='').write(export(sketch, data, a.export))
         print(f"wrote {a.out}: the {a.export} from {a.survey}'s SexyTopo files")
         return
-    first = lambda names: next((q for q in names if os.path.exists(q)), None)
-    path = a.xvi or first([os.path.join(folder, 'XVI', f'{a.survey}.plan.xvi'),
-                           os.path.join(folder, f'{a.survey}.plan.xvi'),
-                           os.path.join(folder, 'Notes', f'{a.survey}.plan.xvi'),
-                           os.path.join(folder, 'Notes', f'{a.survey}P.xvi')])
+    path = a.xvi or plan_xvi
     if not path:
-        sys.exit(f"{a.survey}: no plan xvi found")
-    # the SexyTopo files sit beside the .th, or in Notes/ (the 2025 surveys)
-    plan_json = first([os.path.join(folder, f'{a.survey}.plan.json'), os.path.join(folder, 'Notes', f'{a.survey}.plan.json')])
-    if not plan_json:
+        sys.exit(f"{a.survey}: no plan drawing in {th} with an xvi as its backdrop (or give --xvi)")
+    plan_json = os.path.join(where, f'{a.survey}.plan.json') if where else None
+    if not plan_json or not os.path.exists(plan_json):
         sys.exit(f"{a.survey}: no {a.survey}.plan.json")
     plan = json.load(open(plan_json, encoding='utf-8'))
     data = json.load(open(plan_json.replace('.plan.json', '.data.json'), encoding='utf-8'))

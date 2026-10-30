@@ -127,17 +127,14 @@ class Splays:
 @functools.lru_cache(maxsize=None)
 def _drawing_splays(th2, survey):
     from . import xvi
-    from .reviewzip import backdrops
-    if not os.path.exists(th2):                 # a drawing not written yet: no survey data
+    from .survey import sketch_of
+    f = sketch_of(th2)
+    if not f:                                   # a drawing not written yet: no survey data
         return Splays()
     text = open(th2, encoding='utf-8', errors='replace').read()
     survey = survey or _survey_of(th2)
     elevation = re.search(r'(?m)^scrap \S+.*-projection (extended|elevation|\[)', text) is not None
-    for rel in backdrops(text):
-        f = os.path.join(os.path.dirname(th2), rel)
-        if rel.lower().endswith('.xvi') and os.path.exists(f):
-            return Splays.from_sketch(xvi.read(f), survey, elevation)
-    return Splays()
+    return Splays.from_sketch(xvi.read(f), survey, elevation)
 
 
 def _wall_lines(objs):

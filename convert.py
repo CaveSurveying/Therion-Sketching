@@ -19,8 +19,10 @@ borders (ledges, channels, the edge of a level above). The passage fill
 is an invisible outline around all of them, and in an extended elevation
 also a band from the floor to the roof along the survey legs.
 """
+import functools
 import math
 import os
+import subprocess
 import sys
 
 from shapely.geometry import LineString, Point, Polygon, box
@@ -417,6 +419,23 @@ def water_th2(lines, passage, px, idbase, legs=(), flow=True):
         else:
             o += ["point %.2f %.2f %s" % (*px(c), kind), ""]
     return o
+
+
+@functools.lru_cache(None)
+def version():
+    """The converter's git commit, with -dirty if it has uncommitted changes."""
+    try:
+        r = subprocess.run(['git', 'describe', '--always', '--dirty', '--abbrev=7'],
+                           cwd=os.path.dirname(os.path.abspath(__file__)), capture_output=True, text=True)
+        return r.stdout.strip() or 'unknown'
+    except OSError:
+        return 'unknown'
+
+
+def converted_note(sketch, kind):
+    """The first note line of a drawing: its sketch and the converter version."""
+    return "# Converted from %s by tools/sketch2therion %s (%s)." % (
+        os.path.basename(sketch.path or 'a sketch'), version(), kind)
 
 
 def header(xvi_path, out_path, anchor, anchor_xy, polys, px):
@@ -1141,7 +1160,7 @@ def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
     anchor = next(iter(pos)) if pos else ''
     head = header(sketch.path if sketch.path.lower().endswith('.xvi') and not flipped else None,
                   out_path, anchor, px(pos[anchor]) if anchor else (0, 0), polys_all, px)
-    note = ["# Converted from %s by tools/sketch2therion (plan)." % os.path.basename(sketch.path or 'a sketch'),
+    note = [converted_note(sketch, 'plan'),
             "# Not hand-finished: check flow arrows and anything the conversion missed.", ""]
     return "\n".join(head + note + body + xs_text), scraps, [m[1] for m in made]
 
@@ -1753,7 +1772,7 @@ def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, bel
     anchor = next(iter(pos)) if pos else ''
     head = header(sketch.path if sketch.path.lower().endswith('.xvi') and not flipped else None,
                   out_path, anchor, px(pos[anchor]) if anchor else (0, 0), polys_all, px)
-    note = ["# Converted from %s by tools/sketch2therion (extended elevation)." % os.path.basename(sketch.path or 'a sketch'),
+    note = [converted_note(sketch, 'extended elevation'),
             ("# Split into one scrap per group of stations that fits Therion's layout." if SETTINGS['layout_split'] else
              "# One scrap per sketch, or as chosen by hand ([scraps_extended] in tools/project.toml)."), ""]
     plan_scraps = [f"{opt.name}XS"] if xs_plan else []
