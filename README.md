@@ -47,6 +47,31 @@ python3 -m tools.sketch2therion.th2lint --from Cave/thconfig
 
 The steps for a new trip are in the cave's `tools/README.md`.
 
+## Converting a drawing
+
+A sketch (SexyTopo or PocketTopo `.xvi`) is converted in several steps,
+always all of them and in this order: what the first step writes is not
+finished, and breaks the hard rules in `Style.md` until the last step
+has run.
+
+| Drawing | Steps |
+|---|---|
+| Plan | `plan`, `roofs`, `details`, `smooth` |
+| Extended elevation | `extended`, `roofs`, `smooth` |
+
+```bash
+python3 -m tools.sketch2therion extended Cave/X/Notes/XEe.xvi --survey X -o Cave/X/XEe.th2
+python3 -m tools.sketch2therion roofs Cave/X/XEe.th2
+python3 -m tools.sketch2therion smooth Cave/X/XEe.th2
+```
+
+The sketch can be kept anywhere: `plan` and `extended` write its path in
+the drawing as xTherion's backdrop, and every later step, and anything
+else that needs a survey's sketch (the scrap chooser, `projected`,
+`stxvi`), reads it from the backdrop of the survey's drawing. Nothing
+looks for sketches by folder or file name. To convert a drawing again,
+give the sketch its backdrop names.
+
 ## Changing the rules
 
 A lesson learnt on any cave goes into `Style.md` and, where the

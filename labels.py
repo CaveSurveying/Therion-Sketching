@@ -15,6 +15,8 @@ import math
 import os
 import re
 
+from .survey import backdrops
+
 POINT = re.compile(r'(?m)^point\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(\S+).*$')
 OWN = '# Converted from '          # the note convert.py writes at the top of its drawings
 
@@ -45,10 +47,8 @@ def export_for(sketch):
     for f in (folder, os.path.dirname(folder)):
         for th2 in sorted(glob.glob(os.path.join(f, '*.th2'))):
             text = open(th2, encoding='utf-8', errors='replace').read()
-            for m in re.finditer(r'xth_me_image_insert \{[^}]*\} \{[^}]*\} (?:\{([^}]*)\}|"([^"]*)"|(\S+))', text):
-                rel = m.group(1) or m.group(2) or m.group(3)
-                if os.path.abspath(os.path.join(f, rel)) == target and is_export(th2):
-                    return th2
+            if any(os.path.abspath(os.path.join(f, rel)) == target for rel in backdrops(text)) and is_export(th2):
+                return th2
     return None
 
 

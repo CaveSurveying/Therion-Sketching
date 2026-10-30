@@ -14,18 +14,11 @@ is missing.
 import argparse
 import glob
 import os
-import re
 import sys
 import zipfile
 
 from . import project as _project
-
-BACKDROP = re.compile(r'(?m)^##XTHERION## xth_me_image_insert \{[^}]*\} \{[^}]*\} (?:\{([^}]*)\}|"([^"]*)"|(\S+))')
-
-
-def backdrops(th2_text):
-    """The sketch paths a .th2 links as xTherion backdrops, as written."""
-    return [a or b or c for a, b, c in BACKDROP.findall(th2_text)]
+from .survey import backdrops
 
 
 def contents(survey, p=None):

@@ -1,7 +1,7 @@
 # Part of tools/sketch2therion; `fit` is copied from caves-mendip-swildons
 # tools/routes/survey.py (commit 198bf46). GPLv3: see LICENSE.
-"""Which survey a .th2 file belongs to, where a survey's .th is, and fitting
-a scrap to the survey.
+"""Which survey a .th2 file belongs to, where a survey's .th is, the sketch a
+drawing links as its backdrop, and fitting a scrap to the survey.
 
 Replaces two helpers the Swildons version took from `sections.py` and
 `tools/routes/survey.py`, neither of which is ported. `survey_of` looks
@@ -14,6 +14,52 @@ import os
 import re
 
 INPUT = re.compile(r'^\s*input\s+"?([^"\s]+)"?', re.M)
+BACKDROP = re.compile(r'(?m)^##XTHERION## xth_me_image_insert \{[^}]*\} \{[^}]*\} (?:\{([^}]*)\}|"([^"]*)"|(\S+))')
+PROJECTION = re.compile(r'(?m)^scrap \S+.*?-projection \[?([a-z]+)(?:\s+(\d+))?')
+
+
+def backdrops(th2_text):
+    """The sketch paths a .th2 links as xTherion backdrops, as written."""
+    return [a or b or c for a, b, c in BACKDROP.findall(th2_text)]
+
+
+def sketch_of(th2):
+    """The sketch (.xvi) a drawing links as its backdrop, the first that
+    exists, or None: where the drawing's sketch is, wherever it is kept."""
+    if not os.path.exists(th2):
+        return None
+    folder = os.path.dirname(os.path.abspath(th2))
+    for rel in backdrops(open(th2, encoding='utf-8', errors='replace').read()):
+        f = os.path.join(folder, rel)
+        if rel.lower().endswith('.xvi') and os.path.exists(f):
+            return f
+    return None
+
+
+def drawings(th, projection):
+    """The .th2 files the survey's .th inputs with a scrap in `projection`
+    ('plan', 'extended', or an angle faced, e.g. 315)."""
+    folder = os.path.dirname(os.path.abspath(th))
+    out = []
+    for m in INPUT.finditer(open(th, encoding='utf-8', errors='replace').read()):
+        f = os.path.join(folder, m.group(1))
+        if not f.lower().endswith('.th2') or not os.path.exists(f):
+            continue
+        for kind, angle in PROJECTION.findall(open(f, encoding='utf-8', errors='replace').read()):
+            if kind == str(projection) or (kind == 'elevation' and angle == str(projection)):
+                out.append(f)
+                break
+    return out
+
+
+def survey_sketch(th, projection):
+    """The sketch of the survey's drawing in `projection`, read from the
+    drawing's backdrop, or None."""
+    for f in drawings(th, projection):
+        sk = sketch_of(f)
+        if sk:
+            return sk
+    return None
 
 
 def survey_of(th2):
@@ -33,7 +79,7 @@ def survey_of(th2):
 
 def survey_file(survey, near):
     """The .th declaring `survey`, beside the file `near` (a sketch or
-    drawing) or one folder up (sketches are often in Notes/), or None."""
+    drawing) or one folder up (sketches are often kept in a folder of their own), or None."""
     folder = os.path.dirname(os.path.abspath(near))
     for f in (folder, os.path.dirname(folder)):
         for th in sorted(glob.glob(os.path.join(f, '*.th'))):
