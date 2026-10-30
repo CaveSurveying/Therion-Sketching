@@ -21,7 +21,7 @@ import re
 
 from shapely.geometry import LineString, Point
 
-from .geom import length
+from .geom import closed, length
 from .register import natural
 
 MIN_PIECE = 0.5     # m: a shorter piece of a stroke stays with its neighbours' scrap
@@ -76,7 +76,7 @@ def complete(groups, stations, legs):
 
 
 def _closed(pp):
-    return len(pp) > 3 and math.dist(pp[0], pp[-1]) < 0.1
+    return closed(pp, 0.1, points=4)
 
 
 def leg_owner(groups, legs):

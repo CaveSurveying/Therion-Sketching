@@ -16,3 +16,13 @@ def span(pp, sample=None):
     if sample:
         pp = pp[::max(1, len(pp) // sample)] + [pp[-1]]
     return max((math.dist(a, b) for a in pp for b in pp), default=0.0)
+
+
+def closed(pp, gap=0.15, share=0.0, least=0.0, points=2):
+    """A closed loop: at least `points` points and `least` long, its ends
+    closer than `gap` (or `share` of its length, if more). Callers keep
+    their own limits for now (REFACTOR.md, disagreements)."""
+    if len(pp) < points:
+        return False
+    L = length(pp)
+    return L >= least and math.dist(pp[0], pp[-1]) < max(gap, share * L)

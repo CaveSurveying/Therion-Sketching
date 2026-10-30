@@ -9,7 +9,7 @@ strokes a stalactite, anything else flowstone.
 """
 import math
 from shapely.geometry import Polygon, Point, LineString
-from .geom import length, span
+from .geom import closed, length, span
 def straightness(pp):
     (x1,y1),(x2,y2)=max(((p,q) for p in pp[::2] for q in pp[::2]),key=lambda pq:math.dist(*pq))
     L=math.dist((x1,y1),(x2,y2)) or 1
@@ -23,7 +23,7 @@ def classify(polys, passage=None):
     closed_pools=set()
     if SETTINGS['pools_first']:      # a closed blue outline is a pool, never a flow arrow
         for k,pp in enumerate(blue):
-            if math.dist(pp[0],pp[-1])<max(0.15,0.2*length(pp)) and len(pp)>2:
+            if closed(pp, 0.15, 0.2, points=3):
                 g=Polygon(pp).buffer(0)
                 if g.area>=SETTINGS['pool_min_area']: closed_pools.add(k)
     lines=[LineString(pp) for pp in blue]
@@ -73,9 +73,9 @@ def classify(polys, passage=None):
     forms=[]
     for c in cl:
         pts=[p for pp in c['p'] for p in pp]; ctr=centroid(pts)
-        closed=sum(1 for pp in c['p'] if math.dist(pp[0],pp[-1])<0.1 and length(pp)>0.3)
+        rings=sum(1 for pp in c['p'] if closed(pp, 0.1, least=0.3))
         allstraight=all(straightness(pp)<0.05 for pp in c['p'])
-        if closed>=2: kind='stalagmite'          # concentric rings: a boss
+        if rings>=2: kind='stalagmite'          # concentric rings: a boss
         elif allstraight and span(pts, 20)<1.0 and len(c['p'])>=2: kind='stalactite'   # the "Y" mark
         else: kind='flowstone'
         forms.append((kind,ctr))

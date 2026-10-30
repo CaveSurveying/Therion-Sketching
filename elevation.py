@@ -27,6 +27,7 @@ from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import unary_union
 
 from . import scale
+from .geom import closed
 from .marks import span, length
 from .walls import bezier_closed, bezier_lines
 from .settings import SETTINGS
@@ -47,7 +48,7 @@ LOOP_GAP = 0.15         # m: ends this close make a closed loop (or 15% of its l
 
 
 def _closed(pp):
-    return len(pp) > 3 and math.dist(pp[0], pp[-1]) < max(LOOP_GAP * scale.factor(pp[0]), 0.15 * length(pp))
+    return closed(pp, LOOP_GAP * scale.factor(pp[0]), 0.15, points=4)
 
 
 def _straightness(pp):

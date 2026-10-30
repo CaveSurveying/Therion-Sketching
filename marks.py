@@ -22,7 +22,7 @@ import math
 from shapely.geometry import LineString, MultiPoint, Point, Polygon
 from shapely.ops import unary_union
 
-from .geom import length, span
+from .geom import closed, length, span
 from .walls import bezier_closed, bezier_lines
 
 NEAR = 0.6            # m: marks this close are one area
@@ -33,8 +33,7 @@ PATCHES = ('sand', 'flowstone')   # areas drawn as patches round their marks, me
 
 
 def is_closed(pp):
-    L = length(pp)
-    return L >= 0.2 and math.dist(pp[0], pp[-1]) <= max(0.15, 0.2 * L)
+    return closed(pp, 0.15, 0.2, least=0.2)
 
 
 def is_curl(pp):

@@ -31,7 +31,7 @@ from shapely.ops import unary_union
 
 from . import register, scale
 from .features import classify, centroid
-from .geom import length
+from .geom import closed, length
 from .outline import wrong_way
 from .symbols import split_symbols, symbols_th2
 from .walls import clean, bezier_lines, bezier_closed, chaikin, split_by_edge
@@ -529,7 +529,7 @@ SECTION_MEET = (0.15, 0.1)  # m, share of size: two strokes' ends this close mee
 
 
 def _floor_mark(pp):
-    return len(pp) > 3 and math.dist(pp[0], pp[-1]) < 0.15 and LineString(pp).length < FLOOR_MARK
+    return closed(pp, 0.15, points=4) and LineString(pp).length < FLOOR_MARK
 
 
 def _section_mark(pp, longest):
@@ -787,7 +787,7 @@ def section_th2(name, attrs, lines, centre, K, comment, station=None):
     # for its outline (Style.md, rocks: the user, rocks in cross sections drawn)
     rocks = []
     if SETTINGS['drawn_rocks']:
-        rocks = [pp for c, pp in lines if c == 'BROWN' and len(pp) > 3 and math.dist(pp[0], pp[-1]) < 0.15
+        rocks = [pp for c, pp in lines if c == 'BROWN' and closed(pp, 0.15, points=4)
                  and Polygon(pp).buffer(0).area > 0.005]
         rest = [(c, pp) for c, pp in lines if not any(pp is r for r in rocks)]
         # a section drawn all in brown: its loop is its outline, not a rock
@@ -1446,7 +1446,7 @@ def green_walls(lines, walls):
     ends = [Point(w[k]) for w in walls if len(w) > 1 for k in (0, -1)]
     out = []
     for c, pp in lines:
-        if c != 'GREEN' or len(pp) < 2 or LineString(pp).length < GREEN_WALL[0] or math.dist(pp[0], pp[-1]) < 0.15:
+        if c != 'GREEN' or len(pp) < 2 or LineString(pp).length < GREEN_WALL[0] or closed(pp, 0.15):
             continue
         if any(Point(e).distance(q) < GREEN_WALL[1] for e in (pp[0], pp[-1]) for q in ends):
             out.append(list(pp))
