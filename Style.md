@@ -741,6 +741,16 @@ file is worked out from reviews and may be tuned.
   these notes and draws a floor step: check each one.
 - Draw only what the plan sketch shows: no steps, pitches, labels or
   slope arrows inferred from the survey data or the elevation sketch.
+- Sizes in these notes (boulders, dashes and their gaps, ticks, curls)
+  are for an ordinary passage. The sketcher zooms to fit the screen, so
+  where the passage is bigger or the legs longer everything is drawn
+  bigger and sparser. The converter scales them locally, by the
+  geometric mean of the passage size (splays) and the leg length nearby
+  over 2 m, between 1 and 4 times (`size_ref`; Golgotha, Reservoir and
+  Trident, 2026-10-30). Some poorly drawn marks are still missed.
+- A closed loop with three or more short strokes inside, two meeting at
+  one end, is a boulder with its rock edges, not a step with its ticks
+  (TridentLeft plan; a hole's rim with two ticks stays a step: Trident).
 - Little marks (dots, tiny loops, short dashes) come from sketching in a
   dirty place: ignore one on its own; many together are sand (dots
   or dashes: mud is drawn as sand).
