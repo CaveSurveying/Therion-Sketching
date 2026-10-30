@@ -36,7 +36,7 @@ def _legs(objs, splays, survey):
         if m:
             n = m.group(3)
             st[n if '@' in n else f'{n}@{survey}'] = (float(m.group(1)), float(m.group(2)))
-    return [LineString([st[a], st[b]]) for a in st for b in splays.legs.get(a, ()) if b in st and a < b]
+    return [LineString([st[a], st[b]]) for a in st for b in sorted(splays.legs.get(a, ())) if b in st and a < b]
 
 
 def _side(pts, legs):
