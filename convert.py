@@ -29,7 +29,7 @@ from shapely.geometry import LineString, Point, Polygon, box
 from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
 
-from . import register
+from . import register, scale
 from .features import classify, centroid
 from .outline import wrong_way
 from .symbols import split_symbols, symbols_th2
@@ -1051,15 +1051,23 @@ def _split(sketch, layout, survey, tol):
 
 def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
     """th2 text for a plan sketch."""
-    K = sketch.scale
     sketch, groups, flipped = _split(sketch, layout, opt.survey, tol)
+    scale.use_splays(sketch)                  # marks drawn bigger in a bigger passage (scale.factor)
+    try:
+        return _plan_split(sketch, groups, flipped, opt, out_path, floor)
+    finally:
+        scale.use_splays()
+
+
+def _plan_split(sketch, groups, flipped, opt, out_path, floor):
+    K = sketch.scale
     pos = sketch.positions()
     px = lambda p: (K * p[0], K * p[1])
     xs_text, made, used = section_scraps(sketch, opt, K, 'P')
     lines = [l for i, l in enumerate(sketch.lines) if i not in used]
     geo = PlanGeometry(pos, sketch.shots)
-    from . import scale                   # the legs nearby set how closely lines follow the sketch
-    scale.use([(pos[a], pos[b]) for a, b in geo.legs])
+    scale.use(                            # the legs nearby set how closely lines follow the sketch
+        [(pos[a], pos[b]) for a, b in geo.legs])
     if opt.scraps and SETTINGS['hand_scraps']:    # chosen by hand: strokes go with their nearest leg's scrap
         from . import scraps as by_hand
         names = sorted(pos, key=register.natural)
@@ -1580,7 +1588,7 @@ def subtype_marks(lines, px, kinds={}):
     out = []
     from .elevation import _closed, BOULDER_MAX
     rocks = [LineString(pp) for c, pp in lines if len(pp) > 3 and _closed(pp)
-             and sum(math.dist(a, b) for a, b in zip(pp, pp[1:])) <= BOULDER_MAX]
+             and sum(math.dist(a, b) for a, b in zip(pp, pp[1:])) <= BOULDER_MAX * scale.factor(pp[0])]
     for c, pp in lines:
         if c not in ('BROWN', 'GREEN') or len(pp) < 2 or not is_outline(pp):
             continue
@@ -1622,10 +1630,18 @@ def cut_glitches(lines, boxes):
 
 
 def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, below=3.0, above=5.0):
-    K = sketch.scale
     if getattr(opt, 'glitches', None):        # slips of the pen ([glitches] in project.toml)
         sketch.lines = cut_glitches(sketch.lines, opt.glitches)
     sketch, groups, flipped = _split(sketch, layout, opt.survey, tol)
+    scale.use_splays(sketch)                  # marks drawn bigger in a bigger passage (scale.factor)
+    try:
+        return _extended_split(sketch, groups, flipped, opt, out_path, plan_layout, below, above)
+    finally:
+        scale.use_splays()
+
+
+def _extended_split(sketch, groups, flipped, opt, out_path, plan_layout, below, above):
+    K = sketch.scale
     pos = sketch.positions()
     px = lambda p: (K * p[0], K * p[1])
     xs_text, made, used = section_scraps(sketch, opt, K, 'E')

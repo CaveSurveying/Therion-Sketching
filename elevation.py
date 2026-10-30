@@ -26,6 +26,7 @@ import math
 from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import unary_union
 
+from . import scale
 from .marks import span, length
 from .walls import bezier_closed, bezier_lines
 from .settings import SETTINGS
@@ -46,7 +47,7 @@ LOOP_GAP = 0.15         # m: ends this close make a closed loop (or 15% of its l
 
 
 def _closed(pp):
-    return len(pp) > 3 and math.dist(pp[0], pp[-1]) < max(LOOP_GAP, 0.15 * length(pp))
+    return len(pp) > 3 and math.dist(pp[0], pp[-1]) < max(LOOP_GAP * scale.factor(pp[0]), 0.15 * length(pp))
 
 
 def _straightness(pp):
@@ -59,7 +60,7 @@ def _straightness(pp):
 def is_curl(pp):
     """A short brown squiggle or small loop: rubble, not a floor."""
     s = span(pp)
-    return s < CURL_SPAN and length(pp) >= CURL_RATIO * max(s, 1e-6)
+    return s < CURL_SPAN * scale.factor(pp[0]) and length(pp) >= CURL_RATIO * max(s, 1e-6)
 
 
 def is_curtain(pp):
@@ -134,12 +135,13 @@ def boulder_floor(lines):
     drawn: imagine a line through their tops), where no line is drawn under it. Returns
     [(points, 'debris')]: only where most marks are curled (straight dashes
     are mud marked on a floor drawn elsewhere)."""
-    loops = [pp for c, pp in lines if len(pp) > 1 and length(pp) <= BOULDER_MAX and (
+    f = lambda pp: scale.factor(pp[len(pp) // 2])     # marks drawn bigger in a bigger passage
+    loops = [pp for c, pp in lines if len(pp) > 1 and length(pp) <= BOULDER_MAX * f(pp) and (
              (c in ('BROWN', 'BLACK', 'GREEN') and len(pp) > 3 and _closed(pp)) or c == 'BROWN')]
     rows = []
     for pp in loops:
         L = LineString(pp)
-        hit = [r for r in rows if any(L.distance(LineString(q)) < FLOOR_GAP for q in r)]
+        hit = [r for r in rows if any(L.distance(LineString(q)) < FLOOR_GAP * f(pp) for q in r)]
         for r in hit:
             rows.remove(r)
         rows.append(sum(hit, []) + [pp])
@@ -149,7 +151,8 @@ def boulder_floor(lines):
     out = []
     for r in rows:
         xs = [p[0] for pp in r for p in pp]
-        if len(r) < FLOOR_ROW or max(xs) - min(xs) < 2.0:
+        k = f([p for pp in r for p in pp])
+        if len(r) < FLOOR_ROW or max(xs) - min(xs) < 2.0 * k:
             continue
         if sum(_curled(pp) for pp in r) * 2 < len(r):
             continue                    # straight dashes: mud marked on a floor, not a floor
@@ -160,16 +163,16 @@ def boulder_floor(lines):
             # a line drawn under the row, through it or just over it (debris drawn as small
             # rocks along a floor line: FairyChimneys 25 to 28), is the floor already
             up = top.intersection(LineString([(q[0], -1e5), (q[0], 1e5)])).bounds[3] if top else q[1]
-            below = LineString([(q[0], max(up, q[1]) + ROW_LINE), (q[0], q[1] - FLOOR_COVER)])
+            below = LineString([(q[0], max(up, q[1]) + ROW_LINE * k), (q[0], q[1] - FLOOR_COVER * k)])
             if any(d.intersects(below) or d.distance(Point(q)) < 0.1 for d in drawn):
-                if length(run) >= 1.0:
-                    out.append((run, kind))
+                if length(run) >= k:
+                    out.append((run, kind, k))
                 run = []
             else:
                 run.append(q)
-        if length(run) >= 1.0:
-            out.append((run, kind))
-    return [(_over_tops(run, top), kind) if top else (run, kind) for run, kind in out]
+        if length(run) >= k:
+            out.append((run, kind, k))
+    return [(_over_tops(run, top, FLOOR_SMOOTH * k / 2), kind) if top else (run, kind) for run, kind, k in out]
 
 
 def _over_tops(run, top, half=FLOOR_SMOOTH / 2):

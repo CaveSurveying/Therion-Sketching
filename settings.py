@@ -101,8 +101,10 @@ UPSTREAM = {
     'mud_near': 0.0,             # m: mud/sand marks this close are one patch (0: NEAR in marks.py, 0.6 m)
     'mud_grow': 0.0,             # m: a mud/sand patch is grown this far round its marks, following the
                                  # passage (0: the convex hull of the marks, as upstream)
-    'notation_rel': 0.0,         # m: ticks and dashes may be drawn bigger in proportion to the legs'
-                                 # length over this (up to twice); an overhang may be two ticked dashes (0: off)
+    'size_ref': 0.0,             # m: boulders, rubble, ticks and dashes are taken as drawn bigger in proportion
+                                 # to the size the sketch was zoomed to fit (scale.size) over this (0: off)
+    'short_notation': False,     # True: a short step with SHORT_TICKS ticks, and an overhang of two ticked
+                                 # dashes, count (ticks and dashes are sized by scale.factor)
     'tick_reach': 0.0,           # m: a tick's near end may stand this far from its line (0: TOUCH in
                                  # notation.py, 0.15 m); ticks drawn a little clear of the line
     'chain_gap': 0.0,            # m: brown line strokes ending this close to the next, and carrying on,

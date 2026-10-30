@@ -19,7 +19,9 @@ so the tests are loose; check the result in the review.
 """
 import math
 
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, Polygon
+
+from . import scale
 
 TICK_MAX = 0.45      # m: a tick is at most this long
 TICK_MIN = 0.06
@@ -154,7 +156,7 @@ def presumed(lines, dash_gap=DASH_GAP, join_gap=None):
     lines: [(colour, points)], what notation.find left. Returns
     ([points of each dashed line, in order], {indices of the dashes used})."""
     cands = [(i, pp) for i, (c, pp) in enumerate(lines) if c == 'BLACK' and len(pp) > 1
-             and 0.02 <= length(pp) <= DASH_MAX and math.dist(pp[0], pp[-1]) >= 0.5 * length(pp)]
+             and 0.02 <= length(pp) <= DASH_MAX * scale.factor(pp[0]) and math.dist(pp[0], pp[-1]) >= 0.5 * length(pp)]
     pp_of = dict(cands)
     out, used = [], set()
     for chain in dash_chains(cands, dash_gap, MIN_DASHES):
@@ -172,6 +174,22 @@ def presumed(lines, dash_gap=DASH_GAP, join_gap=None):
     return out, used
 
 
+RIDGE = 0.15        # m: rock edges this close at one end meet at a ridge point
+
+
+def _boulder(pp, shorts):
+    """A closed loop holding three or more short strokes, two of them meeting at
+    one end: a boulder and its rock edges (Style.md), not a step and its ticks
+    (TridentLeft; Trident's hole rim has two ticks close together)."""
+    from .marks import is_closed
+    if not is_closed(pp):
+        return False
+    inside = Polygon(pp).buffer(0)
+    edges = [q for q in shorts if inside.contains(Point(q[0])) or inside.contains(Point(q[-1]))]
+    meet = lambda a, b: min(math.dist(p, q) for p in (a[0], a[-1]) for q in (b[0], b[-1])) < RIDGE
+    return len(edges) >= 3 and any(meet(a, b) for k, a in enumerate(edges) for b in edges[k + 1:])
+
+
 def dash_chains(cands, dash_gap=DASH_GAP, min_dashes=MIN_DASHES):
     """Groups (lists of indices, in order) of short straight strokes in a row."""
     idx = [i for i, _ in cands]
@@ -187,7 +205,7 @@ def dash_chains(cands, dash_gap=DASH_GAP, min_dashes=MIN_DASHES):
                 continue
             ends = min(((p, q) for p in (pa[0], pa[-1]) for q in (pb[0], pb[-1])), key=lambda pq: math.dist(*pq))
             gap = math.dist(*ends)
-            if gap > dash_gap or gap < 0.02:
+            if gap > dash_gap * scale.factor(ends[0]) or gap < 0.02:     # sparser in a bigger passage
                 continue
             ca = ((pa[0][0] + pa[-1][0]) / 2, (pa[0][1] + pa[-1][1]) / 2)
             cb = ((pb[0][0] + pb[-1][0]) / 2, (pb[0][1] + pb[-1][1]) / 2)
@@ -246,28 +264,22 @@ def find(lines):
     kind 'step' (floor step or pitch, decided later) or 'overhang'."""
     from .settings import SETTINGS
     usable = [(i, pp) for i, (c, pp) in enumerate(lines) if c not in SKIP and len(pp) > 1]
-    # ticks and dashes are drawn bigger where the legs are longer (the sketch is zoomed out)
-    f = 1.0
-    if SETTINGS['notation_rel']:
-        from . import scale
-        import statistics
-        sc = [scale.at(pp[len(pp) // 2]) for _, pp in usable]
-        sc = [x for x in sc if x]
-        if sc:
-            f = min(2.0, max(1.0, statistics.median(sc) / SETTINGS['notation_rel']))
     # a short step (down to SHORT_LINE) counts if it has at least SHORT_TICKS ticks
-    longs = [(i, pp) for i, pp in usable if length(pp) >= (SHORT_LINE if SETTINGS['notation_rel'] else LINE_MIN)]
-    shorts = [(i, pp) for i, pp in usable if _is_short(pp, TICK_MIN, TICK_MAX * f)]
+    longs = [(i, pp) for i, pp in usable if length(pp) >= (SHORT_LINE if SETTINGS['short_notation'] else LINE_MIN)]
+    # ticks and dashes are drawn bigger in a bigger passage (the sketch is zoomed out: scale.factor)
+    f = lambda pp: scale.factor(pp[len(pp) // 2])
+    shorts = [(i, pp) for i, pp in usable if _is_short(pp, TICK_MIN, TICK_MAX * f(pp))]
+    longs = [(i, pp) for i, pp in longs if not _boulder(pp, [q for _, q in shorts])]
     feats, used = [], set()
     # dashed lines with a tick on each dash (first, so their ticks are
     # not taken for the ticks of a nearby line)
-    cands = [(i, pp) for i, pp in usable if _is_short(pp, DASH_MIN, DASH_MAX * f)]
+    cands = [(i, pp) for i, pp in usable if _is_short(pp, DASH_MIN, DASH_MAX * f(pp))]
     if not SETTINGS['brown_ticks']:          # brown dashes are mud, not an overhang
         cands = [(i, pp) for i, pp in cands if lines[i][0] != 'BROWN']
     pp_all = dict(usable)
     pieces = []                          # [points in order, tick indices]
-    two = 2 if SETTINGS['notation_rel'] else MIN_DASHES
-    for chain in dash_chains(cands, DASH_GAP * f, two):
+    two = 2 if SETTINGS['short_notation'] else MIN_DASHES
+    for chain in dash_chains(cands, DASH_GAP, two):
         pts = []
         for k in chain:
             pts += [pp_all[k][0], pp_all[k][-1]]
