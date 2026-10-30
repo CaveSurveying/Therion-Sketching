@@ -1031,7 +1031,8 @@ def survey_legs(th):
     import re
     legs = []
     text = open(th, encoding='utf-8').read()
-    for m in re.finditer(r'(?ms)^\s*centreline\b(.*?)^\s*endcentreline', text):
+    # a centreline may be closed by endsurvey alone (TritonNorth)
+    for m in re.finditer(r'(?ms)^\s*cent(?:re|er)line\b(.*?)(?:^\s*endcent(?:re|er)line|^\s*endsurvey|\Z)', text):
         fields = None
         for line in m.group(1).splitlines():
             w = line.split('#')[0].split()
@@ -1040,7 +1041,8 @@ def survey_legs(th):
             if w[0] == 'data':
                 fields = w[2:]
                 continue
-            if fields and 'from' in fields and 'to' in fields and len(w) >= len(fields):
+            # a row may stop short of the last field (an empty ignoreall)
+            if fields and 'from' in fields and 'to' in fields and len(w) > max(fields.index('from'), fields.index('to')):
                 a, b = w[fields.index('from')], w[fields.index('to')]
                 if a != '-' and b != '-' and a != '.' and b != '.':
                     legs.append((a, b))

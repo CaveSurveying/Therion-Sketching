@@ -266,7 +266,7 @@ def write(survey, out_dir):
         o += ["point %.2f %.2f station -name %s" % (*px(ext[n]), n), ""]
     o += ["endscrap", ""]
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, f"{survey}.extended.th2")
+    path = os.path.join(out_dir, os.path.basename(PROJECT.extended_file(survey)))
     open(path, 'w', encoding='utf-8').write("\n".join(o))
     print(f"wrote {path}: {len(lines)} walls from {len(vs)} view scrap(s) "
           + ", ".join(f"{n} facing {th:.0f} ({rms:.2f} m)" for n, th, rms, *_ in vs))
@@ -344,10 +344,11 @@ def _attribution(survey):
 
 
 def file_extended(survey):
-    """X.extended.th2 written into the survey's folder and filed (input, map, cave map)."""
+    """XEe.th2 written into the survey's folder and filed (input, map, cave map)."""
     folder = os.path.dirname(PROJECT.path(PROJECT.survey_file(survey)))
-    if os.path.exists(os.path.join(folder, f"{survey}.extended.th2")):
-        sys.exit(f"{survey}.extended.th2 exists: not overwritten")
+    name = os.path.basename(PROJECT.extended_file(survey))
+    if os.path.exists(os.path.join(folder, name)):
+        sys.exit(f"{name} exists: not overwritten")
     path = write(survey, folder)
     t = open(path, encoding='utf-8').read()
     open(path, 'w', encoding='utf-8').write(t.replace(' -projection extended -scale',
@@ -358,9 +359,9 @@ def file_extended(survey):
     m = list(re.finditer(rf'^map {survey}ME315\b.*?^endmap[^\n]*\n', s, re.S | re.M)) or \
         list(re.finditer(r'^\s*input .*\n', s, re.M))
     at = m[-1].end() if m else 0
-    s = s[:at] + f'{nl}input "{survey}.extended.th2"{nl}' + s[at:]
+    s = s[:at] + f'{nl}input "{name}"{nl}' + s[at:]
     open(th, 'w', encoding='utf-8', newline='').write(s)
-    file_map(survey, rf'^input "{survey}\.extended\.th2".*$', [_extended_scrap(survey)])
+    file_map(survey, rf'^input "{re.escape(name)}".*$', [_extended_scrap(survey)])
     return path
 
 
@@ -378,7 +379,7 @@ def main(argv):
     p.add_argument('--out', default='review/extended-new')
     p.add_argument('--ee', action='store_true', help="draw the walls into the survey's own X.ee.th2")
     p.add_argument('--file', action='store_true',
-                   help="file it: X.extended.th2 in the survey (or, with --ee, its X.ee.th2 as it is), "
+                   help="file it: XEe.th2 in the survey (or, with --ee, its X.ee.th2 as it is), "
                         "map XMEe in X.th and the cave's extended map")
     a = p.parse_args(argv)
     for s in a.surveys:

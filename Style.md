@@ -51,16 +51,18 @@ file is worked out from reviews and may be tuned.
 - New config files are named `name.thcfg` (e.g.
   `LongwoodValleySink/Plan_only.thcfg`). Older names (`thconfig`,
   `thconfig_A0plan`, SexyTopo's `X.thconfig`) stay as they are.
-- A survey `X` lives in `<Cave>/X/`. Files keep the names they were
-  imported with, from SexyTopo's export (settings under "Sketching in
-  SexyTopo"): `X.th`, its plan `XP.th2`, its extended elevation
+- A survey `X` lives in `<Cave>/X/`, in `X.th`. Its drawings are named
+  by the survey and the view, as SexyTopo exports them (settings under
+  "Sketching in SexyTopo"). The plan is `XP.th2`, the extended elevation
   `XEe.th2` (scraps `XSEe1`, …, in `map XMEe`; `XSE1` is an error, the
-  user 2026-10-22), sketches `X/Notes/XP.xvi` and `X/Notes/XEe.xvi`
+  user 2026-10-22) and a projected elevation `XE###.th2`, where `###` is
+  the bearing looked towards in three digits (`XE000.th2`, `XE090.th2`,
+  `XE315.th2`). Sketches are `X/Notes/XP.xvi` and `X/Notes/XEe.xvi`
   (the user, 2026-10-26). The tools find a drawing's sketch from its
-  backdrop, never by these names (the user, 2026-10-30). Older names (`X.plan.th2`, `X.extended.th2`
-  in Cheddar) stay as they are. Projected elevations are `XE315.th2`
-  (and `XE000.th2`, `XE090.th2`). An extended elevation is
-  drawn as sketched: laid out with the survey's own `extend` flags,
+  backdrop, never by these names (the user, 2026-10-30). Every drawing
+  has these names, older ones renamed to them (`X.plan.th2`,
+  `X.extended.th2`, `X.ee.th2`, `XE90.th2`; the user, 2026-10-29). An
+  extended elevation is drawn as sketched: laid out with the survey's own `extend` flags,
   not as it falls in the whole cave.
 - Plan scraps are `XSP1`, `XSP2`, …, cross sections `XPX<station>`; extended
   elevation scraps `XSEe1`, …; projected elevation scraps `XSE315_1`, ….

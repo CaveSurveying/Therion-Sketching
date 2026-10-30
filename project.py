@@ -4,7 +4,7 @@
 
     from tools.sketch2therion import project
     p = project.load()
-    p.plan_file("GoSouth")      # LongwoodValleySink/GoSouth/GoSouth.plan.th2
+    p.plan_file("GoSouth")      # LongwoodValleySink/GoSouth/GoSouthP.th2
     p.path(p.build["sql"])      # absolute path
 """
 
@@ -62,6 +62,9 @@ class Project:
 
     def plan_file(self, survey):
         return self._in_cave(self.names["plan_file"], survey)
+
+    def extended_file(self, survey):
+        return self._in_cave(self.names.get("extended_file", "{survey}/{survey}Ee.th2"), survey)
 
     def scrap_prefix(self, survey):
         return self.names["scrap_prefix"].format(survey=survey)
