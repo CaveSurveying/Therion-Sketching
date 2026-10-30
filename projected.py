@@ -6,9 +6,10 @@
 
 For survey X (in <Cave>/X/):
 1. exports Therion's centreline of X alone, projected to the angle the
-   viewer faces (`-proj [elevation 315]`), as the backdrop
-   `X/Notes/XE315.xvi` (as tools/ElevationsExx.py does);
-2. projects the walls of `X/X.extended.th2` onto it (walls only, each with
+   viewer faces (`-proj [elevation 315]`), as the backdrop `XE315.xvi`
+   (as tools/ElevationsExx.py does): where the projected drawing's backdrop
+   already is, else beside the extended elevation's sketch;
+2. projects the walls of X's extended drawing onto it (walls only, each with
    its subtype): a point of the extended drawing keeps its place along its
    nearest leg and its height above or below it; its offset along the
    passage is scaled by how much of that leg is seen across the view
@@ -43,6 +44,16 @@ PROJECT = _project.load()
 MIN_PIECE = 0.5      # m: a shorter piece of a wall stays with its neighbours' scrap
 END_ON = 0.3         # a leg seen across the view at less than this share of its length is end on
 STEEP = 0.3          # m: a leg shorter than this along the extended drawing is a pitch or climb
+
+
+def centreline_xvi(survey, angle):
+    """Where the projected centreline goes: the backdrop of the survey's
+    projected drawing, else beside its extended elevation's sketch (else
+    beside its .th)."""
+    from .survey import survey_sketch
+    th = PROJECT.path(PROJECT.survey_file(survey))
+    near = survey_sketch(th, angle) or survey_sketch(th, 'extended') or th
+    return os.path.join(os.path.dirname(near), f"{survey}E{angle:03d}.xvi")
 
 
 def export_centreline(survey, angle, out):
@@ -365,7 +376,7 @@ def _spaced(q):
 
 def stations_only(survey, angle=315, file_it=False, author=None, copyright=None):
     """One scrap with the survey's stations on the dots of its projected
-    centreline (Notes/XE315.xvi), as tools/ElevationsExx.py lays it out:
+    centreline (XE315.xvi, centreline_xvi), as tools/ElevationsExx.py lays it out:
     in the xvi's own units, offset from its lowest station, with the xvi
     as the backdrop. The walls are drawn round them by hand for now (log
     row 125: projected walls parked)."""
@@ -374,8 +385,7 @@ def stations_only(survey, angle=315, file_it=False, author=None, copyright=None)
     name = f"{survey}S{tag}_1"
     if file_it:            # first, so the survey's map names only this scrap when Therion reads it
         file_into(survey, tag, [name])
-    xvi_path = os.path.join(folder, 'Notes', f"{survey}{tag}.xvi")
-    os.makedirs(os.path.dirname(xvi_path), exist_ok=True)
+    xvi_path = centreline_xvi(survey, angle)
     export_centreline(survey, angle, xvi_path)
     t = open(xvi_path, encoding='utf-8').read()
     part = t.split('XVIstations', 1)[1].split('XVIshots', 1)[0]
@@ -415,13 +425,15 @@ def stations_only(survey, angle=315, file_it=False, author=None, copyright=None)
 def projected(survey, angle=315, file_it=False, author=None, copyright=None, out_dir=None):
     from . import convert
     from .roofs import Splays, SQL
-    folder = os.path.dirname(PROJECT.path(PROJECT.survey_file(survey)))
-    ext_path = os.path.join(folder, f"{survey}.extended.th2")
-    if not os.path.exists(ext_path):
-        sys.exit(f"{ext_path} not found: draw the extended elevation first")
+    from .survey import drawings
+    th = PROJECT.path(PROJECT.survey_file(survey))
+    folder = os.path.dirname(th)
+    ext = drawings(th, 'extended')
+    if not ext:
+        sys.exit(f"{survey}: no extended drawing input in {th}: draw the extended elevation first")
+    ext_path = ext[0]
     tag = f"E{angle:03d}"
-    xvi_path = os.path.join(folder, 'Notes', f"{survey}{tag}.xvi")
-    os.makedirs(os.path.dirname(xvi_path), exist_ok=True)
+    xvi_path = centreline_xvi(survey, angle)
     export_centreline(survey, angle, xvi_path)
     lay = register.Layout(xvi_path)
     splays = Splays.from_database(PROJECT.path(SQL))

@@ -71,20 +71,19 @@ def model(th, source='splays'):
         return loch.read(out)
 
 
-def extended_positions(th, survey):
+def extended_positions(th, survey, sketch=None):
     """{station: [(x, y), ...]} in metres, as the extended elevation was
-    sketched (SexyTopo, Notes/<survey>E.xvi or EE/Ee): the drawing as it was
-    drawn decides what overlaps, not Therion's layout, which the `extend`
-    lines tune for the final output (user, 2026-10-11). A station sketched
-    in more than one place has each."""
-    import re
+    sketched (`sketch`, else the backdrop of the survey's extended drawing):
+    the drawing as it was drawn decides what overlaps, not Therion's layout,
+    which the `extend` lines tune for the final output (user, 2026-10-11). A
+    station sketched in more than one place has each."""
     from . import xvi
-    notes = os.path.join(os.path.dirname(os.path.abspath(th)), 'Notes')
-    names = sorted(f for f in os.listdir(notes) if re.match(rf'^{re.escape(survey)}E[Ee]?\.xvi$', f)) \
-        if os.path.isdir(notes) else []
-    if not names:
-        raise RuntimeError(f"no extended elevation sketch for {survey} in {notes}")
-    sk = xvi.read(os.path.join(notes, names[0]))
+    from .survey import survey_sketch
+    sketch = sketch or survey_sketch(th, 'extended')
+    if not sketch:
+        raise RuntimeError(f"no extended elevation sketch for {survey}: no extended drawing in {th} "
+                           "with a sketch as its backdrop")
+    sk = xvi.read(sketch)
     return {n.split('@')[0]: list(dict.fromkeys((round(x, 3), round(y, 3)) for x, y in ps))
             for n, ps in sk.stations.items() if ps}
 
@@ -698,9 +697,10 @@ def _passage_groups(th, legs, fp, length, degree, solid, start):
     return groups, between, [], found
 
 
-def scraps_for(th, survey, view, source='splays'):
-    """(station groups, cut legs, clashes left, clashes) for a survey in a view."""
-    fp, length, degree, zr, solid = survey_data(th, survey, view, source)
+def scraps_for(th, survey, view, source='splays', sketch=None):
+    """(station groups, cut legs, clashes left, clashes) for a survey in a
+    view; sketch: the extended elevation's sketch, if not yet drawn."""
+    fp, length, degree, zr, solid = survey_data(th, survey, view, source, sketch)
     legs = list(fp)
     start = start_station(th)
     if view == 'extended':
@@ -847,10 +847,10 @@ def _merge_equated(fp, length, solid, zr, alias):
     return out
 
 
-def survey_data(th, survey, view, source):
+def survey_data(th, survey, view, source, sketch=None):
     """(footprints, lengths, degrees, height ranges) of a survey's legs in a view
     (equated stations as one: a loop, not two passages over one another)."""
-    ext = extended_positions(th, survey) if view == 'extended' else None
+    ext = extended_positions(th, survey, sketch) if view == 'extended' else None
     fp, zr, st, solid = {}, {}, {}, {}
     for src in (('splays', 'maps') if source == 'both' else (source,)):
         try:
