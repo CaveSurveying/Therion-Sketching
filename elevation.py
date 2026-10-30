@@ -252,7 +252,7 @@ def _overhangs(lines):
         sides = []
         ticks = []
         for j, (c2, qq) in enumerate(lines):
-            if j == i or c2 != c or len(qq) < 2 or not TICK[0] <= length(qq) <= TICK[1] \
+            if j == i or c2 != c or len(qq) < 2 or not TICK[0] <= length(qq) <= TICK[1] * scale.factor(qq[0]) \
                     or math.dist(qq[0], qq[-1]) < 0.7 * length(qq):
                 continue                           # (a tick is short and straight)
             a, b = (qq[0], qq[-1]) if main.distance(Point(qq[0])) <= main.distance(Point(qq[-1])) else (qq[-1], qq[0])
