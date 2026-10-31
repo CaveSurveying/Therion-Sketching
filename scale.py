@@ -127,7 +127,7 @@ def legs_of_scrap(objs, path, survey):
             st[n if '@' in n else f'{n}@{survey}'] = (float(m.group(1)), float(m.group(2)))
     out = []
     for a, xy in st.items():
-        for b in splays.legs.get(a, ()):
+        for b in sorted(splays.legs.get(a, ())):     # (a set: the same order every run)
             if b in st and a < b:
                 out.append((xy, st[b]))
     return out

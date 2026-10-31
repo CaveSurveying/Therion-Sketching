@@ -14,6 +14,8 @@ Applied by `smooth` when tools/project.toml sets [convert] end_on_node.
 import math
 import re
 
+from .geom import length
+
 REACH = 0.2        # m: an end this close to a wall is meant to meet it
 SNAP = 0.05        # m: use an existing node this close rather than add one
 TYPES = ('border', 'floor-step', 'pit', 'overhang', 'rimstone-dam', 'ceiling-step')
@@ -51,7 +53,7 @@ def nearest_on(segs, p, samples=24, step=2.0):
     prev = (segs[0][-2], segs[0][-1])
     for i, seg in enumerate(segs[1:], 1):
         poly = [prev] + ([(seg[0], seg[1]), (seg[2], seg[3])] if len(seg) == 6 else []) + [(seg[-2], seg[-1])]
-        n = max(samples, int(sum(math.dist(a, b) for a, b in zip(poly, poly[1:])) / step))
+        n = max(samples, int(length(poly) / step))
         for k in range(n + 1):
             t = k / n
             q = _lerp(prev, (seg[-2], seg[-1]), t) if len(seg) == 2 else \

@@ -3,12 +3,12 @@
 """Slope arrows and boulders drawn as small closed shapes in the sketch."""
 import math
 from shapely.geometry import LineString, Polygon, Point
-def _len(pp): return sum(math.dist(a,b) for a,b in zip(pp,pp[1:]))
+from .geom import closed, length
 def shape_of(pp):
     """'arrow' (thin closed triangle: slope arrow), 'boulder' (small blobby loop) or None."""
     if len(pp)<3: return None,None
     ls=LineString(pp); b=ls.bounds; size=max(b[2]-b[0],b[3]-b[1])
-    L=_len(pp)
+    L=length(pp)
     if size>2.5 or size<0.2 or L<0.4: return None,None
     gap=math.dist(pp[0],pp[-1])
     if gap>max(0.5,0.4*size): return None,None
@@ -59,7 +59,7 @@ def split_symbols(strokes):
         kind,g=shape_of(pp)
         if kind=='arrow': arrows.append(g)
         elif kind=='boulder': boulders.append(g)
-        elif len(pp)>2 and math.dist(pp[0],pp[-1])<0.15 and _len(pp)<3: boulders.append(Polygon(pp).buffer(0))
+        elif closed(pp, 0.15, points=3) and length(pp)<3: boulders.append(Polygon(pp).buffer(0))
         else: rest.append(pp)
     return rest,[b for b in boulders if b.geom_type=='Polygon' and b.area>0.005],arrows
 def symbols_th2(boulders, arrows, px):

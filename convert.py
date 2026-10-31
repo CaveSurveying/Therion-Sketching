@@ -31,6 +31,7 @@ from shapely.ops import unary_union
 
 from . import register, scale
 from .features import classify, centroid
+from .geom import closed, length
 from .outline import wrong_way
 from .symbols import split_symbols, symbols_th2
 from .walls import clean, bezier_lines, bezier_closed, chaikin, split_by_edge
@@ -42,7 +43,7 @@ WALLS = ('BLACK', 'BROWN', 'GRAY')
 def is_outline(pp):
     """False for short marks and straight out-and-back strokes (a dive line
     or a leader to a note)."""
-    path = sum(math.dist(a, b) for a, b in zip(pp, pp[1:]))
+    path = length(pp)
     if path < 1.0:
         return False
     s = pp[::3] + [pp[-1]]
@@ -59,7 +60,7 @@ LINK_MEET = 0.3     # m: ends this close are joined
 def wall_strokes(lines):
     """(wall strokes, boulders, slope arrows) from the sketch lines."""
     black = [pp for c, pp in lines if c == 'BLACK' and len(pp) > 1
-             and sum(math.dist(a, b) for a, b in zip(pp, pp[1:])) >= 0.15]
+             and length(pp) >= 0.15]
     hooks = []
     if SETTINGS['wall_hooks']:
         # a small loop left open with an end at another black stroke is a hook
@@ -83,7 +84,7 @@ def wall_strokes(lines):
     if not SETTINGS.get('short_links'):
         return walls, boulders, arrows
     short = [pp for c, pp in lines if c in cols and len(pp) > 1 and not any(pp is q for q in other)
-             and LINK_MIN <= sum(math.dist(a, b) for a, b in zip(pp, pp[1:])) and math.dist(pp[0], pp[-1]) >= LINK_MIN]
+             and LINK_MIN <= length(pp) and math.dist(pp[0], pp[-1]) >= LINK_MIN]
     meets = lambda e, qs: any(min(math.dist(e, q[0]), math.dist(e, q[-1])) < LINK_MEET for q in qs)
     changed = True
     while changed:
@@ -528,7 +529,7 @@ SECTION_MEET = (0.15, 0.1)  # m, share of size: two strokes' ends this close mee
 
 
 def _floor_mark(pp):
-    return len(pp) > 3 and math.dist(pp[0], pp[-1]) < 0.15 and LineString(pp).length < FLOOR_MARK
+    return closed(pp, 0.15, points=4) and LineString(pp).length < FLOOR_MARK
 
 
 def _section_mark(pp, longest):
@@ -786,7 +787,7 @@ def section_th2(name, attrs, lines, centre, K, comment, station=None):
     # for its outline (Style.md, rocks: the user, rocks in cross sections drawn)
     rocks = []
     if SETTINGS['drawn_rocks']:
-        rocks = [pp for c, pp in lines if c == 'BROWN' and len(pp) > 3 and math.dist(pp[0], pp[-1]) < 0.15
+        rocks = [pp for c, pp in lines if c == 'BROWN' and closed(pp, 0.15, points=4)
                  and Polygon(pp).buffer(0).area > 0.005]
         rest = [(c, pp) for c, pp in lines if not any(pp is r for r in rocks)]
         # a section drawn all in brown: its loop is its outline, not a rock
@@ -1049,22 +1050,39 @@ def _split(sketch, layout, survey, tol):
     return sk, gs or [list(pos)], flipped
 
 
-def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
-    """th2 text for a plan sketch."""
+def _converting(sketch, opt, layout, tol, convert, *args):
+    """What plan and extended conversions share before they part: slips of
+    the pen cut out ([glitches]), the sketch split to fit the layout, the
+    local scale set (scale.factor) while `convert(sketch, groups, flipped,
+    *args)` runs."""
+    if getattr(opt, 'glitches', None):        # slips of the pen ([glitches] in project.toml)
+        sketch.lines = cut_glitches(sketch.lines, opt.glitches)
     sketch, groups, flipped = _split(sketch, layout, opt.survey, tol)
     scale.use_splays(sketch)                  # marks drawn bigger in a bigger passage (scale.factor)
     try:
-        return _plan_split(sketch, groups, flipped, opt, out_path, floor)
+        return convert(sketch, groups, flipped, *args)
     finally:
         scale.use_splays()
 
 
-def _plan_split(sketch, groups, flipped, opt, out_path, floor):
+def _start(sketch, opt, view):
+    """Drawing units, station positions and the strokes left once the cross
+    sections drawn on the sketch are taken out (view 'P' or 'E')."""
     K = sketch.scale
     pos = sketch.positions()
     px = lambda p: (K * p[0], K * p[1])
-    xs_text, made, used = section_scraps(sketch, opt, K, 'P')
+    xs_text, made, used = section_scraps(sketch, opt, K, view)
     lines = [l for i, l in enumerate(sketch.lines) if i not in used]
+    return K, pos, px, xs_text, made, lines
+
+
+def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
+    """th2 text for a plan sketch."""
+    return _converting(sketch, opt, layout, tol, _plan_split, opt, out_path, floor)
+
+
+def _plan_split(sketch, groups, flipped, opt, out_path, floor):
+    K, pos, px, xs_text, made, lines = _start(sketch, opt, 'P')
     geo = PlanGeometry(pos, sketch.shots)
     scale.use(                            # the legs nearby set how closely lines follow the sketch
         [(pos[a], pos[b]) for a, b in geo.legs])
@@ -1194,10 +1212,6 @@ def _lumpy(pp, simplify=0.15, ratio=1.3, closed=0.1):
     if Point(pp[0]).distance(Point(pp[-1])) < closed:
         return True
     return L.length > ratio * max(L.simplify(simplify).length, 1e-6)
-
-
-def _plen(pp):
-    return sum(math.dist(a, b) for a, b in zip(pp, pp[1:]))
 
 
 def vertical_splays(sketch, survey):
@@ -1449,7 +1463,7 @@ def green_walls(lines, walls):
     ends = [Point(w[k]) for w in walls if len(w) > 1 for k in (0, -1)]
     out = []
     for c, pp in lines:
-        if c != 'GREEN' or len(pp) < 2 or LineString(pp).length < GREEN_WALL[0] or math.dist(pp[0], pp[-1]) < 0.15:
+        if c != 'GREEN' or len(pp) < 2 or LineString(pp).length < GREEN_WALL[0] or closed(pp, 0.15):
             continue
         if any(Point(e).distance(q) < GREEN_WALL[1] for e in (pp[0], pp[-1]) for q in ends):
             out.append(list(pp))
@@ -1588,7 +1602,7 @@ def subtype_marks(lines, px, kinds={}):
     out = []
     from .elevation import _closed, BOULDER_MAX
     rocks = [LineString(pp) for c, pp in lines if len(pp) > 3 and _closed(pp)
-             and sum(math.dist(a, b) for a, b in zip(pp, pp[1:])) <= BOULDER_MAX * scale.factor(pp[0])]
+             and length(pp) <= BOULDER_MAX * scale.factor(pp[0])]
     for c, pp in lines:
         if c not in ('BROWN', 'GREEN') or len(pp) < 2 or not is_outline(pp):
             continue
@@ -1630,22 +1644,11 @@ def cut_glitches(lines, boxes):
 
 
 def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, below=3.0, above=5.0):
-    if getattr(opt, 'glitches', None):        # slips of the pen ([glitches] in project.toml)
-        sketch.lines = cut_glitches(sketch.lines, opt.glitches)
-    sketch, groups, flipped = _split(sketch, layout, opt.survey, tol)
-    scale.use_splays(sketch)                  # marks drawn bigger in a bigger passage (scale.factor)
-    try:
-        return _extended_split(sketch, groups, flipped, opt, out_path, plan_layout, below, above)
-    finally:
-        scale.use_splays()
+    return _converting(sketch, opt, layout, tol, _extended_split, opt, out_path, plan_layout, below, above)
 
 
 def _extended_split(sketch, groups, flipped, opt, out_path, plan_layout, below, above):
-    K = sketch.scale
-    pos = sketch.positions()
-    px = lambda p: (K * p[0], K * p[1])
-    xs_text, made, used = section_scraps(sketch, opt, K, 'E')
-    lines = [l for i, l in enumerate(sketch.lines) if i not in used]
+    K, pos, px, xs_text, made, lines = _start(sketch, opt, 'E')
     # dashed lines found before the strokes are shared out between scraps (one crossing two
     # scraps would break into runs too short to count)
     lines, presumed_all = presumed_strokes(lines, ELEVATION_DASH_GAP)
