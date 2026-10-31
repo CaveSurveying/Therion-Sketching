@@ -34,6 +34,8 @@ Done, each a commit that leaves every drawing the same:
    conversions share at the start (slips of the pen, the split, the local
    scale, cross sections taken out). Plans now skip `[glitches]` boxes
    too (none is set for a plan, so nothing changed).
+4. `notation.ticks_of` and `notation.tick_strokes`: elevations find an
+   overhang's ticks with the plans' code (item 3 below).
 
 Not done: the rest of sharing the reading of a sketch (boulder sizes, one
 stroke classifier, notation, the output of boulders and areas) cannot be
@@ -64,12 +66,14 @@ or is a matter of judgement.
    upper limit in elevations 15 drawings changed: passage outlines were
    taken for boulders and Golgotha lost its debris floors. A better rule
    needs a way to tell a large boulder from a small piece of passage.
-3. **Ticks: partly settled.** Elevation overhang ticks are now sized by
-   the local factor like plan ticks (no drawing changed). The two ways of
-   finding ticks (plans within 0.15 m at 45 degrees or more; elevations
-   within 0.12 m, leaving the line across) are kept: the meaning differs
-   by projection and the elevation rule was set on BoldStep and
-   TritonSouth.
+3. **Ticks: settled.** Ticks are found one way (`notation.ticks_of`):
+   sized by the local factor, starting on the line and leaving it at 45
+   degrees or more. No drawing changed. What the ticks mean stays with
+   each projection, and so do three limits: elevations take a tick at
+   least 0.08 m long, its ends 0.7 of its length apart and starting
+   within 0.12 m of its line (plans 0.06 m, 0.6, 0.15 m). With the plans'
+   limits CJS gained an overhang by 109 from formations hanging under
+   the roof, which the filed drawing does not have.
 4. **Curls: names only.** `marks.is_curl` (a loop not quite closed, a
    boulder) and `elevation.is_curl` (a short squiggle, rubble) mean
    different things under one name. Renaming them means changing

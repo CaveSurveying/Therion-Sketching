@@ -26,7 +26,7 @@ import math
 from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import unary_union
 
-from . import scale
+from . import notation, scale
 from .geom import closed
 from .marks import span, length
 from .walls import bezier_closed, bezier_lines
@@ -234,38 +234,28 @@ def pillars_apart(f, legs):
     f.rocks = keep
 
 
-TICK = (0.08, 0.45)     # m: a tick's length
-TICK_ON = 0.12          # m: a tick starts this near its line (TritonSouth by 6: 0.1)
+TICK_MIN = 0.08         # m: a tick's least length
+TICK_STRAIGHT = 0.7     # a tick's ends are this share of its length apart
+TICK_ON = 0.12          # m: a tick starts this near its line (TritonSouth by 6: 0.1; CJS by 109,
+                        # formations under the roof 0.13 m off it are not ticks)
 TICKS = 3               # ticks on one side make a line an overhang
 
 
 def _overhangs(lines):
     """(overhangs [points, ticks on the left], the lines left): a line
-    (0.8 m or more) with TICKS or more short strokes of its colour starting
-    on it and leaving it across, all to one side, is an overhang (the user:
+    (0.8 m or more) with TICKS or more ticks of its colour, found as in
+    plans (notation.ticks_of), all to one side, is an overhang (the user:
     BoldStep by 4, TritonSouth by 6)."""
+    shorts = notation.tick_strokes(enumerate(pp for _, pp in lines), TICK_MIN, TICK_STRAIGHT)
     used, out = set(), []
     for i, (c, pp) in enumerate(lines):
         if len(pp) < 2 or length(pp) < 0.8 or c == 'BROWN':     # (brown curls under a floor are its rubble)
             continue
-        main = LineString(pp)
-        sides = []
-        ticks = []
-        for j, (c2, qq) in enumerate(lines):
-            if j == i or c2 != c or len(qq) < 2 or not TICK[0] <= length(qq) <= TICK[1] * scale.factor(qq[0]) \
-                    or math.dist(qq[0], qq[-1]) < 0.7 * length(qq):
-                continue                           # (a tick is short and straight)
-            a, b = (qq[0], qq[-1]) if main.distance(Point(qq[0])) <= main.distance(Point(qq[-1])) else (qq[-1], qq[0])
-            if main.distance(Point(a)) > TICK_ON or main.distance(Point(b)) < 0.6 * math.dist(a, b):
-                continue                       # not starting on it, or running along it
-            d = main.project(Point(a))
-            p0, p1 = main.interpolate(max(0.0, d - 0.05)), main.interpolate(min(main.length, d + 0.05))
-            cross = (p1.x - p0.x) * (b[1] - p0.y) - (p1.y - p0.y) * (b[0] - p0.x)
-            sides.append(1 if cross > 0 else -1)
-            ticks.append(j)
-        if len(ticks) >= TICKS and abs(sum(sides)) >= TICKS:
-            out.append(list(pp) if sum(sides) > 0 else list(pp)[::-1])
-            used |= {i, *ticks}
+        ticks = notation.ticks_of(pp, [(j, qq) for j, qq in shorts if j != i and lines[j][0] == c], TICK_ON)
+        side = sum(s for _, s in ticks)
+        if len(ticks) >= TICKS and abs(side) >= TICKS:
+            out.append(list(pp) if side > 0 else list(pp)[::-1])
+            used |= {i, *(j for j, _ in ticks)}
     return out, [l for k, l in enumerate(lines) if k not in used]
 
 
