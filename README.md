@@ -5,11 +5,12 @@ sketches into [Therion](https://therion.speleo.sk/) drawings, shared by
 every cave survey that uses them.
 
 The script and model building work better if the
-[drawing guide](https://github.com/CaveSurveying/CheddarCatchment/blob/main/docs/sketching-guide.md)
+[drawing guide](sketching-guide.md)
 is followed.
 
 | File | What it is |
 |---|---|
+| `sketching-guide.md` | Sketching in SexyTopo, for surveyors: how to survey and sketch, and the export settings. |
 | `Style.md` | The drawing rules: how to sketch underground and how the drawings are made. The source of truth. |
 | `rules.toml` | The same rules as settings for the converter. |
 | `*.py` | The converter (`python3 -m tools.sketch2therion`), its checks (`review`, `fillcheck`) and `th2lint`. |
