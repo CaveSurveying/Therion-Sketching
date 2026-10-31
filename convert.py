@@ -1085,7 +1085,7 @@ def _plan_split(sketch, groups, flipped, opt, out_path, floor):
     K, pos, px, xs_text, made, lines = _start(sketch, opt, 'P')
     geo = PlanGeometry(pos, sketch.shots)
     scale.use(                            # the legs nearby set how closely lines follow the sketch
-        [(pos[a], pos[b]) for a, b in geo.legs])
+        [(pos[a], pos[b]) for a, b in geo.legs], stations=scale.passages(sketch))
     if opt.scraps and SETTINGS['hand_scraps']:    # chosen by hand: strokes go with their nearest leg's scrap
         from . import scraps as by_hand
         names = sorted(pos, key=register.natural)

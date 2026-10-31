@@ -63,6 +63,7 @@ class Splays:
         self.up, self.down = {}, {}
         self.pos = {}
         self.legs = defaultdict(set)
+        self.size = {}          # {station: passage size in metres} (scale.passage_sizes)
 
     @classmethod
     def from_drawing(cls, th2, survey=None):
@@ -76,6 +77,8 @@ class Splays:
         key = lambda n: n if '@' in n else f'{n}@{survey}'
         for n, p in sketch.positions().items():
             self.pos[key(n)] = p
+        from . import scale
+        self.size = {key(n): v for n, v in scale.passage_sizes(sketch).items()}
         for a, b, *_ in sketch.legs():
             self.legs[key(a)].add(key(b))
             self.legs[key(b)].add(key(a))

@@ -45,7 +45,7 @@ and the drawings change as that decision says.
 
 ## Disagreements to settle
 
-Each was tried against every drawing (2026-10-30). Three are settled;
+Each was tried against every drawing (2026-10-30). Four are settled;
 the rest are kept as they are because settling them made drawings worse
 or is a matter of judgement.
 
@@ -81,10 +81,16 @@ or is a matter of judgement.
 5. **Dash gap: keep apart.** One gap (0.55 m times the factor) lost the
    presumed walls of Golgotha, CJPitch, Connection and FairyChimneys:
    elevations draw roofs more sparsely, so they keep 1.2 m.
-6. **Tolerances on legs: to discuss.** How closely lines follow the
-   sketch (`wall_tol_rel` and the others) goes with the legs' length
-   (`scale.at`), not `scale.factor`. Moving them changes every drawing's
-   smoothing, a visual judgement; not tried.
+6. **Tolerances: settled.** How closely lines follow the sketch
+   (`wall_tol_rel`, `line_tol_rel`) now goes with the size the sketch was
+   zoomed to fit, as marks do: the geometric mean of the legs and the
+   passage nearby (`tol_by_size`), not the legs alone. The passage is
+   mostly smaller than the legs, so the shares went from 0.02 to 0.026 to
+   keep about as many nodes. Tried on Trident, TridentLeft, Connection and
+   Golgotha (2026-10-31): narrow passages follow the sketch more closely
+   (a corner in Trident no longer cut by 0.75 m), large ones more loosely
+   (Golgotha's roof up to 0.4 m off the sketch). Every drawing smoothed
+   from now on changes; the filed ones stay as they are.
 7. **Output depended on string hashing: fixed.** The legs of a scrap
    were read from sets of station names; now sorted. Every drawing is the
    same whatever `PYTHONHASHSEED` is.
