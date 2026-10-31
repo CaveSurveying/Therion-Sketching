@@ -175,6 +175,12 @@ def kind_of(pp, boulder_min, mark_max=0.0):
     return 'line'
 
 
+def rocks_kind(boulders, total):
+    """A group of rocks is `blocks` if most of it (`boulders` of `total`, by
+    count or by size) is boulders, else `debris` (plans and elevations alike)."""
+    return 'blocks' if boulders * 2 > total else 'debris'
+
+
 def cluster(geoms, near=NEAR):
     """Groups of indices of geometries within `near` of each other."""
     groups = []
@@ -284,7 +290,7 @@ def brown(strokes, passage, boulder_min, barriers=(), flowstone=()):
                 # a group is an area; a rock in it large for the passage it is in is drawn too
                 alone += [pp for k, pp in members if k == 'boulder' and large_rock(pp, passage)]
             big = sum(1 for k, _ in members if k == 'boulder')
-            groups.append(('blocks' if big * 2 > len(members) else 'debris', [pp for _, pp in members], 1))
+            groups.append((rocks_kind(big, len(members)), [pp for _, pp in members], 1))
         sorted_['boulder'] = alone
     else:
         groups.append(('debris', sorted_['debris'], 1))
