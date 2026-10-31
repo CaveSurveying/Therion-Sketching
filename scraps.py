@@ -21,6 +21,7 @@ import re
 
 from shapely.geometry import LineString, Point
 
+from .geom import closed, length
 from .register import natural
 
 MIN_PIECE = 0.5     # m: a shorter piece of a stroke stays with its neighbours' scrap
@@ -75,7 +76,7 @@ def complete(groups, stations, legs):
 
 
 def _closed(pp):
-    return len(pp) > 3 and math.dist(pp[0], pp[-1]) < 0.1
+    return closed(pp, 0.1, points=4)
 
 
 def leg_owner(groups, legs):
@@ -797,7 +798,7 @@ def drop_slivers(text, least):
                 j += 1
             pts = [tuple(float(v) for v in lines[k].split()[-2:]) for k in range(i + 1, j)
                    if re.match(r"^\s*-?\d", lines[k])]
-            if len(pts) >= 2 and sum(math.dist(a, b) for a, b in zip(pts, pts[1:])) < least:
+            if len(pts) >= 2 and length(pts) < least:
                 i = j + 1
                 continue
         out.append(lines[i])

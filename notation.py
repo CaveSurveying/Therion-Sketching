@@ -22,6 +22,7 @@ import math
 from shapely.geometry import LineString, Point, Polygon
 
 from . import scale
+from .geom import length
 
 TICK_MAX = 0.45      # m: a tick is at most this long
 TICK_MIN = 0.06
@@ -35,10 +36,6 @@ DASH_GAP = 0.55      # m: dashes of one line are at most this far apart
 MIN_DASHES = 3
 JOIN = 1.2           # m: overhang pieces with ends this close are one overhang
 SKIP = ('BLUE', 'GREEN', 'RED', 'ORANGE', 'PURPLE')
-
-
-def length(pp):
-    return sum(math.dist(a, b) for a, b in zip(pp, pp[1:]))
 
 
 def _axis(pp):
@@ -62,9 +59,19 @@ def _local_dir(line, d):
     return _axis([(a.x, a.y), (b.x, b.y)])
 
 
-def _is_short(pp, lo, hi):
+def _is_short(pp, lo, hi, straight=0.6):
     L = length(pp)
-    return lo <= L <= hi and math.dist(pp[0], pp[-1]) >= 0.6 * L
+    return lo <= L <= hi and math.dist(pp[0], pp[-1]) >= straight * L
+
+
+def _factor(pp):
+    """Ticks and dashes are drawn bigger in a bigger passage (the sketch is zoomed out)."""
+    return scale.factor(pp[len(pp) // 2])
+
+
+def tick_strokes(items, lo=TICK_MIN, straight=0.6):
+    """The (index, points) of items short and straight enough to be ticks."""
+    return [(i, pp) for i, pp in items if len(pp) > 1 and _is_short(pp, lo, TICK_MAX * _factor(pp), straight)]
 
 
 def ticks_of(line_pp, shorts, reach=TOUCH):
@@ -266,14 +273,12 @@ def find(lines):
     usable = [(i, pp) for i, (c, pp) in enumerate(lines) if c not in SKIP and len(pp) > 1]
     # a short step (down to SHORT_LINE) counts if it has at least SHORT_TICKS ticks
     longs = [(i, pp) for i, pp in usable if length(pp) >= (SHORT_LINE if SETTINGS['short_notation'] else LINE_MIN)]
-    # ticks and dashes are drawn bigger in a bigger passage (the sketch is zoomed out: scale.factor)
-    f = lambda pp: scale.factor(pp[len(pp) // 2])
-    shorts = [(i, pp) for i, pp in usable if _is_short(pp, TICK_MIN, TICK_MAX * f(pp))]
+    shorts = tick_strokes(usable)
     longs = [(i, pp) for i, pp in longs if not _boulder(pp, [q for _, q in shorts])]
     feats, used = [], set()
     # dashed lines with a tick on each dash (first, so their ticks are
     # not taken for the ticks of a nearby line)
-    cands = [(i, pp) for i, pp in usable if _is_short(pp, DASH_MIN, DASH_MAX * f(pp))]
+    cands = [(i, pp) for i, pp in usable if _is_short(pp, DASH_MIN, DASH_MAX * _factor(pp))]
     if not SETTINGS['brown_ticks']:          # brown dashes are mud, not an overhang
         cands = [(i, pp) for i, pp in cands if lines[i][0] != 'BROWN']
     pp_all = dict(usable)

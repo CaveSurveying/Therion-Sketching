@@ -856,10 +856,8 @@ def _wall_tol(header, objs, K, path):
         prefix = project.load().names['scrap_prefix'].replace('{survey}', '(\\w+?)')
         mm = re.match(prefix + r'(?:P|Ee?)\d', m.group(1)) if m else None
         survey = mm.group(1) if mm else ''
-    legs = scale.legs_of_scrap(objs, path, survey)
-    if not legs:
+    if not scale.use_scrap(objs, path, survey, K):
         return None
-    scale.use(legs, K)
 
     def tol(o):
         pts = bezier_points(o.segments(), 4)
@@ -1791,8 +1789,7 @@ def _redo_scrap(header, body, path):
     from . import scale
     from .survey import survey_of
     survey = survey_of(path) or (re.match(r'scrap (\S+?)S(?:P|Ee?)\d', header) or [None, ''])[1]
-    legs = scale.legs_of_scrap(objs, path, survey)
-    scale.use(legs, K)
+    legs = scale.use_scrap(objs, path, survey, K)
 
     def at_line(o):                         # metres: the local scale at a line's middle, or None
         pts = bezier_points(o.segments(), 2)

@@ -22,6 +22,7 @@ import math
 from shapely.geometry import LineString, MultiPoint, Point, Polygon
 from shapely.ops import unary_union
 
+from .geom import closed, length, span
 from .walls import bezier_closed, bezier_lines
 
 NEAR = 0.6            # m: marks this close are one area
@@ -31,20 +32,11 @@ NOT_INTERIOR = ('BLUE', 'GREEN', 'RED', 'ORANGE', 'PURPLE')
 PATCHES = ('sand', 'flowstone')   # areas drawn as patches round their marks, merged where they overlap
 
 
-def length(pp):
-    return sum(math.dist(a, b) for a, b in zip(pp, pp[1:]))
-
-
-def span(pp):
-    return max((math.dist(a, b) for a in pp for b in pp), default=0.0)
-
-
 def is_closed(pp):
-    L = length(pp)
-    return L >= 0.2 and math.dist(pp[0], pp[-1]) <= max(0.15, 0.2 * L)
+    return closed(pp, 0.15, 0.2, least=0.2)
 
 
-def is_curl(pp):
+def is_open_loop(pp):
     """A stroke curled round on itself (a loop not quite closed): at least
     twice as long as it is wide, its ends within 0.7 of its width."""
     sp = span(pp)
@@ -257,7 +249,7 @@ def brown(strokes, passage, boulder_min, barriers=(), flowstone=()):
             continue
         if not passage.buffer(0.3).intersects(LineString(pp) if len(pp) > 1 else Point(pp[0])):
             continue
-        if SETTINGS['curls_closed'] and len(pp) > 3 and not is_closed(pp) and is_curl(pp):
+        if SETTINGS['curls_closed'] and len(pp) > 3 and not is_closed(pp) and is_open_loop(pp):
             pp = list(pp) + [pp[0]]      # a boulder drawn as a curl, not quite closed
         k = kind_of(pp, boulder_min, SETTINGS['mark_max'])
         if k == 'line' and SETTINGS['dash_max'] and length(pp) <= SETTINGS['dash_max'] \

@@ -119,6 +119,8 @@ UPSTREAM = {
     'wall_presmooth': 0.0,       # walls smoothed (running mean over this many times the tolerance)
                                  # before refitting, so nodes follow bends, not hand wobble (0: off)
     'line_tol_rel': 0.0,         # the same for borders, steps and overhangs (0: a fixed 0.04 m, over 0.5 m)
+    'tol_by_size': False,        # True: wall_tol_rel and line_tol_rel are fractions of the size the
+                                 # sketch was zoomed to fit (legs and passage nearby, scale.tol), not the legs'
     'section_tol_rel': 0.0,      # cross section walls to within this fraction of the section's size
                                  # (0: as other walls)
     'sections_in_place': False,  # True: a cross section scrap's coordinates are where it was sketched,
