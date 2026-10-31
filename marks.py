@@ -22,6 +22,7 @@ import math
 from shapely.geometry import LineString, MultiPoint, Point, Polygon
 from shapely.ops import unary_union
 
+from . import geom
 from .geom import closed, length, span
 from .walls import bezier_closed, bezier_lines
 
@@ -175,16 +176,15 @@ def kind_of(pp, boulder_min, mark_max=0.0):
     return 'line'
 
 
+def rocks_kind(boulders, total):
+    """A group of rocks is `blocks` if most of it (`boulders` of `total`, by
+    count or by size) is boulders, else `debris` (plans and elevations alike)."""
+    return 'blocks' if boulders * 2 > total else 'debris'
+
+
 def cluster(geoms, near=NEAR):
-    """Groups of indices of geometries within `near` of each other."""
-    groups = []
-    for i, g in enumerate(geoms):
-        hit = [k for k, grp in enumerate(groups) if any(g.distance(geoms[j]) < near for j in grp)]
-        merged = {i}
-        for k in sorted(hit, reverse=True):
-            merged |= groups.pop(k)
-        groups.append(merged)
-    return groups
+    """Groups of indices of geometries within `near` of each other, each in order (geom.cluster)."""
+    return [sorted(g) for g in geom.cluster(geoms, near)]
 
 
 def _keep_side(g, marks_geoms, barriers):
@@ -284,7 +284,7 @@ def brown(strokes, passage, boulder_min, barriers=(), flowstone=()):
                 # a group is an area; a rock in it large for the passage it is in is drawn too
                 alone += [pp for k, pp in members if k == 'boulder' and large_rock(pp, passage)]
             big = sum(1 for k, _ in members if k == 'boulder')
-            groups.append(('blocks' if big * 2 > len(members) else 'debris', [pp for _, pp in members], 1))
+            groups.append((rocks_kind(big, len(members)), [pp for _, pp in members], 1))
         sorted_['boulder'] = alone
     else:
         groups.append(('debris', sorted_['debris'], 1))

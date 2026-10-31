@@ -36,16 +36,22 @@ Done, each a commit that leaves every drawing the same:
    too (none is set for a plan, so nothing changed).
 4. `notation.ticks_of` and `notation.tick_strokes`: elevations find an
    overhang's ticks with the plans' code (item 3 below).
+5. `geom.cluster`: one way of grouping strokes near each other (there
+   were five copies: plans' marks and pools, elevations' rows of rocks,
+   green rocks and water flow). Plans now take each group's strokes in
+   order rather than as a set, so two plans (CJS, CrystalPitch) list the
+   same boulders in a different order; nothing else changed.
 
-Not done: the rest of sharing the reading of a sketch (boulder sizes, one
-stroke classifier, notation, the output of boulders and areas) cannot be
-done without changing drawings, because the copies disagree. Each is in
-the list below; once a disagreement is settled, the shared code follows
-and the drawings change as that decision says.
+One classifier for every stroke (a `reading.py`, as first planned) was
+not made: what is left of each projection's reading looks for different
+things (plans areas of rocks and mud, elevations floors, pools and
+curtains), and where the two read the same thing their limits differ on
+purpose (closed loops, boulder size, straightness: items 1 and 2). Not
+done yet: notation beyond ticks, and the output of boulders and areas.
 
 ## Disagreements to settle
 
-Each was tried against every drawing (2026-10-30). Four are settled;
+Each was tried against every drawing (2026-10-30). Five are settled;
 the rest are kept as they are because settling them made drawings worse
 or is a matter of judgement.
 
@@ -66,6 +72,7 @@ or is a matter of judgement.
    upper limit in elevations 15 drawings changed: passage outlines were
    taken for boulders and Golgotha lost its debris floors. A better rule
    needs a way to tell a large boulder from a small piece of passage.
+   Blocks or debris is now decided one way (item 8).
 3. **Ticks: settled.** Ticks are found one way (`notation.ticks_of`):
    sized by the local factor, starting on the line and leaving it at 45
    degrees or more. No drawing changed. What the ticks mean stays with
@@ -80,7 +87,8 @@ or is a matter of judgement.
    rubble), and Cheddar's tests call them by the new names.
 5. **Dash gap: keep apart.** One gap (0.55 m times the factor) lost the
    presumed walls of Golgotha, CJPitch, Connection and FairyChimneys:
-   elevations draw roofs more sparsely, so they keep 1.2 m.
+   elevations draw roofs more sparsely, so they keep 1.2 m times the
+   factor (about 2.2 times the plans' gap wherever the passage is).
 6. **Tolerances: settled.** How closely lines follow the sketch
    (`wall_tol_rel`, `line_tol_rel`) now goes with the size the sketch was
    zoomed to fit, as marks do: the geometric mean of the legs and the
@@ -94,6 +102,18 @@ or is a matter of judgement.
 7. **Output depended on string hashing: fixed.** The legs of a scrap
    were read from sets of station names; now sorted. Every drawing is the
    same whatever `PYTHONHASHSEED` is.
-8. **Blocks: by hand.** Green means flowstone, not blocks (blocks can be
-   of flowstone). There may be no good rule; changed by hand after the
-   script.
+8. **Green is a hint: settled.** Green means flowstone and is mainly for
+   walls and flowstone features; whether rocks are blocks or debris is
+   decided by their size, whatever their colour (the user, 2026-10-31).
+   Both projections now call `marks.rocks_kind`: a group is blocks if most
+   of it is boulders (0.3 m across or more, in elevations times the
+   factor), else debris; plans count the rocks, elevations add up their
+   spans so small scribbles do not outvote large blocks. The line between
+   blocks and debris is arbitrary and the surveyor can change it; it was
+   not tuned further. A smooth green hump of 1 m or more (times the
+   factor) is a lump of flowstone, not a rock (GoSouth). That green rocks
+   were flowstone is kept as a `# flowstone:` comment beside the subtype,
+   for when Therion can draw flowstone blocks and debris. Tried on every
+   elevation (2026-10-31): GoSouth's lump and Golgotha's level green floor
+   became flowstone instead of blocks, Golgotha's green steps debris, a row
+   of small rocks in TridentLeft blocks instead of debris (filed as debris).

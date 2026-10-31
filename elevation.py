@@ -11,8 +11,10 @@
   downhill along it;
 - a steep green stroke hanging from the roof is a curtain (a point);
 - green drawn as boulders (closed loops, or a gentle, humpy line) is
-  rock on the floor: a wall `subtype blocks`, a cluster of loops making
-  one wall along their top;
+  rock on the floor, a cluster of loops making one wall along their top:
+  `subtype blocks` or `debris` by the size of the rocks, as for any
+  colour (green is only a hint: that they are flowstone is kept as a
+  comment, convert.subtype_marks);
 - a closed black loop holding no station is a rock: `rock-border`;
 - short brown curls along the floor are rubble: dropped, and the floor
   next to them `subtype debris`.
@@ -27,8 +29,8 @@ from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import unary_union
 
 from . import notation, scale
-from .geom import closed
-from .marks import span, length
+from .geom import closed, cluster
+from .marks import rocks_kind, span, length
 from .walls import bezier_closed, bezier_lines
 from .settings import SETTINGS
 
@@ -76,8 +78,9 @@ def is_curtain(pp):
 
 def is_blocks(pp):
     """Green drawn as boulders: a closed loop, much longer than its outline
-    smoothed at 15 cm, or a gentle line with humps (flowstone is smooth, or
-    steep where it runs down a step)."""
+    smoothed at 15 cm, or a gentle line with humps no bigger than a rock
+    (flowstone is smooth, steep where it runs down a step, or a larger lump:
+    user, 2026-10-31, GoSouth's lump in the floor)."""
     if _closed(pp):
         return True
     L = LineString(pp)
@@ -85,7 +88,7 @@ def is_blocks(pp):
         return True
     a, b = pp[0], pp[-1]
     gentle = abs(b[1] - a[1]) <= math.tan(math.radians(35)) * abs(b[0] - a[0])
-    return gentle and _straightness(pp) > 0.2 * L.length
+    return gentle and _straightness(pp) > 0.2 * L.length and L.length < HUMP_MAX * scale.factor(pp[len(pp) // 2])
 
 
 def is_pool_surface(pp):
@@ -121,7 +124,13 @@ FLOOR_GAP = 1.0         # m: boulders this close are one row
 FLOOR_ROW = 4           # boulders in a row along the floor make a floor
 FLOOR_COVER = 1.0       # m: a floor line drawn within this under the row is the floor already
 FLOOR_SMOOTH = 1.0      # m: a floor over a row of rocks follows their tops, averaged over this
+HUMP_MAX = 1.0          # m: a gentle humpy green stroke this long or more is a lump of flowstone, not a rock
 ROW_LINE = 0.5          # m: or through the row or this far above it (rocks drawn along a floor line)
+
+
+def _boulder_sized(pp):
+    """A closed loop [convert] boulder_min across or more (drawn bigger in a bigger passage)."""
+    return _closed(pp) and span(pp) >= SETTINGS['boulder_min'] * scale.factor(pp[len(pp) // 2])
 
 
 def _curled(pp):
@@ -134,18 +143,12 @@ def boulder_floor(lines):
     or short brown curls and dashes; no line under or through them) is a floor: a line
     through the tops of the rocks, smoothed (user: BoldStep 12 to 11, rocks are only
     drawn: imagine a line through their tops), where no line is drawn under it. Returns
-    [(points, 'debris')]: only where most marks are curled (straight dashes
+    [(points, 'blocks' or 'debris' by the rocks' size)]: only where most marks are curled (straight dashes
     are mud marked on a floor drawn elsewhere)."""
     f = lambda pp: scale.factor(pp[len(pp) // 2])     # marks drawn bigger in a bigger passage
     loops = [pp for c, pp in lines if len(pp) > 1 and length(pp) <= BOULDER_MAX * f(pp) and (
              (c in ('BROWN', 'BLACK', 'GREEN') and len(pp) > 3 and _closed(pp)) or c == 'BROWN')]
-    rows = []
-    for pp in loops:
-        L = LineString(pp)
-        hit = [r for r in rows if any(L.distance(LineString(q)) < FLOOR_GAP * f(pp) for q in r)]
-        for r in hit:
-            rows.remove(r)
-        rows.append(sum(hit, []) + [pp])
+    rows = [[loops[i] for i in r] for r in cluster([LineString(pp) for pp in loops], lambda i: FLOOR_GAP * f(loops[i]))]
     marks = {id(pp) for pp in loops}
     drawn = [LineString(pp) for c, pp in lines if len(pp) > 1 and not _closed(pp) and length(pp) >= 0.5
              and id(pp) not in marks]
@@ -157,7 +160,7 @@ def boulder_floor(lines):
             continue
         if sum(_curled(pp) for pp in r) * 2 < len(r):
             continue                    # straight dashes: mud marked on a floor, not a floor
-        kind = 'debris'
+        kind = rocks_kind(sum(span(pp) for pp in r if _boulder_sized(pp)), sum(span(pp) for pp in r))
         run = []
         top = LineString(_top(r)) if len(_top(r)) > 1 else None
         for q in _bottom(r):
@@ -259,14 +262,6 @@ def _overhangs(lines):
     return out, [l for k, l in enumerate(lines) if k not in used]
 
 
-def _add_flow(f, pp):
-    """A blue stroke of flowing water, one group with those near it."""
-    hit = [g for g in f.flows if any(LineString(q).distance(LineString(pp)) < 0.6 for q in g)]
-    for g in hit:
-        f.flows.remove(g)
-    f.flows.append(sum(hit, []) + [pp])
-
-
 def _surfaces(blues, apart):
     """Blue strokes joined end to end, left to right, into water surfaces:
     one pool unless their levels differ by more than POOL_STEP or a wall or
@@ -289,7 +284,7 @@ def features(lines, stations=()):
     f = Features()
     st = [Point(p) for p in stations]
     f.overhangs, lines = _overhangs(list(lines))
-    green_small, hung, blues = [], [], []
+    green_small, hung, blues, flows = [], [], [], []
     for c, pp in lines:
         if not pp or len(pp) < 2:
             f.lines.append((c, pp))
@@ -302,7 +297,7 @@ def features(lines, stations=()):
                 y = sum(p[1] for p in pp) / len(pp)
                 f.pools.append((min(pp[0][0], pp[-1][0]), max(pp[0][0], pp[-1][0]), y))
             elif length(pp) >= 0.3:
-                _add_flow(f, pp)
+                flows.append(pp)
             continue
         if c == 'BLACK' and _closed(pp) and length(pp) >= 0.5:
             poly = Polygon(pp).buffer(0)
@@ -332,20 +327,15 @@ def features(lines, stations=()):
             else:
                 for pp in run:
                     if length(pp) >= 0.3:
-                        _add_flow(f, pp)
+                        flows.append(pp)
+    # blue strokes of flowing water: one group with those near it
+    f.flows = [[flows[i] for i in g] for g in cluster([LineString(pp) for pp in flows], 0.6)]
     # short green strokes at a curtain are part of it
     by_curtain = lambda pp: any(h.distance(LineString(pp)) < 0.3 for h in hung)
     f.lines = [(c, pp) for c, pp in f.lines if not (c == 'GREEN' and len(pp) > 1 and by_curtain(pp))]
     green_small = [pp for pp in green_small if not by_curtain(pp)]
-    # green boulders: a cluster with a loop or a humpy stroke in it is one floor of blocks
-    groups = []
-    for pp in green_small:
-        L = LineString(pp)
-        hit = [g for g in groups if any(L.distance(LineString(q)) < 0.3 for q in g)]
-        for g in hit:
-            groups.remove(g)
-        groups.append(sum(hit, []) + [pp])
-    for g in groups:
+    # green rocks: a cluster with a loop or a lumpy stroke in it is one floor of blocks or debris
+    for g in [[green_small[i] for i in g] for g in cluster([LineString(pp) for pp in green_small], 0.3)]:
         if not any(_closed(pp) or is_blocks(pp) for pp in g):
             f.lines += [('GREEN', pp) for pp in g]       # the "Y" of a stalactite and the like
             continue
@@ -353,7 +343,9 @@ def features(lines, stations=()):
         if len(top) > 1:
             top = list(top)
             f.lines.append(('GREEN', top))
-            f.kinds[id(top)] = 'blocks'
+            # by size, not count (small scribbles do not outvote large blocks); a humpy stroke outlines blocks
+            big = sum(span(pp) for pp in g if _boulder_sized(pp) or (not _closed(pp) and is_blocks(pp)))
+            f.kinds[id(top)] = rocks_kind(big, sum(span(pp) for pp in g))
     for pp, kind in boulder_floor(f.lines + [('BLACK', r) for r in f.rocks] + [('BROWN', d) for d in f.debris]):
         pp = list(pp)
         f.lines.append(('BROWN', pp))

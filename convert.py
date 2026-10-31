@@ -1615,7 +1615,10 @@ def subtype_marks(lines, px, kinds={}):
             kind = 'debris'                      # boulders along it: a floor of debris
         else:
             kind = 'sand'                        # mud or sand: sand (user, 2026-10-11: no clay)
-        out.append(f"# wall-subtype {kind}: " + " ".join("%.1f %.1f" % px(p) for p in pp))
+        xy = " ".join("%.1f %.1f" % px(p) for p in pp)
+        out.append(f"# wall-subtype {kind}: {xy}")
+        if c == 'GREEN' and kind in ('blocks', 'debris'):
+            out.append(f"# flowstone: {xy}")     # green rocks: flowstone, for when Therion draws it on blocks and debris
     return out + ([""] if out else [])
 
 
