@@ -58,7 +58,7 @@ def _straightness(pp):
     return max(L.distance(Point(p)) for p in pp)
 
 
-def is_curl(pp):
+def is_squiggle(pp):
     """A short brown squiggle or small loop: rubble, not a floor."""
     s = span(pp)
     return s < CURL_SPAN * scale.factor(pp[0]) and length(pp) >= CURL_RATIO * max(s, 1e-6)
@@ -309,7 +309,7 @@ def features(lines, stations=()):
             if poly.area >= 0.05 and not any(poly.contains(s) for s in st):
                 f.rocks.append(pp)
                 continue
-        if c == 'BROWN' and length(pp) >= 1.0 and is_curl(pp):
+        if c == 'BROWN' and length(pp) >= 1.0 and is_squiggle(pp):
             f.debris.append(pp)
             continue
         if c == 'GREEN':

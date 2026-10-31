@@ -45,7 +45,7 @@ and the drawings change as that decision says.
 
 ## Disagreements to settle
 
-Each was tried against every drawing (2026-10-30). Two were settled;
+Each was tried against every drawing (2026-10-30). Three are settled;
 the rest are kept as they are because settling them made drawings worse
 or is a matter of judgement.
 
@@ -74,10 +74,10 @@ or is a matter of judgement.
    within 0.12 m of its line (plans 0.06 m, 0.6, 0.15 m). With the plans'
    limits CJS gained an overhang by 109 from formations hanging under
    the roof, which the filed drawing does not have.
-4. **Curls: names only.** `marks.is_curl` (a loop not quite closed, a
-   boulder) and `elevation.is_curl` (a short squiggle, rubble) mean
-   different things under one name. Renaming them means changing
-   Cheddar's tests too; left for when those tests move here.
+4. **Curls: renamed.** Two tests meaning different things shared the
+   name `is_curl`. They are now `marks.is_open_loop` (a loop not quite
+   closed, a boulder) and `elevation.is_squiggle` (a short squiggle,
+   rubble), and Cheddar's tests call them by the new names.
 5. **Dash gap: keep apart.** One gap (0.55 m times the factor) lost the
    presumed walls of Golgotha, CJPitch, Connection and FairyChimneys:
    elevations draw roofs more sparsely, so they keep 1.2 m.

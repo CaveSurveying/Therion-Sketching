@@ -36,7 +36,7 @@ def is_closed(pp):
     return closed(pp, 0.15, 0.2, least=0.2)
 
 
-def is_curl(pp):
+def is_open_loop(pp):
     """A stroke curled round on itself (a loop not quite closed): at least
     twice as long as it is wide, its ends within 0.7 of its width."""
     sp = span(pp)
@@ -249,7 +249,7 @@ def brown(strokes, passage, boulder_min, barriers=(), flowstone=()):
             continue
         if not passage.buffer(0.3).intersects(LineString(pp) if len(pp) > 1 else Point(pp[0])):
             continue
-        if SETTINGS['curls_closed'] and len(pp) > 3 and not is_closed(pp) and is_curl(pp):
+        if SETTINGS['curls_closed'] and len(pp) > 3 and not is_closed(pp) and is_open_loop(pp):
             pp = list(pp) + [pp[0]]      # a boulder drawn as a curl, not quite closed
         k = kind_of(pp, boulder_min, SETTINGS['mark_max'])
         if k == 'line' and SETTINGS['dash_max'] and length(pp) <= SETTINGS['dash_max'] \
