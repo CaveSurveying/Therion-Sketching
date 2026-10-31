@@ -9,7 +9,7 @@ strokes a stalactite, anything else flowstone.
 """
 import math
 from shapely.geometry import Polygon, Point, LineString
-from .geom import closed, length, span
+from .geom import closed, cluster, length, span
 def straightness(pp):
     (x1,y1),(x2,y2)=max(((p,q) for p in pp[::2] for q in pp[::2]),key=lambda pq:math.dist(*pq))
     L=math.dist((x1,y1),(x2,y2)) or 1
@@ -29,12 +29,7 @@ def classify(polys, passage=None):
     lines=[LineString(pp) for pp in blue]
     hatch=[i for i,pp in enumerate(blue) if straightness(pp)<0.08 and 0.15<length(pp)<3.5]
     # group hatch strokes that lie within 0.6 m of each other
-    groups=[]
-    for i in hatch:
-        hit=[g for g in groups if any(lines[i].distance(lines[k])<0.6 for k in g)]
-        merged={i}
-        for g in hit: merged|=g; groups.remove(g)
-        groups.append(merged)
+    groups=[{hatch[j] for j in g} for g in cluster([lines[i] for i in hatch], 0.6)]
     groups=[g for g in groups if len(g)>=3 and not (g & closed_pools)]
     used=set(); pools=[]
     for g in groups:

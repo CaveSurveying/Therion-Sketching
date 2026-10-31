@@ -22,6 +22,7 @@ import math
 from shapely.geometry import LineString, MultiPoint, Point, Polygon
 from shapely.ops import unary_union
 
+from . import geom
 from .geom import closed, length, span
 from .walls import bezier_closed, bezier_lines
 
@@ -182,15 +183,8 @@ def rocks_kind(boulders, total):
 
 
 def cluster(geoms, near=NEAR):
-    """Groups of indices of geometries within `near` of each other."""
-    groups = []
-    for i, g in enumerate(geoms):
-        hit = [k for k, grp in enumerate(groups) if any(g.distance(geoms[j]) < near for j in grp)]
-        merged = {i}
-        for k in sorted(hit, reverse=True):
-            merged |= groups.pop(k)
-        groups.append(merged)
-    return groups
+    """Groups of indices of geometries within `near` of each other, each in order (geom.cluster)."""
+    return [sorted(g) for g in geom.cluster(geoms, near)]
 
 
 def _keep_side(g, marks_geoms, barriers):

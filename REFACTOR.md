@@ -36,12 +36,18 @@ Done, each a commit that leaves every drawing the same:
    too (none is set for a plan, so nothing changed).
 4. `notation.ticks_of` and `notation.tick_strokes`: elevations find an
    overhang's ticks with the plans' code (item 3 below).
+5. `geom.cluster`: one way of grouping strokes near each other (there
+   were five copies: plans' marks and pools, elevations' rows of rocks,
+   green rocks and water flow). Plans now take each group's strokes in
+   order rather than as a set, so two plans (CJS, CrystalPitch) list the
+   same boulders in a different order; nothing else changed.
 
-Not done: the rest of sharing the reading of a sketch (boulder sizes, one
-stroke classifier, notation, the output of boulders and areas) cannot be
-done without changing drawings, because the copies disagree. Each is in
-the list below; once a disagreement is settled, the shared code follows
-and the drawings change as that decision says.
+One classifier for every stroke (a `reading.py`, as first planned) was
+not made: what is left of each projection's reading looks for different
+things (plans areas of rocks and mud, elevations floors, pools and
+curtains), and where the two read the same thing their limits differ on
+purpose (closed loops, boulder size, straightness: items 1 and 2). Not
+done yet: notation beyond ticks, and the output of boulders and areas.
 
 ## Disagreements to settle
 

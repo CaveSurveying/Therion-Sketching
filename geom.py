@@ -26,3 +26,16 @@ def closed(pp, gap=0.15, share=0.0, least=0.0, points=2):
         return False
     L = length(pp)
     return L >= least and math.dist(pp[0], pp[-1]) < max(gap, share * L)
+
+
+def cluster(geoms, near):
+    """Groups of indices of geometries each within `near` of another in its
+    group (`near` may be a function of the index), in the order they join."""
+    groups = []
+    for i, g in enumerate(geoms):
+        d = near(i) if callable(near) else near
+        hit = [grp for grp in groups if any(g.distance(geoms[j]) < d for j in grp)]
+        for grp in hit:
+            groups.remove(grp)
+        groups.append(sum(hit, []) + [i])
+    return groups

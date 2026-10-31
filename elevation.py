@@ -29,7 +29,7 @@ from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import unary_union
 
 from . import notation, scale
-from .geom import closed
+from .geom import closed, cluster
 from .marks import rocks_kind, span, length
 from .walls import bezier_closed, bezier_lines
 from .settings import SETTINGS
@@ -148,13 +148,7 @@ def boulder_floor(lines):
     f = lambda pp: scale.factor(pp[len(pp) // 2])     # marks drawn bigger in a bigger passage
     loops = [pp for c, pp in lines if len(pp) > 1 and length(pp) <= BOULDER_MAX * f(pp) and (
              (c in ('BROWN', 'BLACK', 'GREEN') and len(pp) > 3 and _closed(pp)) or c == 'BROWN')]
-    rows = []
-    for pp in loops:
-        L = LineString(pp)
-        hit = [r for r in rows if any(L.distance(LineString(q)) < FLOOR_GAP * f(pp) for q in r)]
-        for r in hit:
-            rows.remove(r)
-        rows.append(sum(hit, []) + [pp])
+    rows = [[loops[i] for i in r] for r in cluster([LineString(pp) for pp in loops], lambda i: FLOOR_GAP * f(loops[i]))]
     marks = {id(pp) for pp in loops}
     drawn = [LineString(pp) for c, pp in lines if len(pp) > 1 and not _closed(pp) and length(pp) >= 0.5
              and id(pp) not in marks]
@@ -268,14 +262,6 @@ def _overhangs(lines):
     return out, [l for k, l in enumerate(lines) if k not in used]
 
 
-def _add_flow(f, pp):
-    """A blue stroke of flowing water, one group with those near it."""
-    hit = [g for g in f.flows if any(LineString(q).distance(LineString(pp)) < 0.6 for q in g)]
-    for g in hit:
-        f.flows.remove(g)
-    f.flows.append(sum(hit, []) + [pp])
-
-
 def _surfaces(blues, apart):
     """Blue strokes joined end to end, left to right, into water surfaces:
     one pool unless their levels differ by more than POOL_STEP or a wall or
@@ -298,7 +284,7 @@ def features(lines, stations=()):
     f = Features()
     st = [Point(p) for p in stations]
     f.overhangs, lines = _overhangs(list(lines))
-    green_small, hung, blues = [], [], []
+    green_small, hung, blues, flows = [], [], [], []
     for c, pp in lines:
         if not pp or len(pp) < 2:
             f.lines.append((c, pp))
@@ -311,7 +297,7 @@ def features(lines, stations=()):
                 y = sum(p[1] for p in pp) / len(pp)
                 f.pools.append((min(pp[0][0], pp[-1][0]), max(pp[0][0], pp[-1][0]), y))
             elif length(pp) >= 0.3:
-                _add_flow(f, pp)
+                flows.append(pp)
             continue
         if c == 'BLACK' and _closed(pp) and length(pp) >= 0.5:
             poly = Polygon(pp).buffer(0)
@@ -341,20 +327,15 @@ def features(lines, stations=()):
             else:
                 for pp in run:
                     if length(pp) >= 0.3:
-                        _add_flow(f, pp)
+                        flows.append(pp)
+    # blue strokes of flowing water: one group with those near it
+    f.flows = [[flows[i] for i in g] for g in cluster([LineString(pp) for pp in flows], 0.6)]
     # short green strokes at a curtain are part of it
     by_curtain = lambda pp: any(h.distance(LineString(pp)) < 0.3 for h in hung)
     f.lines = [(c, pp) for c, pp in f.lines if not (c == 'GREEN' and len(pp) > 1 and by_curtain(pp))]
     green_small = [pp for pp in green_small if not by_curtain(pp)]
     # green rocks: a cluster with a loop or a lumpy stroke in it is one floor of blocks or debris
-    groups = []
-    for pp in green_small:
-        L = LineString(pp)
-        hit = [g for g in groups if any(L.distance(LineString(q)) < 0.3 for q in g)]
-        for g in hit:
-            groups.remove(g)
-        groups.append(sum(hit, []) + [pp])
-    for g in groups:
+    for g in [[green_small[i] for i in g] for g in cluster([LineString(pp) for pp in green_small], 0.3)]:
         if not any(_closed(pp) or is_blocks(pp) for pp in g):
             f.lines += [('GREEN', pp) for pp in g]       # the "Y" of a stalactite and the like
             continue
