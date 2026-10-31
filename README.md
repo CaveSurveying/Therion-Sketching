@@ -4,6 +4,10 @@ Tools and house drawing rules for turning SexyTopo (and PocketTopo)
 sketches into [Therion](https://therion.speleo.sk/) drawings, shared by
 every cave survey that uses them.
 
+The script and model building work better if the
+[drawing guide](https://github.com/CaveSurveying/CheddarCatchment/blob/main/docs/sketching-guide.md)
+is followed.
+
 | File | What it is |
 |---|---|
 | `Style.md` | The drawing rules: how to sketch underground and how the drawings are made. The source of truth. |
