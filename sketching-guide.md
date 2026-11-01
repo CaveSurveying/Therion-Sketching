@@ -170,5 +170,5 @@ In the names below, `#` stands for a number: a scrap's number, or for a cross se
 
 Export folder name should be set to nothing (blank) and the export subtype tick box unticked
 
-In the trip information, give the date and each person's role. The Licence should be GPLv3.0+
+In the trip information, give the date and each person's role (the sketcher as `notes`). The Licence should be GPLv3.0+
 

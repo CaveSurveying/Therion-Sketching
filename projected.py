@@ -7,7 +7,7 @@
 For survey X (in <Cave>/X/):
 1. exports Therion's centreline of X alone, projected to the angle the
    viewer faces (`-proj [elevation 315]`), as the backdrop `XE315.xvi`
-   (as tools/ElevationsExx.py does): where the projected drawing's backdrop
+   (in the xvi's units, offset from its lowest station): where the projected drawing's backdrop
    already is, else beside the extended elevation's sketch;
 2. projects the walls of X's extended drawing onto it (walls only, each with
    its subtype): a point of the extended drawing keeps its place along its
@@ -376,7 +376,7 @@ def _spaced(q):
 
 def stations_only(survey, angle=315, file_it=False, author=None, copyright=None):
     """One scrap with the survey's stations on the dots of its projected
-    centreline (XE315.xvi, centreline_xvi), as tools/ElevationsExx.py lays it out:
+    centreline (XE315.xvi, centreline_xvi), laid out
     in the xvi's own units, offset from its lowest station, with the xvi
     as the backdrop. The walls are drawn round them by hand for now (log
     row 125: projected walls parked)."""

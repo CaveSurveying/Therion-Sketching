@@ -150,7 +150,7 @@ def scale_of(txt):
 
 def _colour_map():
     """[convert] colour_map: purple read as black (a wall where passages overlap), red and orange
-    as grey (Style.md, Sketching in SexyTopo)."""
+    as grey (Style.md, Reading the sketch)."""
     from .settings import SETTINGS
     return SETTINGS.get('colour_map') or {}
 

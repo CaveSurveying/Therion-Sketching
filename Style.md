@@ -1,18 +1,22 @@
-# Drawing Therion scraps in the Cheddar Catchment survey
+# Drawing Therion scraps
 
 How to draw or edit Therion scraps (`.th2`) and what to check afterwards.
 It started from a Therion expert's review of converted drawings and is
 kept up to date from each drawing session and review (see "Updating
 this file"). `tools/sketch2therion` (`plan`, `tidy`, `sections`) follows
-it; keep to it when editing by hand too.
+it; keep to it when editing by hand too. This file is the source of
+truth: check every drawing run against every rule here, and record what
+a review teaches.
 
 Rules tagged **[lint: id]** are checked by `python3 -m tools.sketch2therion.th2lint`
 under that id; every id here has a check there, and the reverse. The other rules
 need a person to look at the render.
 
-Examples are from LongwoodValleySink. For another cave, read
-`<Cave>` for `LongwoodValleySink` and `<Cave>/Plan_only.thcfg` for its
-plan-only config.
+The rules are shared by every cave that uses these tools. Examples are
+from LongwoodValleySink (Cheddar Catchment). For another cave, read
+`<Cave>` for `LongwoodValleySink`, and its own build and check build
+(`thconfig`, `check_build` in `tools/project.toml`) for
+`Plan_only.thcfg` and `Whole_cave.thcfg`.
 
 ## Hard rules
 
@@ -52,8 +56,8 @@ file is worked out from reviews and may be tuned.
   `LongwoodValleySink/Plan_only.thcfg`). Older names (`thconfig`,
   `thconfig_A0plan`, SexyTopo's `X.thconfig`) stay as they are.
 - A survey `X` lives in `<Cave>/X/`, in `X.th`. Its drawings are named
-  by the survey and the view, as SexyTopo exports them (settings under
-  "Sketching in SexyTopo"). The plan is `XP.th2`, the extended elevation
+  by the survey and the view, as SexyTopo exports them (settings in
+  `sketching-guide.md`). The plan is `XP.th2`, the extended elevation
   `XEe.th2` (scraps `XSEe1`, …, in `map XMEe`; `XSE1` is an error, the
   user 2026-10-22) and a projected elevation `XE###.th2`, where `###` is
   the bearing looked towards in three digits (`XE000.th2`, `XE090.th2`,
@@ -95,13 +99,17 @@ file is worked out from reviews and may be tuned.
   sections alike, or add `-reverse on` if the passage is on its right.
 - A wall round an internal pillar has `-outline in`.
 - Do not bridge real gaps between walls with made-up lines: Therion
-  closes the outline itself (but ends that nearly meet are one point,
-  below). No invisible walls (`line wall -subtype invisible`)
+  closes the outline itself, joining each wall's end to the nearest free
+  end of another with a straight line (`thscrap::get_outline`), but ends
+  that nearly meet are one point (below). A converted sketch can be so
+  broken up that this joining goes wrong (it jumps across the passage,
+  or closes the outline early); only there does `tidy` keep a gap
+  filled, with the wall carried on across a short one or a presumed wall
+  across a longer one (`therion_chain` in `tidy.py` checks it). No
+  invisible walls (`line wall -subtype invisible`)
   **[lint: wall-invisible]**.
 - Every line has at least two points **[lint: line-points]**.
 - Never use `-outline none` on a wall **[lint: wall-outline-none]**.
-  Every outer line of the passage is drawn as a wall; a line inside the
-  passage is not a wall (see below).
 - The furthest drawn line out from the passage is the wall (the
   surveyor could only have drawn it by seeing it). Only in exceptional
   circumstances is it not a wall, and then it has `-outline out`, so it
@@ -125,8 +133,9 @@ file is worked out from reviews and may be tuned.
   out, walls run on past a corner cut back to it, two wall pieces ending
   together joined into one, a stray wall mark (under 0.5 m, joined to no
   other wall) dropped; anything left is reported to check.
-- Wall ends that nearly meet (under 0.3 m) are one point, in a scrap and
-  across a scrap join; a step or border ending on such an end moves with
+- Wall ends that nearly meet (under 0.3 m, relative to the legs nearby,
+  with a minimum) are one point, end to end (not across the passage), in
+  a scrap and across a scrap join; a step or border ending on such an end moves with
   it. A drawn line that joins two wall ends (to within 15 cm) is wall.
   Two free wall ends under 1 m apart, each the other's nearest, meet if
   each wall heads within 20 degrees of the other end (a gap in a wall:
@@ -158,18 +167,6 @@ file is worked out from reviews and may be tuned.
   the line's length and into the drawn passage, make the line inner
   (Connection 15); splays into passage not drawn yet, or past the line's
   end, don't (TridentLeft 35).
-- In an elevation, a passage seen across a line with nothing between is
-  the passage below or above it, not one beyond: the line is inner, the
-  floor of one and the roof of the other.
-- In an elevation, a line two or more splays straight up or down end
-  on, all from one side, with none from the other side reaching it, is
-  that side's floor or roof: a wall (BoldStep 1 and 4: the floor of 0
-  to 4, over the passage at 5 and 6).
-- In an elevation the splays straight up and down say which floor and
-  ceiling is which: a wall a scrap's station's splay ends on is that
-  scrap's (both scraps' if splays of each end on it), and a grey line two
-  or more splays end on is a wall, a floor or ceiling (Connection 22 to
-  26).
 - A splay crossing a line counts as passage beyond it only if it ends in
   the drawn passage (one up an aven doesn't: Connection 15 to 16).
 - Walls round an outline all run the same way (a short piece by a
@@ -212,15 +209,16 @@ file is worked out from reviews and may be tuned.
   a whole turn. `mp_turning` in `smooth.py` counts as MetaPost does;
   making the two walls one line, or turning their ends slightly off due
   west, fixes it (`review check` shows it).
-- Walls meet at exactly the same point: ends 0.3 units apart make a
-  backwards step that crosses the outline.
+- Walls meet at exactly the same point: ends 0.3 th2 units apart (a few
+  millimetres) make a backwards step that crosses the outline.
 - A curve fitted through a narrow tip can fold over itself: draw a tip
   through the sketch's corner points, with a sharp corner.
 - Bays and alcoves, where the wall bends in and out, are wall: do not
   let Therion close a bend with a straight line.
 - A pinch between two pools is a real narrowing of the walls.
-- A line inside the passage (a ledge, the edge of another level) is a
-  `line border`, not a wall.
+- A line inside the passage is never a wall: it is drawn as what it is,
+  a `line border` (a ledge, the edge of another level), a step, a
+  rock-border and so on.
 - A passage that drops below another (a rift under the main passage)
   is drawn in its own scrap or alongside. Its edge under the upper
   passage is a `line floor-step`, and the upper passage's edge over it a
@@ -242,7 +240,8 @@ file is worked out from reviews and may be tuned.
   meet exactly: the last point of one is the first of the other.
 - Where a passage was not sketched, walls may be drawn from the splays,
   as `line wall -subtype presumed`. Never guess a wall that neither the
-  sketch nor the splays show.
+  sketch nor the splays show, and never draw one only to close the
+  outline (below, "Do not draw a wall where nothing was sketched").
 - Where a new survey joins an earlier one's drawn plan at an equated
   station, the earlier plan's walls are cut back
   to where the new survey starts: its walls drawn on past the join,
@@ -283,14 +282,31 @@ file is worked out from reviews and may be tuned.
   |---|---|---|
   | `xl` | Area name | none yet |
   | `l` | Main passage | `[Triassic Tunnel]` (`Triassic/TriassicP.th2`) |
-  | `m` | Minor passage | `Century` (`Century/Centry.plan.th2`) |
+  | `m` | Minor passage | `Century` (`Century/CenturyP.th2`) |
   | `s` | Feature | `[Dig Face May 2018]` (`Triassic2/Triassic2P.th2`) |
-  | `xs` | Small note | `[Too Tight]` (`CyclopsEye/CyclopsEye.plan.th2`) |
+  | `xs` | Small note | `[Too Tight]` (`CyclopsEye/CyclopsEyeP.th2`) |
 
 ## Symbols: lines
 
 - Use the fewest points that follow the drawing, smooth in both
   directions.
+- Lines other than boulders are smooth: points only where the line
+  really bends, with splines, not every point of the sketch. How closely
+  a line follows the sketch goes with the length of the legs nearby (the
+  drawing is zoomed so that legs fit the screen), not a fixed distance.
+- No two nodes of a line so close that they cannot be told apart and
+  picked when editing (about 2% of the nearby legs' length, at least
+  5 cm; the check uses the 5 cm) **[lint: node-gap]**: where a line ends
+  on a wall, use the wall's node if one is that close, rather than adding
+  another beside it. How many nodes a line needs goes with how it bends:
+  a long sweep needs only a couple, an S bend more.
+- At a node, the control points either side are in line with it (a
+  smooth node) unless the line needs a sharp corner there.
+- A deliberate bulge or pocket in a wall is drawn; it is not a glitch to
+  smooth away. Clear corners stay sharp.
+- Walls follow the sketch closely (within about 2% of the nearby legs'
+  length), with nodes where the wall bends rather than where the hand
+  wobbled.
 - Rocks and boulders (`line rock-border`) are closed with `-close on`,
   ending exactly on the first point **[lint: rock-closed]**
   **[lint: close-on-first-point]**, and are not smoothed (no curve
@@ -300,7 +316,8 @@ file is worked out from reviews and may be tuned.
 - Large boulders get a `line rock-edge` inside them to look like 3D
   rocks.
 - A group of boulders is an area (`area blocks`, or `area debris` if
-  mostly small). A boulder on its own, or one large for the passage it
+  mostly small), not each rock drawn as well; an area stops at a trench
+  or step and does not cross to the other side. A boulder on its own, or one large for the passage it
   is in (a quarter of the passage's narrowest width across it or more,
   also within a group), is drawn as a rock. Rocks in cross sections are
   drawn (closed brown loops there are rocks, not the section's outline).
@@ -308,7 +325,7 @@ file is worked out from reviews and may be tuned.
   angular and roughly convex (the hull of the sketched loop cut to 5 to 8
   corners by size, corners at least 6 cm apart), its rock edges
   (`line rock-edge`, before the rock in the file: after it they are drawn
-  under its fill and do not show, Slingtastic 2026-10-22) in one of three
+  under its fill and do not show, Slingtastic 2026-10-22) in one of four
   styles, picked for
   each rock (the same every run) so they don't all look alike:
   - a line across (about 35%), corner to a corner about opposite (two
@@ -322,7 +339,8 @@ file is worked out from reviews and may be tuned.
   meeting there, as at a corner of a solid, usually going out to corners
   of the outline. Every end of a rock edge is on a point: a node of the
   rock's border or of another rock edge, never loose inside the rock (a
-  ridge runs on to a corner; the user, 2026-10-22). Rocks lower on the page are drawn later, in front. Not
+  ridge runs on to a corner; the user, 2026-10-22). As few edge lines
+  as the rock needs, one where its pieces share a point. Rocks lower on the page are drawn later, in front. Not
   copied from other drawings.
 - Walls that are rock or debris keep their subtype
   (`line wall -subtype debris`, `-subtype blocks`): drawn rocks do not
@@ -342,10 +360,10 @@ file is worked out from reviews and may be tuned.
   - significant boundaries and low steps under 20 cm: `line border`;
   - 20 cm to 2 m and easily climbed: `line floor-step`;
   - harder climbs and anything over 2 m: `line pit`.
-- The low side is the left of the line's direction (see above).
-  Existing LongwoodValleySink drawings use `line pit` both ways round
-  (45 plain, 17 with `-reverse on`): check old ones when they are next
-  edited.
+- The low side is the left of the line's direction (see below). It is
+  where the water is (flow arrows, pools), not necessarily where the
+  survey line runs. One line per step, and steps do not run through the
+  water (Swildons review).
 - Use `line overhang`, not `line ceiling-step`, for ceiling steps and
   overhangs (dashed lines with a tick on each dash in the sketch).
   **[lint: ceiling-step]**
@@ -377,9 +395,29 @@ file is worked out from reviews and may be tuned.
   it, rather than following the wall point by point.
 - Individually drawn rocks can be above or below the water; this needs
   careful ordering and use of clipping.
+- An area needs room to draw its symbols: leave out thin parts (under
+  about 0.5 m) and small areas; this matters most for boulders and debris.
+- An area mostly outside the walls (rocks drawn along the wall) is not
+  drawn. Areas run only just over the walls (about 0.15 m): more makes
+  odd shapes and is not needed.
+- Areas (not water) spread out from what is drawn in them to fill the
+  space they belong to, but stop at walls, steps and longer borders; one
+  area over a boulder floor, not each rock outlined.
 
 ## Extended elevations
 
+- A passage seen across a line with nothing between is
+  the passage below or above it, not one beyond: the line is inner, the
+  floor of one and the roof of the other.
+- A line two or more splays straight up or down end
+  on, all from one side, with none from the other side reaching it, is
+  that side's floor or roof: a wall (BoldStep 1 and 4: the floor of 0
+  to 4, over the passage at 5 and 6).
+- The splays straight up and down say which floor and
+  ceiling is which: a wall a scrap's station's splay ends on is that
+  scrap's (both scraps' if splays of each end on it), and a grey line two
+  or more splays end on is a wall, a floor or ceiling (Connection 22 to
+  26).
 - In a pitch the passage reaches sideways from the legs to the walls on
   each side, as far as the side splays go: a shaft's walls are often
   drawn far from its legs (OIAS_V2, 2026-10-22; `pitch_fill`).
@@ -398,22 +436,23 @@ file is worked out from reviews and may be tuned.
   rubble, not ticks.
 - A closed black loop with the survey passing above and below it (a loop
   in the data) is a pillar, `line wall -outline in -close on`, not a rock
-  (TritonSouth 13 to 21, `equate 13 21`: the user).
+  (TritonSouth 13 to 21, `equate 13 21`: the user). Pillars can be in
+  plan or elevation, and may be mud (not enough data yet for a rule on
+  mud pillars).
 - A floor drawn only as a row of boulders or brown curls (no line under
   them) is still a floor: `line wall -subtype debris` through the tops of
   the rocks, smoothed over 1 m (BoldStep 12 to 11, user: the rocks are
   only drawn; imagine a line through their tops). Where a floor line is drawn under the row,
   through it or just over it (up to 0.5 m: FairyChimneys 25 to 28, small
   rocks drawn hanging under the line), the line is the floor and the row
-  is only its debris: no second wall (hard rule 2). A row of straight brown dashes is mud
-  marked on a floor drawn elsewhere, not a floor. The subtype goes on the line, `line wall -subtype sand`, never
+  is only its debris: no second wall (hard rule 2). A row of straight
+  brown dashes is mud
+  marked on a floor drawn elsewhere, not a floor.
+- The subtype goes on the line, `line wall -subtype sand`, never
   on a point (`subtype sand` among the points: Therion takes it, but it
   is hard to follow when editing), and does not change along a line: a
   wall that changes is drawn as one line per kind, meeting end to end.
   Colour is only a hint: shape decides.
-- A line inside the passage is never a wall (no `-outline none`): every
-  outer line is a wall, and inner lines are drawn as what they are
-  (border, ledge, step, rock-border and so on).
 - A pool is an `area water` in an invisible closed border whose first two
   points are its surface, the second with `adjust horizontal` so the
   surface is level. In an elevation, blue strokes meeting end to end are
@@ -435,11 +474,11 @@ file is worked out from reviews and may be tuned.
   extended drawing's lines (its th2, from the extended xvi) must still
   decide it (the user, 2026-10-22). `projected`, `unfold` and `joins`
   still read the database for now.
-- For now (walls parked): one scrap, `XSE315_1`, with the stations on the
-  dots of `XE315.xvi`, laid out as `tools/ElevationsExx.py` does
-  (xvi units, offset from the lowest station, the xvi as backdrop). The
-  walls are drawn round them. The rules below are for when the walls are
-  generated again.
+- For now the walls are parked: `projected X [--file]` makes one scrap,
+  `XSE315_1`, with only the stations, on the dots of `XE315.xvi` (in
+  the xvi's units, offset from the lowest station, the xvi as backdrop),
+  and the walls are drawn round them by hand (log row 131). The rules
+  below on generated or projected walls are for `projected X --walls`.
 - Generated walls (`projected X --walls --out DIR`, for review, not
   filed) are in the xvi's units, offset from its lowest station, as the
   stations-only scrap and the hand-drawn 315s are, so walls and stations
@@ -492,7 +531,7 @@ file is worked out from reviews and may be tuned.
   centreline of X alone so projected; `X.th` inputs it with `map XME315`, and `XME315@X` is in
   `LongwoodValleySinkM315` (`LongwoodValleySink.th`).
 - Walls only, drawn from the extended elevation
-  (`python3 -m tools.sketch2therion projected X --file`): a wall point
+  (`python3 -m tools.sketch2therion projected X --walls --file`): a wall point
   keeps its place along its nearest leg and its height above or below
   it; its offset along the passage is scaled by how much of the leg is
   seen across the view. A wall keeps its subtype; where the view mirrors
@@ -676,8 +715,6 @@ file is worked out from reviews and may be tuned.
   on another scrap's (TridentLeft PX6 was joined to the plan's wall
   beside it).
 
-- `line section` goes completely across the passage, and about 0.5 m
-  past it, so the arrows are clear of the walls.
 - Direction arrows do not overlap the passage they mark, and best not
   other passages.
 - Every section line has its arrows **[lint: section-direction]**:
@@ -686,8 +723,9 @@ file is worked out from reviews and may be tuned.
 - Therion draws the arrows on the line's left, so draw the line with
   the view direction (along the survey, from the station towards the
   next) on its left.
-- On the plan, a section line goes evenly across its passage: the same
-  distance (0.5 m) past the wall on each side, not far from it. Where an
+- A `line section` goes completely across its passage, evenly: the
+  same distance (0.5 m) past the wall on each side, so the arrows are
+  clear of the walls, and not far from it. Where an
   arrow would land in another part of the passage it comes in (to
   0.1 m), and in the extreme that side's arrow is left off (the user,
   2026-10-15).
@@ -700,19 +738,31 @@ file is worked out from reviews and may be tuned.
   moved or redrawn: it stays over its sketch in the backdrop (the user,
   2026-10-22).
   `python3 -m tools.sketch2therion sections` fixes both (see
-  `tools/README.md`).
+  `README.md`, "A new trip").
 
 ## Layouts
 
+- Water is always blue, so passages never are (the altitude colours
+  avoid blue).
 - Water: solid blue. Sump: a darker solid blue. Water flow: the same
   colour as water.
 - Text sizes as in the table above.
 
-## Sketching in SexyTopo
+## Reading the sketch
+
+How the converter reads a SexyTopo or PocketTopo sketch. How to sketch
+underground, and SexyTopo's export settings, are in `sketching-guide.md`.
+
 
 - The drawing tools take the legs and splays from the sketch (`.xvi`),
   never from Therion's database or a layout Therion generates, so they
   run on any survey from its sketch and `.th` (the user, 2026-10-22).
+  A drawing's stations are where the sketch put them, before Therion
+  averages the survey, and are never compared with Therion's (the user,
+  2026-11-01). Therion's layout is read only to name the survey's
+  stations (`check`) and to put the cave's drawings in one frame
+  (`sections`, `joins`, `review`); `projected` and `unfold` still read
+  the database until the change planned under "Projected elevations".
 - Text is SexyTopo's own: the labels in its Therion export (`point …
   label -text "…" -scale …`) are carried into the drawing exactly as
   written, every one a `label`; their letters, which SexyTopo also draws
@@ -726,8 +776,6 @@ file is worked out from reviews and may be tuned.
   are fills: an area of sand and pebbles; stalactites and stalagmites,
   blocks), which are in its JSON only (a SexyTopo bug). The tools do not read the JSON; for OIAS_V2
   they were added once by hand. To be fixed in SexyTopo, or read later.
-- Sketch both the plan and the extended elevation, and cross sections
-  where the passage shape matters.
 - Colour is only a guide: what a line is depends on its type and where it
   is. An outer line, with passage on one side only, is a wall whatever its
   colour or marks (OIAS Entrance's gully, drawn brown with ticks; the
@@ -737,11 +785,14 @@ file is worked out from reviews and may be tuned.
   - brown: mud, sand, debris and boulders, on a wall or across the
     passage (in an elevation the floor, the lower wall, often): boulders and debris are closed loops, told apart
     by size (boulders drawn singly or as an area); sand is dots or
-    dashes (mud too: no clay), always as area fills; other brown lines are steps in mud;
+    dashes (mud too: no clay), always as area fills; other brown lines are steps in mud.
+    "Floor" is only the name for the lower wall in an elevation,
+    whatever it is made of;
   - grey: ceiling steps, but also floor steps, pitches and channels;
   - colours are hints and are sometimes wrong: the notation decides;
-  - blue: water (a closed outline is a pool, kept to its sketched
-    outline: not run along a wall it only touches);
+  - blue: water (a closed outline, perhaps hatched, is a pool, kept to
+    its sketched outline: not run along a wall it only touches; a
+    squiggle with an arrow is water flowing that way);
   - green: flowstone and pretties (area fills, and point symbols for the
     different stals); solid green lines are gours (`line rimstone-dam`),
     but shape decides (below: ^ marks are flowstone, a line on a wall is
@@ -754,18 +805,21 @@ file is worked out from reviews and may be tuned.
     symbols are coming to SexyTopo). Purple will also be a clue to
     scraps once there are sketches using it (`colour_map` in
     `[convert]`; the user, 2026-10-14).
-  - notes (P for a pitch, C for a climb) are SexyTopo text, new in
-    SexyTopo, not strokes.
-- A step or pitch is shown by its symbol (the ticks), not its colour: it
-  can be any colour (brown for a step in mud).
+- A step or pitch is shown by its symbol (the ticks), not its colour:
+  generally grey, but brown for mud or a boulder edge and green for a
+  large calcite dam.
 - Short jogs in a wall where the sketcher's strokes did not meet are not
   features: the wall is drawn through them. The same goes for a wall
   stroke started again a little beside the last (the outer one is the
-  wall) and for small gaps in a border.
+  wall) and for small gaps in a border. Kinks and folds are conversion
+  faults, never cave, and are removed: a point where a line steps back on
+  itself over a short distance, or a wall stub under 30 cm turning back
+  off another wall's end (Swildons review).
 - A stroke drawn on as the wall is wall all along, even where a border
   comes off it close by. Splays ending on a stroke show it is a wall.
 - Pitches and floor steps are often drawn alike: a P near the line means
-  a pitch, a C one depending on its height. The converter cannot read
+  a pitch, a C one depending on its height (notes are SexyTopo text, not
+  strokes). The converter cannot read
   these notes and draws a floor step: check each one.
 - Draw only what the plan sketch shows: no steps, pitches, labels or
   slope arrows inferred from the survey data or the elevation sketch.
@@ -791,8 +845,6 @@ file is worked out from reviews and may be tuned.
 - Closed loops are boulders (about 0.3 m across or more) or debris
   (smaller), whatever their colour: a green loop on its own is a boulder,
   only rings inside one another are a formation.
-- An area needs room to draw its symbols: leave out thin parts (under
-  about 0.5 m) and small areas; this matters most for boulders and debris.
 - Gours (`line rimstone-dam`) are smooth, regular arcs, not every wobble
   of the hand sketch. A ^ (a short stroke bent sharply) is a flowstone
   mark, never a gour.
@@ -814,97 +866,34 @@ file is worked out from reviews and may be tuned.
   south). One ending on a leg, out in the passage, is a gour (Trident by
   the junction, kept by the user). A green line drawn on from one of
   these, in line with it, goes with it.
-- Where there are several boulders or much debris, use an area
-  (`area blocks` or `area debris`) rather than drawing each one as well;
-  an area stops at a trench or step and does not cross to the other
-  side. A single boulder is a `line rock-border` (straight sides, not
-  smoothed) with its `line rock-edge` before it in the file, one edge line
-  where its pieces share a point.
-- Lines other than boulders are smooth: points only where the line
-  really bends, with splines, not every point of the sketch. How closely
-  a line follows the sketch goes with the length of the legs nearby (the
-  drawing is zoomed so that legs fit the screen), not a fixed distance.
-- Walls the sketcher did not quite join are joined: their ends meet
-  exactly, end to end (not across the passage). Too close to see is
-  relative to the legs nearby, with a minimum.
-- No two nodes of a line so close that they cannot be told apart and
-  picked when editing (about 2% of the nearby legs' length, at least
-  5 cm; the check uses the 5 cm) **[lint: node-gap]**: where a line ends
-  on a wall, use the wall's node if one is that close, rather than adding
-  another beside it. How many nodes a line needs goes with how it bends:
-  a long sweep needs only a couple, an S bend more.
-- An area mostly outside the walls (rocks drawn along the wall) is not
-  drawn. Areas run only just over the walls (about 0.15 m): more makes
-  odd shapes and is not needed.
-- Areas (not water) spread out from what is drawn in them to fill the
-  space they belong to, but stop at walls, steps and longer borders; one
-  area over a boulder floor, not each rock outlined.
-- At a node, the control points either side are in line with it (a
-  smooth node) unless the line needs a sharp corner there.
-- A short line (2 nodes, sometimes 3 or 4) that meets a line of the same
-  kind end to end is part of it: one line, not several. A line sketched
-  in pieces with small gaps is one line too.
 - Lines of different kinds ending close together share the end (a
   border running on as a floor step, then a pitch).
-- A deliberate bulge or pocket in a wall is drawn; it is not a glitch to
-  smooth away. Clear corners stay sharp.
 - Mud dashes beside a line are mud, not the ticks of a step; an area of
   rocks stays on its side of the line, the mud on the other.
 - Do not draw a wall where nothing was sketched: no presumed walls to
-  close an outline; leave the gap for Therion.
+  close an outline; leave the gap for Therion. Walls from the splays
+  where a passage was not sketched are another matter ("Walls and the
+  outline").
 - Where two passages, or the two sides of a bend, come close, the rock
   between them is rock: their walls are walls, not borders, and the
   passage's fill does not cross between them.
 - A small loop off a wall, left open where it meets it, is part of the
   wall (a projection the wall goes round), not a boulder.
-- Walls follow the sketch closely (within about 2% of the nearby legs'
-  length), with nodes where the wall bends rather than where the hand
-  wobbled.
-- A cross section is its own scrap, drawn over its sketch (hard rule 7).
-- A boulder's edge lines meet at a ridge point and end on its corners;
-  more than one may be needed, but as few as possible.
-- The guide for surveyors is the Claude Doc "Sketching in SexyTopo"
-  (the user's, 2026-10-14); what it adds is kept here:
-  - SexyTopo 1.12.3 or later. Export settings: plan file suffix `P`,
-    plan scrap suffix `SP#`, plan cross section suffix `SX#`; extended
-    elevation file suffix `Ee`, scrap suffix `SEe#`, vertical
-    cross section suffix `SVX#`, horizontal (plan-view) cross section
-    suffix `SHX#`; XVI folder `Notes` (the xvi files named after the
-    th2 files, one for each cross section too, new in SexyTopo); export
-    folder name blank and the export subtype box unticked. `#` is a
-    scrap's number, or a cross section's station. The converter reads
-    only the xvi sketches and names its own scraps (`XPX5`, `XEX5`), so
-    these names do not change what it draws.
-  - Trip information: the date, each person's role (the sketcher as
-    `notes`) and the cave's licence (above).
-  - Splay a cross section at every station, the first and last too,
-    even where one was taken before. Every passage has a leg down it,
-    even where nobody can get there. The passage is drawn on a little
-    past the last station, and a survey never stops at a junction: if
-    the last station is one, a little of each passage is drawn.
-  - Elevations have cross sections too: vertical ones (the usual kind)
-    and horizontal ones (drawn in plan view). Horizontal sections are
-    new: no data yet, so the converter has no rule for them.
-  - Notes (P for a pitch, C for a climb) are SexyTopo text, not strokes.
-  - Brown is always mud, sand, debris or boulders (rocks), on a wall or
-    across the passage. "Floor" is only the name for the lower wall in
-    an elevation, whatever it is made of.
-  - Surveyors call an overhang in an elevation a traverse: the same
-    thing, a line with ticks hanging from one side (`line overhang`).
-  - Pillars can be in plan or elevation, and may be mud (not enough
-    data yet for a rule on mud pillars).
-  - Steps and pitches are shown by their ticks, generally grey, but
-    brown for mud or a boulder edge and green for a large calcite dam.
-  - Water: a closed blue outline (perhaps hatched) is a pool; a blue
-    squiggle with an arrow is water flowing that way.
-  - What was written for elevations holds for plans too: a closed loop
-    the survey goes round is a pillar; a wall's colour says what it is
-    (black rock, brown sand or mud, green flowstone); a wall of
-    boulders with no line drawn runs through their tops, a line drawn
-    under or through them is the wall and the boulders its debris; a
-    row of short straight brown dashes on a wall line is mud. (The
-    converter does these in elevations only so far, except green walls,
-    in plans too.)
+- SexyTopo's own scrap names (its export settings) do not change what
+  is drawn: the converter reads only the xvi sketches and names its own
+  scraps (`XPX5`, `XEX5`).
+- Horizontal cross sections (drawn in plan view, in an elevation) are
+  new: no data yet, so the converter has no rule for them.
+- Surveyors call an overhang in an elevation a traverse: the same
+  thing, a line with ticks hanging from one side (`line overhang`).
+- What was written for elevations holds for plans too: a closed loop
+  the survey goes round is a pillar; a wall's colour says what it is
+  (black rock, brown sand or mud, green flowstone); a wall of
+  boulders with no line drawn runs through their tops, a line drawn
+  under or through them is the wall and the boulders its debris; a
+  row of short straight brown dashes on a wall line is mud. (The
+  converter does these in elevations only so far, except green walls,
+  in plans too.)
 
 ## Git and CI
 
@@ -915,41 +904,41 @@ file is worked out from reviews and may be tuned.
 
 ## Checking
 
-Build with `therion -l ../output/therion.log Plan_only.thcfg` in
-`LongwoodValleySink/`, then (logs in `output/`):
+Build the cave's build (`thconfig` in `tools/project.toml`; for
+LongwoodValleySink `therion -l ../output/therion.log Plan_only.thcfg` in
+`LongwoodValleySink/`), then (logs in `output/`):
 
 - `grep -E "^therion: error|invalid scrap outline" output/*.log`:
   there should be none.
 - `grep "intersects itself" output/*.log | sort -u`: only scraps you
   didn't touch.
-- `python3 -m tools.sketch2therion.th2lint --from LongwoodValleySink/Plan_only.thcfg`
-  is clean.
+- `python3 -m tools.sketch2therion.th2lint --from <Cave>/Plan_only.thcfg`
+  (the cave's build) is clean.
+- Open edited files in xTherion and select a few lines: it reports no
+  errors.
 - `python3 -m tools.sketch2therion review check X/XP.th2`: every
   outline valid and its turning number not 0 (0 is MetaPost's
   "intersects itself"), before building; and no "second wall on one side
   of the passage" (hard rule 2: an outer wall within 1 m behind another,
   seen from the nearest station, for 1 m or more).
-- `review show` (see `tools/README.md`): the drawing beside the sketch
+- `review show` (see `README.md`, "Reviewing a drawing"): the drawing beside the sketch
   round the new stations, with someone who knows the cave.
 - Render and look. poppler (pdftoppm, Evince, Okular) can show white
   holes in Therion's smooth altitude shading that are not in the PDF;
   check with another renderer (MuPDF) before chasing them.
 - PDF viewers show overlapping rocks fading rather than clipping; this
   is a viewer fault, do not try to fix it.
-
-- This file is the source of truth: check every drawing run against
-  every rule here, and record what a review teaches.
 - At the end of every run that edits th2 files, build the whole cave in
   plan, extended elevation and 315 projected elevation, from one config
-  (`LongwoodValleySink/Whole_cave.thcfg`, PDFs and SVGs in
+  (the check build, `check_build` in `tools/project.toml`; for
+  LongwoodValleySink `Whole_cave.thcfg`, PDFs and SVGs in
   `LongwoodValleySink/Outputs/WholeCave*`), and check legs and splays
   against the fill: `python3 -m tools.sketch2therion fillcheck --build
   [--survey X ...]` (report in `output/check/fillcheck.txt`). The SVGs
   draw the same as the PDFs.
 - Check the PDF after processing drawings. The coloured fill shows
   where Therion thinks the passage is (inside the walls). Legs and
-  splays are all inside the fill, except at passage ends where the
-  continuation is not drawn yet. A splay end may occasionally go
+  splays are all inside the fill (hard rule 5). A splay end may occasionally go
   outside a wall: record it as a thing to check if it is outside by
   more than 0.5 m.
 
