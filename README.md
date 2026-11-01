@@ -15,6 +15,7 @@ is followed.
 | `rules.toml` | The same rules as settings for the converter. |
 | `*.py` | The converter (`python3 -m tools.sketch2therion`), its checks (`review`, `fillcheck`) and `th2lint`. |
 | `requirements.txt` | Python libraries (`pip install -r tools/sketch2therion/requirements.txt`). |
+| `tests/` | The tools' tests, run in a small test cave (`tests/cave`). |
 
 ## Using it in a cave's repository
 
@@ -51,6 +52,24 @@ python3 -m tools.sketch2therion.th2lint --from Cave/thconfig
 ```
 
 The steps for a new trip are in the cave's `tools/README.md`.
+
+## Tests
+
+From the top of this repository, with the libraries in
+`requirements.txt` and pytest:
+
+```bash
+python3 -m pytest -q tests
+```
+
+They run in `tests/cave`, a test cave laid out as a cave's repository
+is, so they reach the tools as `tools.sketch2therion`, as a cave does,
+and use the house rules as they are (its `[convert]` is empty). A test
+of the tools goes here, with the strokes it needs made up in the test,
+or on one of the few real sketches kept in the test cave
+(`tests/cave/TestCave`, from the Cheddar Catchment survey, GPLv3.0+
+here). A test of a cave's own drawings, settings or build stays in that
+cave's repository.
 
 ## Converting a drawing
 
