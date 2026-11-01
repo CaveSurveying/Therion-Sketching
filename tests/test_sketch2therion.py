@@ -24,8 +24,10 @@ except ImportError:
 
 
 def normalise(text):
-    """What may differ from upstream: line endings, licence line, converter version, backdrop path."""
+    """What may differ from upstream: line endings, licence line, converter version, backdrop path,
+    and the note on how the scraps were chosen (upstream split them to fit Therion's layout)."""
     text = text.replace("\r\n", "\n")
+    text = re.sub(r"^# (Split into one scrap per group|One scrap per sketch).*\n", "", text, flags=re.M)
     text = re.sub(r"(by tools/sketch2therion) \S+ \(", r"\1 (", text)
     text = re.sub(r"^# Licence: .*\n", "", text, flags=re.M)
     return re.sub(r"^##XTHERION## xth_me_image_insert .*\n", "", text, flags=re.M)
@@ -41,7 +43,7 @@ class ConverterTest(unittest.TestCase):
         from tools.sketch2therion.__main__ import main
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
-            main(list(args) + ["--layout", os.path.join(self.tmp, "no-layout.xvi")])
+            main(list(args))
         return out.getvalue()
 
     def sketch(self, survey, name):

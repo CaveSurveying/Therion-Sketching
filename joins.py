@@ -17,7 +17,10 @@ earlier survey kept (black), the new survey (blue) and what is deleted
 (red). With --write the earlier plan files are changed.
 
 Both drawings are put in the cave's coordinates (Therion's plan layout,
-output/layout-plan.xvi) by fitting each scrap to its stations.
+output/layout-plan.xvi) by fitting each scrap to its stations. They could
+instead be lined up by their own th2 station positions at the equate
+(both are drawn north up at the same scale). There is no fallback: a scrap
+with fewer than two stations Therion knows is left out.
 """
 import argparse
 import math

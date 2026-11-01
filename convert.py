@@ -988,79 +988,20 @@ def section_line(geo, n, px):
     return ["line section -direction both", "  %.2f %.2f" % px(a), "  %.2f %.2f" % px(b), "endline", ""], perp, hw
 
 
-def place_sections(geo, made, px, placed):
-    """Put cross sections drawn in a side view beside the passage on the plan,
-    clear of other passages and of each other."""
-    obst = geo.obstacles()
-    o = []
-    for n, name, _c, W, H in made:
-        if n not in geo.pos:
-            continue
-        lines, perp, hw = section_line(geo, n, px)
-        o += lines
-        P = geo.pos[n]
-        r = max(W, H) / 2
-        spot = None
-        for extra in (1.0, 2.5, 4.5, 7.0, 10.0, 14.0):
-            for s in (1, -1):
-                d = hw + r + extra
-                c = (P[0] + perp[0] * s * d, P[1] + perp[1] * s * d)
-                bb = box(c[0] - W / 2, c[1] - H / 2, c[0] + W / 2, c[1] + H / 2).buffer(0.4)
-                if not bb.intersects(obst) and not any(bb.intersects(q) for q in placed):
-                    spot = (c, extra)
-                    break
-            if spot:
-                break
-        if not spot:
-            spot = ((P[0] + perp[0] * (hw + r + 1), P[1] + perp[1] * (hw + r + 1)), None)
-        c, extra = spot
-        placed.append(box(c[0] - W / 2, c[1] - H / 2, c[0] + W / 2, c[1] + H / 2))
-        o += ["point %.2f %.2f section -scrap %s" % (*px(c), name), ""]
-        if extra is None or extra > 2.5:
-            # far from its cut: label both ends with the station so they can be matched
-            b = (P[0] + perp[0] * (hw + 0.6), P[1] + perp[1] * (hw + 0.6))
-            t = n.split('@')[0]
-            o += ['point %.2f %.2f label -text "%s" -scale xs' % (*px(b), t), "",
-                  'point %.2f %.2f label -text "%s" -scale xs' % (*px((c[0], c[1] + H / 2 + 0.8)), t), ""]
-    return o
-
-
 # -- whole scraps --------------------------------------------------------------------
 
-def _split(sketch, layout, survey, tol):
-    """Station groups that fit Therion's layout with one shift each.
-
-    Not used for drawing (plan stage 5d): Therion morphs each scrap onto
-    its stations, and stations move as other surveys join, so a drawing is
-    never split or flipped to fit where Therion puts the stations today.
-    The conversion passes no layout; `check` reports the disagreement."""
-    pos = sketch.positions()
-    if layout is None:
-        return sketch, [list(pos)], False
-    sk, offs, flipped = register.fit(sketch, layout, survey)
-    gs = register.groups(offs, tol)
-    # stations Therion doesn't place once go with the nearest grouped station
-    pos = sk.positions()
-    member = {n: i for i, g in enumerate(gs) for n in g}
-    for n in pos:
-        if n not in member and member:
-            m = _nearest({k: pos[k] for k in member}, pos[n])
-            gs[member[m]].append(n)
-            member[n] = member[m]
-    return sk, gs or [list(pos)], flipped
-
-
-def _converting(sketch, opt, layout, tol, convert, *args):
+def _converting(sketch, opt, convert, *args):
     """What plan and extended conversions share before they part: slips of
-    the pen cut out ([glitches]), the sketch split to fit the layout, the
-    local scale set (scale.factor) while `convert(sketch, groups, flipped,
-    *args)` runs."""
+    the pen cut out ([glitches]), the local scale set (scale.factor) while
+    `convert(sketch, groups, *args)` runs, with every station in one group
+    (one scrap unless chosen by hand). The drawing keeps the sketch's own
+    station positions: it is never split or flipped to fit Therion's
+    layout, as Therion morphs each scrap onto its stations (plan stage 5d)."""
     if getattr(opt, 'glitches', None):        # slips of the pen ([glitches] in project.toml)
         sketch.lines = cut_glitches(sketch.lines, opt.glitches)
-    sketch, groups, flipped = _split(sketch, layout, opt.survey, tol)
     scale.use_splays(sketch)                  # marks drawn bigger in a bigger passage (scale.factor)
     try:
-        return convert(sketch, groups, flipped, *args)
+        return convert(sketch, [list(sketch.positions())], *args)
     finally:
         scale.use_splays()
 
@@ -1076,12 +1017,12 @@ def _start(sketch, opt, view):
     return K, pos, px, xs_text, made, lines
 
 
-def plan(sketch, opt, out_path, layout=None, floor=None, tol=3.0):
+def plan(sketch, opt, out_path, floor=None):
     """th2 text for a plan sketch."""
-    return _converting(sketch, opt, layout, tol, _plan_split, opt, out_path, floor)
+    return _converting(sketch, opt, _plan_split, opt, out_path, floor)
 
 
-def _plan_split(sketch, groups, flipped, opt, out_path, floor):
+def _plan_split(sketch, groups, opt, out_path, floor):
     K, pos, px, xs_text, made, lines = _start(sketch, opt, 'P')
     geo = PlanGeometry(pos, sketch.shots)
     scale.use(                            # the legs nearby set how closely lines follow the sketch
@@ -1184,25 +1125,24 @@ def _plan_split(sketch, groups, flipped, opt, out_path, floor):
             scraps.append(name)
             polys_all.append(poly)
     anchor = next(iter(pos)) if pos else ''
-    head = header(sketch.path if sketch.path.lower().endswith('.xvi') and not flipped else None,
+    head = header(sketch.path if sketch.path.lower().endswith('.xvi') else None,
                   out_path, anchor, px(pos[anchor]) if anchor else (0, 0), polys_all, px)
     note = [converted_note(sketch, 'plan'),
             "# Not hand-finished: check flow arrows and anything the conversion missed.", ""]
     return "\n".join(head + note + body + xs_text), scraps, [m[1] for m in made]
 
 
-def extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, below=3.0, above=5.0):
-    """th2 text for an extended-elevation sketch, plus a plan scrap placing
-    its cross sections (if Therion's plan layout is given)."""
+def extended(sketch, opt, out_path, below=3.0, above=5.0):
+    """th2 text for an extended-elevation sketch."""
     if SETTINGS['elevation_wall_colours']:
         # in an elevation the floor is often drawn in another colour (brown) than the roof
         keep = SETTINGS['wall_colours']
         SETTINGS['wall_colours'] = SETTINGS['elevation_wall_colours']
         try:
-            return _extended(sketch, opt, out_path, layout, plan_layout, tol, below, above)
+            return _extended(sketch, opt, out_path, below, above)
         finally:
             SETTINGS['wall_colours'] = keep
-    return _extended(sketch, opt, out_path, layout, plan_layout, tol, below, above)
+    return _extended(sketch, opt, out_path, below, above)
 
 
 def _lumpy(pp, simplify=0.15, ratio=1.3, closed=0.1):
@@ -1646,11 +1586,11 @@ def cut_glitches(lines, boxes):
     return out
 
 
-def _extended(sketch, opt, out_path, layout=None, plan_layout=None, tol=1.5, below=3.0, above=5.0):
-    return _converting(sketch, opt, layout, tol, _extended_split, opt, out_path, plan_layout, below, above)
+def _extended(sketch, opt, out_path, below=3.0, above=5.0):
+    return _converting(sketch, opt, _extended_split, opt, out_path, below, above)
 
 
-def _extended_split(sketch, groups, flipped, opt, out_path, plan_layout, below, above):
+def _extended_split(sketch, groups, opt, out_path, below, above):
     K, pos, px, xs_text, made, lines = _start(sketch, opt, 'E')
     # dashed lines found before the strokes are shared out between scraps (one crossing two
     # scraps would break into runs too short to count)
@@ -1768,34 +1708,9 @@ def _extended_split(sketch, groups, flipped, opt, out_path, plan_layout, below, 
             scraps.append(name)
             polys_all.append(poly)
 
-    xs_plan = []
-    if made and plan_layout is not None:
-        ppos = {}
-        for n, *_ in made:
-            ps = plan_layout.find(n, opt.survey)
-            if ps:
-                ppos[n] = ps[0]
-        # every station and shot nearby, for direction, width and clearance
-        allpos = {}
-        for (nm, sv), ps in plan_layout.by_name.items():
-            allpos.setdefault(f"{nm}@{sv}", ps[0])
-        geo = PlanGeometry(allpos, plan_layout.shots)
-        key = {n: f"{n}@{opt.survey}" if f"{n}@{opt.survey}" in allpos else
-               next((k for k in allpos if k.split('@')[0] == n), None) for n in ppos}
-        madek = [(key[n], name, c, W, H) for n, name, c, W, H in made if key.get(n)]
-        if madek:
-            pname = f"{opt.name}XS"
-            xs_plan = [f"scrap {pname} -projection plan{opt.attrs(K)}", "",
-                       "# Where each cross section is cut (line section) and drawn (point section).", ""]
-            xs_plan += place_sections(geo, madek, px, [])
-            for k in opt.stations([k for k, *_ in madek]):
-                xs_plan += ["point %.2f %.2f station -name %s" % (*px(allpos[k]), opt.station(k.split('@')[0])), ""]
-            xs_plan += ["endscrap", ""]
     anchor = next(iter(pos)) if pos else ''
-    head = header(sketch.path if sketch.path.lower().endswith('.xvi') and not flipped else None,
+    head = header(sketch.path if sketch.path.lower().endswith('.xvi') else None,
                   out_path, anchor, px(pos[anchor]) if anchor else (0, 0), polys_all, px)
     note = [converted_note(sketch, 'extended elevation'),
-            ("# Split into one scrap per group of stations that fits Therion's layout." if SETTINGS['layout_split'] else
-             "# One scrap per sketch, or as chosen by hand ([scraps_extended] in tools/project.toml)."), ""]
-    plan_scraps = [f"{opt.name}XS"] if xs_plan else []
-    return "\n".join(head + note + body + xs_text + xs_plan), scraps, [m[1] for m in made], plan_scraps
+            "# One scrap per sketch, or as chosen by hand ([scraps_extended] in tools/project.toml).", ""]
+    return "\n".join(head + note + body + xs_text), scraps, [m[1] for m in made]
