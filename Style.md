@@ -1,4 +1,4 @@
-# Drawing Therion scraps in the Cheddar Catchment survey
+# Drawing Therion scraps
 
 How to draw or edit Therion scraps (`.th2`) and what to check afterwards.
 It started from a Therion expert's review of converted drawings and is
@@ -10,9 +10,11 @@ Rules tagged **[lint: id]** are checked by `python3 -m tools.sketch2therion.th2l
 under that id; every id here has a check there, and the reverse. The other rules
 need a person to look at the render.
 
-Examples are from LongwoodValleySink. For another cave, read
-`<Cave>` for `LongwoodValleySink` and `<Cave>/Plan_only.thcfg` for its
-plan-only config.
+The rules are shared by every cave that uses these tools. Examples are
+from LongwoodValleySink (Cheddar Catchment). For another cave, read
+`<Cave>` for `LongwoodValleySink`, and its own build and check build
+(`thconfig`, `check_build` in `tools/project.toml`) for
+`Plan_only.thcfg` and `Whole_cave.thcfg`.
 
 ## Hard rules
 
@@ -95,8 +97,13 @@ file is worked out from reviews and may be tuned.
   sections alike, or add `-reverse on` if the passage is on its right.
 - A wall round an internal pillar has `-outline in`.
 - Do not bridge real gaps between walls with made-up lines: Therion
-  closes the outline itself (but ends that nearly meet are one point,
-  below). No invisible walls (`line wall -subtype invisible`)
+  closes the outline itself, joining each wall's end to the nearest free
+  end of another with a straight line (`thscrap::get_outline`), but ends
+  that nearly meet are one point (below). A converted sketch can be so
+  broken up that this joining goes wrong (it jumps across the passage,
+  or closes the outline early); only there does `tidy` keep a gap
+  filled, with the wall carried on across a short one or a presumed wall
+  across a longer one (`therion_chain` in `tidy.py` checks it). No invisible walls (`line wall -subtype invisible`)
   **[lint: wall-invisible]**.
 - Every line has at least two points **[lint: line-points]**.
 - Never use `-outline none` on a wall **[lint: wall-outline-none]**.
@@ -212,8 +219,8 @@ file is worked out from reviews and may be tuned.
   a whole turn. `mp_turning` in `smooth.py` counts as MetaPost does;
   making the two walls one line, or turning their ends slightly off due
   west, fixes it (`review check` shows it).
-- Walls meet at exactly the same point: ends 0.3 units apart make a
-  backwards step that crosses the outline.
+- Walls meet at exactly the same point: ends 0.3 th2 units apart (a few
+  millimetres) make a backwards step that crosses the outline.
 - A curve fitted through a narrow tip can fold over itself: draw a tip
   through the sketch's corner points, with a sharp corner.
 - Bays and alcoves, where the wall bends in and out, are wall: do not
@@ -242,7 +249,8 @@ file is worked out from reviews and may be tuned.
   meet exactly: the last point of one is the first of the other.
 - Where a passage was not sketched, walls may be drawn from the splays,
   as `line wall -subtype presumed`. Never guess a wall that neither the
-  sketch nor the splays show.
+  sketch nor the splays show, and never draw one only to close the
+  outline (below, "Do not draw a wall where nothing was sketched").
 - Where a new survey joins an earlier one's drawn plan at an equated
   station, the earlier plan's walls are cut back
   to where the new survey starts: its walls drawn on past the join,
@@ -283,9 +291,9 @@ file is worked out from reviews and may be tuned.
   |---|---|---|
   | `xl` | Area name | none yet |
   | `l` | Main passage | `[Triassic Tunnel]` (`Triassic/TriassicP.th2`) |
-  | `m` | Minor passage | `Century` (`Century/Centry.plan.th2`) |
+  | `m` | Minor passage | `Century` (`Century/CenturyP.th2`) |
   | `s` | Feature | `[Dig Face May 2018]` (`Triassic2/Triassic2P.th2`) |
-  | `xs` | Small note | `[Too Tight]` (`CyclopsEye/CyclopsEye.plan.th2`) |
+  | `xs` | Small note | `[Too Tight]` (`CyclopsEye/CyclopsEyeP.th2`) |
 
 ## Symbols: lines
 
@@ -308,7 +316,7 @@ file is worked out from reviews and may be tuned.
   angular and roughly convex (the hull of the sketched loop cut to 5 to 8
   corners by size, corners at least 6 cm apart), its rock edges
   (`line rock-edge`, before the rock in the file: after it they are drawn
-  under its fill and do not show, Slingtastic 2026-10-22) in one of three
+  under its fill and do not show, Slingtastic 2026-10-22) in one of four
   styles, picked for
   each rock (the same every run) so they don't all look alike:
   - a line across (about 35%), corner to a corner about opposite (two
@@ -342,10 +350,10 @@ file is worked out from reviews and may be tuned.
   - significant boundaries and low steps under 20 cm: `line border`;
   - 20 cm to 2 m and easily climbed: `line floor-step`;
   - harder climbs and anything over 2 m: `line pit`.
-- The low side is the left of the line's direction (see above).
-  Existing LongwoodValleySink drawings use `line pit` both ways round
-  (45 plain, 17 with `-reverse on`): check old ones when they are next
-  edited.
+- The low side is the left of the line's direction (see below). It is
+  where the water is (flow arrows, pools), not necessarily where the
+  survey line runs. One line per step, and steps do not run through the
+  water (Swildons review).
 - Use `line overhang`, not `line ceiling-step`, for ceiling steps and
   overhangs (dashed lines with a tick on each dash in the sketch).
   **[lint: ceiling-step]**
@@ -435,11 +443,11 @@ file is worked out from reviews and may be tuned.
   extended drawing's lines (its th2, from the extended xvi) must still
   decide it (the user, 2026-10-22). `projected`, `unfold` and `joins`
   still read the database for now.
-- For now (walls parked): one scrap, `XSE315_1`, with the stations on the
-  dots of `XE315.xvi`, laid out as `tools/ElevationsExx.py` does
-  (xvi units, offset from the lowest station, the xvi as backdrop). The
-  walls are drawn round them. The rules below are for when the walls are
-  generated again.
+- For now the walls are parked: `projected X [--file]` makes one scrap,
+  `XSE315_1`, with only the stations, on the dots of `XE315.xvi` (in
+  the xvi's units, offset from the lowest station, the xvi as backdrop),
+  and the walls are drawn round them by hand (log row 131). The rules
+  below on generated or projected walls are for `projected X --walls`.
 - Generated walls (`projected X --walls --out DIR`, for review, not
   filed) are in the xvi's units, offset from its lowest station, as the
   stations-only scrap and the hand-drawn 315s are, so walls and stations
@@ -492,7 +500,7 @@ file is worked out from reviews and may be tuned.
   centreline of X alone so projected; `X.th` inputs it with `map XME315`, and `XME315@X` is in
   `LongwoodValleySinkM315` (`LongwoodValleySink.th`).
 - Walls only, drawn from the extended elevation
-  (`python3 -m tools.sketch2therion projected X --file`): a wall point
+  (`python3 -m tools.sketch2therion projected X --walls --file`): a wall point
   keeps its place along its nearest leg and its height above or below
   it; its offset along the passage is scaled by how much of the leg is
   seen across the view. A wall keeps its subtype; where the view mirrors
@@ -713,6 +721,12 @@ file is worked out from reviews and may be tuned.
 - The drawing tools take the legs and splays from the sketch (`.xvi`),
   never from Therion's database or a layout Therion generates, so they
   run on any survey from its sketch and `.th` (the user, 2026-10-22).
+  A drawing's stations are where the sketch put them, before Therion
+  averages the survey, and are never compared with Therion's (the user,
+  2026-11-01). Therion's layout is read only to name the survey's
+  stations (`check`) and to put the cave's drawings in one frame
+  (`sections`, `joins`, `review`); `projected` and `unfold` still read
+  the database until the change planned under "Projected elevations".
 - Text is SexyTopo's own: the labels in its Therion export (`point …
   label -text "…" -scale …`) are carried into the drawing exactly as
   written, every one a `label`; their letters, which SexyTopo also draws
@@ -761,7 +775,10 @@ file is worked out from reviews and may be tuned.
 - Short jogs in a wall where the sketcher's strokes did not meet are not
   features: the wall is drawn through them. The same goes for a wall
   stroke started again a little beside the last (the outer one is the
-  wall) and for small gaps in a border.
+  wall) and for small gaps in a border. Kinks and folds are conversion
+  faults, never cave, and are removed: a point where a line steps back on
+  itself over a short distance, or a wall stub under 30 cm turning back
+  off another wall's end (Swildons review).
 - A stroke drawn on as the wall is wall all along, even where a border
   comes off it close by. Splays ending on a stroke show it is a wall.
 - Pitches and floor steps are often drawn alike: a P near the line means
@@ -851,7 +868,9 @@ file is worked out from reviews and may be tuned.
 - Mud dashes beside a line are mud, not the ticks of a step; an area of
   rocks stays on its side of the line, the mud on the other.
 - Do not draw a wall where nothing was sketched: no presumed walls to
-  close an outline; leave the gap for Therion.
+  close an outline; leave the gap for Therion. Walls from the splays
+  where a passage was not sketched are another matter ("Walls and the
+  outline").
 - Where two passages, or the two sides of a bend, come close, the rock
   between them is rock: their walls are walls, not borders, and the
   passage's fill does not cross between them.
@@ -863,8 +882,8 @@ file is worked out from reviews and may be tuned.
 - A cross section is its own scrap, drawn over its sketch (hard rule 7).
 - A boulder's edge lines meet at a ridge point and end on its corners;
   more than one may be needed, but as few as possible.
-- The guide for surveyors is the Claude Doc "Sketching in SexyTopo"
-  (the user's, 2026-10-14); what it adds is kept here:
+- The guide for surveyors is `sketching-guide.md` (from the user's
+  "Sketching in SexyTopo", 2026-10-14); what it adds is kept here:
   - SexyTopo 1.12.3 or later. Export settings: plan file suffix `P`,
     plan scrap suffix `SP#`, plan cross section suffix `SX#`; extended
     elevation file suffix `Ee`, scrap suffix `SEe#`, vertical
@@ -915,15 +934,18 @@ file is worked out from reviews and may be tuned.
 
 ## Checking
 
-Build with `therion -l ../output/therion.log Plan_only.thcfg` in
-`LongwoodValleySink/`, then (logs in `output/`):
+Build the cave's build (`thconfig` in `tools/project.toml`; for
+LongwoodValleySink `therion -l ../output/therion.log Plan_only.thcfg` in
+`LongwoodValleySink/`), then (logs in `output/`):
 
 - `grep -E "^therion: error|invalid scrap outline" output/*.log`:
   there should be none.
 - `grep "intersects itself" output/*.log | sort -u`: only scraps you
   didn't touch.
-- `python3 -m tools.sketch2therion.th2lint --from LongwoodValleySink/Plan_only.thcfg`
-  is clean.
+- `python3 -m tools.sketch2therion.th2lint --from <Cave>/Plan_only.thcfg`
+  (the cave's build) is clean.
+- Open edited files in xTherion and select a few lines: it reports no
+  errors.
 - `python3 -m tools.sketch2therion review check X/XP.th2`: every
   outline valid and its turning number not 0 (0 is MetaPost's
   "intersects itself"), before building; and no "second wall on one side
@@ -941,7 +963,8 @@ Build with `therion -l ../output/therion.log Plan_only.thcfg` in
   every rule here, and record what a review teaches.
 - At the end of every run that edits th2 files, build the whole cave in
   plan, extended elevation and 315 projected elevation, from one config
-  (`LongwoodValleySink/Whole_cave.thcfg`, PDFs and SVGs in
+  (the check build, `check_build` in `tools/project.toml`; for
+  LongwoodValleySink `Whole_cave.thcfg`, PDFs and SVGs in
   `LongwoodValleySink/Outputs/WholeCave*`), and check legs and splays
   against the fill: `python3 -m tools.sketch2therion fillcheck --build
   [--survey X ...]` (report in `output/check/fillcheck.txt`). The SVGs
