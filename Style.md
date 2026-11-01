@@ -700,7 +700,7 @@ file is worked out from reviews and may be tuned.
   moved or redrawn: it stays over its sketch in the backdrop (the user,
   2026-10-22).
   `python3 -m tools.sketch2therion sections` fixes both (see
-  `tools/README.md`).
+  `README.md`, "A new trip").
 
 ## Layouts
 
@@ -929,7 +929,7 @@ Build with `therion -l ../output/therion.log Plan_only.thcfg` in
   "intersects itself"), before building; and no "second wall on one side
   of the passage" (hard rule 2: an outer wall within 1 m behind another,
   seen from the nearest station, for 1 m or more).
-- `review show` (see `tools/README.md`): the drawing beside the sketch
+- `review show` (see `README.md`, "Reviewing a drawing"): the drawing beside the sketch
   round the new stations, with someone who knows the cave.
 - Render and look. poppler (pdftoppm, Evince, Okular) can show white
   holes in Therion's smooth altitude shading that are not in the PDF;
