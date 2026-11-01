@@ -179,8 +179,7 @@ class GoSouthStation21Test(unittest.TestCase):
         out = os.path.join(cls.tmp, "g.th2")
         sketch = os.path.join(REPO, "TestCave", "GoSouth", "Notes", "GoSouthP.xvi")
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            main(["plan", sketch, "--survey", "GoSouth", "-o", out,
-                  "--layout", os.path.join(cls.tmp, "no-layout.xvi")])
+            main(["plan", sketch, "--survey", "GoSouth", "-o", out])
         smooth.redo_file(out)
         text = open(out, encoding="utf-8").read()
         # every scrap: station 21 is in GoSouthSP2 since the scraps were chosen by hand

@@ -98,14 +98,6 @@ class Sketch:
                 out.append(hit)
         return out
 
-    def flipped(self):
-        """The same sketch upside down (y negated)."""
-        f = lambda p: (p[0], -p[1])
-        return Sketch({n: [f(p) for p in ps] for n, ps in self.stations.items()},
-                      [(f(a), f(b)) for a, b in self.shots],
-                      [(c, [f(p) for p in pp]) for c, pp in self.lines],
-                      [(f(a), f(b)) for a, b in self.connects], self.scale, self.path)
-
 
 def _key(p):
     return (round(p[0], 2), round(p[1], 2))

@@ -25,7 +25,6 @@ dashed_presumed = true      # black dashed lines are wall -subtype presumed (log
 dash_neighbours = true      # a dash joins only its nearest neighbours: dashed lines side by side stay apart (log row 148)
 short_links = true          # short wall-coloured pieces joining walls end to end are wall (log row 148)
 section_arrows = true       # cross section lines with arrows (Style.md, Cross sections)
-layout_split = false        # never split or flip a drawing to fit where Therion puts the stations today (plan 5d)
 elevation_features = true   # elevations: pools, water flow, curtains, blocks, rocks, rubble, by shape
 wall_subtypes = true        # ... and is then sand (brown: mud too, no clay), debris (rocks along it) or, green, flowstone (smooth) or blocks (lumpy, rock on the floor)
 interior_borders = true

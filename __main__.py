@@ -2,10 +2,11 @@
 # https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see LICENSE.
 """Command line: python3 -m tools.sketch2therion <command> ...
 
-  check       how well a sketch fits the survey, before converting it
+  check       a sketch's stations, legs and lines, and any station the
+              survey doesn't have, before converting it
   plan        a plan sketch -> th2 (plan scraps and cross sections)
-  extended    an extended-elevation sketch -> th2 (elevation scraps,
-              cross sections, and a plan scrap placing the cross sections)
+  extended    an extended-elevation sketch -> th2 (elevation scraps and
+              cross sections)
   xvi         a PocketTopo .top or _th.txt -> XVI, to use as a backdrop
   extend      copy PocketTopo's left/right leg directions into a .th file
   tidy        redraw converted th2 files the conventional Therion way (the
@@ -24,9 +25,10 @@
   zip         a survey's drawing, sketches and review files, for review elsewhere
 
 Sketches can be SexyTopo or PocketTopo .xvi files, PocketTopo .top files or
-PocketTopo Therion exports (_th.txt). Run from the top of the repository,
-after `therion -l output/therion-layout.log tools/layout.thcfg`. Cave
-names, paths and drawing settings come from tools/project.toml.
+PocketTopo Therion exports (_th.txt). Run from the top of the repository.
+`check`, `joins`, `sections` and `review` need Therion's layout first:
+`therion -l output/therion-layout.log tools/layout.thcfg`. Cave names,
+paths and drawing settings come from tools/project.toml.
 """
 import argparse
 import os
@@ -47,15 +49,11 @@ def load(path, view):
     return pockettopo.sketch(path, view)
 
 
-def layout(path, required=False):
+def layout(path):
     if path and os.path.exists(path):
         return register.Layout(path)
-    msg = (f"{path} not found: run  therion -l output/therion-layout.log tools/layout.thcfg  first"
-           " (with the new trip's .th already input)")
-    if required:
-        sys.exit(msg)
-    print("warning: " + msg + "; converting without fitting to the survey", file=sys.stderr)
-    return None
+    sys.exit(f"{path} not found: run  therion -l output/therion-layout.log tools/layout.thcfg  first"
+             " (with the new trip's .th already input)")
 
 
 def write_th2(text, path, newline=None):
@@ -84,7 +82,7 @@ def _sexytopo_text(a, sk):
 def cmd_check(a):
     view = 'elevation' if a.elevation else 'plan'
     sk = load(a.sketch, view)
-    lay = layout(a.layout or (EXT_LAYOUT if a.elevation else PLAN_LAYOUT), required=True)
+    lay = layout(a.layout or (EXT_LAYOUT if a.elevation else PLAN_LAYOUT))
     pos = sk.positions()
     colours = {}
     for c, _ in sk.lines:
@@ -98,21 +96,7 @@ def cmd_check(a):
         print(f"  NOT IN THE SURVEY ({len(missing)}): {' '.join(sorted(missing, key=register.natural)[:30])}")
         print(f"    Is the trip's .th input in {PROJECT.cave['master']}, the layout re-exported,"
               " and --survey right?")
-    sk2, offs, flipped = register.fit(sk, lay, a.survey)
-    if flipped:
-        print("  WARNING: the sketch fits Therion's layout only upside down; look at it"
-              " (the conversion never flips a sketch)")
-    sp = register.spread(offs)
-    if sp is not None:
-        print(f"  fit to Therion's layout: stations within {sp:.2f} m (median) of one shift")
-    gs = register.groups(offs, a.tol)
-    if len(gs) > 1:
-        print(f"  {len(gs)} groups of stations fit with different shifts (more than {a.tol} m apart):"
-              " the sketch and Therion disagree here, and Therion will stretch the drawing"
-              " (the conversion does not split for it):")
-        for g in gs:
-            print(f"    {len(g):3d}: {' '.join(sorted(g, key=register.natural)[:12])}{' ...' if len(g) > 12 else ''}")
-    d = register.line_distance(sk2, convert.WALLS)
+    d = register.line_distance(sk, convert.WALLS)
     if d is not None:
         print(f"  stations to nearest wall line: {d:.2f} m (median)"
               + ("  <- the stations may not line up with the drawing" if d > 2.5 else ""))
@@ -167,15 +151,6 @@ def _auto_scraps(survey, view, sketch):
     return autoscraps.specs(groups)
 
 
-def _layout_for_drawing(a, default, given=None):
-    """Therion's layout, if the drawing may use it ([convert] layout_split):
-    with plan stage 5d it is for `check` only, so None."""
-    from .settings import SETTINGS
-    if not SETTINGS['layout_split']:
-        return None
-    return layout(given or a.layout or default)
-
-
 def cmd_plan(a):
     sk = load(a.sketch, 'plan')
     floor = None
@@ -188,7 +163,7 @@ def cmd_plan(a):
         print(f"floor: {len(floor['climbs'])} steps, {len(floor['gradients'])} gradients")
     texts = _sexytopo_text(a, sk)
     opts = _opts(a)
-    text, scraps, sections = convert.plan(sk, opts, a.output, _layout_for_drawing(a, PLAN_LAYOUT), floor, a.tol)
+    text, scraps, sections = convert.plan(sk, opts, a.output, floor)
     text = tidy.tidy_text(text, a.map_scale)
     if opts.scraps and SETTINGS['hand_scraps']:     # walls between scraps chosen by hand meet (after tidy moves them)
         from .scraps import meet_ends
@@ -207,9 +182,7 @@ def cmd_extended(a):
     opts = _opts(a)
     opts.scraps = (PROJECT.scraps_extended.get(a.survey) or _auto_scraps(a.survey, 'extended', a.sketch)) if a.survey else None
     opts.glitches = PROJECT.glitches.get(a.survey, {}).get(os.path.basename(a.sketch)) if a.survey else None
-    text, scraps, sections, plan_scraps = convert.extended(
-        sk, opts, a.output, _layout_for_drawing(a, EXT_LAYOUT),
-        _layout_for_drawing(a, PLAN_LAYOUT, a.plan_layout), a.tol, a.floor_reach, a.roof_reach)
+    text, scraps, sections = convert.extended(sk, opts, a.output, a.floor_reach, a.roof_reach)
     text = tidy.tidy_text(text, a.map_scale)
     from .settings import SETTINGS
     if opts.scraps and SETTINGS['hand_scraps']:     # walls between scraps chosen by hand meet
@@ -219,9 +192,6 @@ def cmd_extended(a):
     print(f"wrote {a.output}: {len(scraps)} elevation scraps, {len(sections)} cross sections")
     _unsurveyed_note(opts)
     _map_hint(a.survey, scraps, 'extended', a.sketch)
-    if plan_scraps:
-        print("and, for the cross sections:")
-        _map_hint(a.survey, plan_scraps, 'plan', a.sketch)
 
 
 def _survey_th(survey, near):
@@ -362,12 +332,9 @@ def main(argv=None):
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='cmd', required=True)
 
-    def common(q, tol):
+    def common(q):
         q.add_argument('sketch', help='.xvi (SexyTopo or PocketTopo), .top or _th.txt')
         q.add_argument('--survey', help="the trip's survey name in Therion, e.g. GoSouth")
-        q.add_argument('--layout', help="Therion's layout XVI (default output/layout-*.xvi)")
-        q.add_argument('--tol', type=float, default=tol,
-                       help=f'metres two stations can disagree and stay in one scrap (default {tol})')
 
     def drawing(q):
         q.add_argument('-o', '--output', required=True, help='the th2 file to write')
@@ -381,22 +348,22 @@ def main(argv=None):
         q.add_argument('--force', action='store_true',
                        help='replace an output th2 that is not SexyTopo\'s export (a drawing, maybe edited by hand)')
 
-    q = sub.add_parser('check', help='how well a sketch fits the survey')
-    common(q, 1.5)
+    q = sub.add_parser('check', help="the sketch's stations, legs and lines, and stations the survey lacks")
+    common(q)
+    q.add_argument('--layout', help="Therion's layout XVI, for the survey's station names (default output/layout-*.xvi)")
     q.add_argument('--elevation', action='store_true', help='the sketch is an extended elevation')
     q.set_defaults(func=cmd_check)
 
     q = sub.add_parser('plan', help='plan sketch -> th2')
-    common(q, 3.0)
+    common(q)
     drawing(q)
     q.add_argument('--floor', metavar='ELEVATION',
                    help='the same trip\'s extended-elevation sketch, for floor steps and gradients')
     q.set_defaults(func=cmd_plan)
 
     q = sub.add_parser('extended', help='extended-elevation sketch -> th2')
-    common(q, 1.5)
+    common(q)
     drawing(q)
-    q.add_argument('--plan-layout', help="unused: cross sections are placed where they were sketched")
     q.add_argument('--floor-reach', type=float, default=3.0,
                    help='fill down to a floor line up to this far below the legs (default 3 m)')
     q.add_argument('--roof-reach', type=float, default=5.0,

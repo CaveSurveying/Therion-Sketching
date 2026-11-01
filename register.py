@@ -1,20 +1,17 @@
 # Ported from caves-mendip-swildons, tools/sketch2therion (commit 198bf46,
 # https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see LICENSE.
-"""Fitting a sketch onto Therion's own layout of the survey.
+"""Therion's own layout of the survey, read from its XVI export.
 
 Therion lays the survey out itself, closing loops and (in an extended
-elevation) breaking them where its extend flags say. A sketch from the
-phone was drawn on the phone's layout, which agrees with Therion's except
-for a shift, unless loop closure or a different loop break moves some
-stations. So each station's offset sketch -> Therion is worked out, and
-stations whose offsets agree are grouped. One group means the sketch fits
-as it is; several mean it must be split, one scrap per group, or Therion
-will stretch the drawing between stations that have moved apart.
+elevation) breaking them where its extend flags say, so its station
+positions are not the sketch's. A drawing keeps the sketch's positions
+(Therion morphs each scrap onto its stations); Therion's are used only
+to name the survey's stations (`check`) and to put the cave's drawings
+in one frame (`joins`, `sections`, `review`).
 
-Therion's layout comes from `tools/layout.thconfig`, which writes
+Therion's layout comes from `tools/layout.thcfg`, which writes
 output/layout-plan.xvi and output/layout-extended.xvi.
 """
-import math
 import re
 import statistics
 
@@ -48,54 +45,8 @@ class Layout:
         return sorted(s for n, s in self.by_name if n == name)
 
 
-def offsets(sketch, layout, survey=None):
-    """{station: (dx, dy)} sketch -> Therion, for stations Therion places
-    exactly once (an extended elevation can place a station several times)."""
-    out = {}
-    for n, p in sketch.positions().items():
-        ps = {(round(x, 2), round(y, 2)) for x, y in layout.find(n, survey)}
-        if len(ps) == 1:
-            t = next(iter(ps))
-            out[n] = (t[0] - p[0], t[1] - p[1])
-    return out
-
-
 def natural(n):
     return [int(x) if x.isdigit() else x for x in re.split(r'(\d+)', n)]
-
-
-def groups(offs, tol=1.5):
-    """Stations whose offsets agree within `tol` metres, biggest group first."""
-    gs = []
-    for n, o in sorted(offs.items(), key=lambda kv: natural(kv[0])):
-        for g in gs:
-            if math.dist(g['o'], o) < tol:
-                g['s'].append(n)
-                break
-        else:
-            gs.append({'o': o, 's': [n]})
-    return [g['s'] for g in sorted(gs, key=lambda g: -len(g['s']))]
-
-
-def spread(offs):
-    """Median distance of the offsets from their median: 0 for a perfect fit."""
-    if not offs:
-        return None
-    mx = statistics.median(o[0] for o in offs.values())
-    my = statistics.median(o[1] for o in offs.values())
-    return statistics.median(math.dist(o, (mx, my)) for o in offs.values())
-
-
-def fit(sketch, layout, survey=None):
-    """The sketch the right way up, and its offsets. A sketch that fits far
-    better upside down is flipped (with a warning from `check`)."""
-    a = offsets(sketch, layout, survey)
-    f = sketch.flipped()
-    b = offsets(f, layout, survey)
-    sa, sb = spread(a), spread(b)
-    if sa is not None and sb is not None and sb < 0.5 * sa and sb < 1.0:
-        return f, b, True
-    return sketch, a, False
 
 
 def line_distance(sketch, colours=('BLACK',)):

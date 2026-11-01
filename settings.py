@@ -25,9 +25,6 @@ UPSTREAM = {
     'short_links': False,        # True: a short stroke in a wall colour joined to the wall at both ends is
                                  # wall (FairyChimneys 9: the floor drawn in short brown and green pieces)
     'section_arrows': False,     # True: section lines `-direction both`, view direction on the left, 0.5 m past the passage (Style.md)
-    'layout_split': True,        # True (upstream): a scrap per group of stations that fits Therion's
-                                 # layout with one shift, and a sketch that fits only upside down
-                                 # flipped. False (plan stage 5d): the layout is for `check` only
     'elevation_features': False,  # True: pools, water flow, curtains, blocks, rocks and rubble read
                                   # from an elevation sketch by shape (elevation.py)
     'wall_subtypes': False,      # True: elevation walls drawn brown are -subtype sand (mud too: no clay),

@@ -42,7 +42,9 @@ settings next to the link:
 - `tools/th2lint-baseline.txt`: findings in the cave's existing
   drawings.
 - `tools/layout.thcfg`: exports where Therion puts every station, for
-  the converter.
+  `check` (the survey's station names), `joins`, `sections` and `review`
+  (the cave's drawings in one frame). A drawing keeps the sketch's own
+  station positions.
 
 Run everything from the top of the cave's repository, for example
 
