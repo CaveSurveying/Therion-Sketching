@@ -1,0 +1,44 @@
+# A test cave, laid out as a cave's repository is (README.md), so the
+# tests import the tools as a cave does: tools.sketch2therion. No changes
+# to the house rules, so the tests run on rules.toml as it is.
+
+[cave]
+name = "TestCave"
+title = "Test Cave"
+folder = "TestCave"
+master = "TestCave/TestCave.th"
+survey = "TestCave"
+thconfig = "TestCave/thconfig"
+plan_map = "TestCaveMP"
+plan_map_file = "TestCave/TestCave.th"
+
+[names]
+survey_file = "{survey}/{survey}.th"
+plan_file = "{survey}/{survey}P.th2"
+extended_file = "{survey}/{survey}Ee.th2"
+scrap_prefix = "{survey}S"
+survey_plan_map = "{survey}MP"
+plan_sketch = '(\.plan|_p|P)\.xvi$'
+
+[drawing]
+line_endings = "lf"
+map_scale = 500
+licence = "GPLv3.0+"
+
+[build]
+outputs = "TestCave/Outputs"
+log = "output/therion.log"
+layout_plan = "output/layout-plan.xvi"
+layout_extended = "output/layout-extended.xvi"
+sql = "output/layout.sql"
+review_plan = "output/review-plan.pdf"
+
+[convert]
+
+[scraps]
+# As CheddarCatchment sets them for its sketches copied here (TestCave/README.md).
+GoSouth = ["1-16", "17-29"]
+
+[scraps_extended]
+GoSouth = ["1-16", "17-29"]
+Trident = ["1-10, 12", "11, 13, 14", "15-34, 36, 38-43", "35, 37"]
