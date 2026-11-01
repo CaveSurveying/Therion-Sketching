@@ -5,12 +5,17 @@ passage, and section drawings clear of the passages and of each other.
 
     python3 -m tools.sketch2therion sections [X ...] [--write]
 
-Every plan scrap is put in the cave's coordinates (Therion's plan layout,
-output/layout-plan.xvi) by fitting it to its stations, as `joins` does,
-so passages of other surveys are seen too (Style.md, Cross sections):
+Every plan scrap the cave's master file inputs is put in the cave's
+coordinates (Therion's plan layout, output/layout-plan.xvi) by fitting it
+to its stations, as `joins` does, so passages of other surveys are seen
+too (Style.md, Cross sections). This is the one tool that uses Therion's
+station positions with the drawings:
 
-- a `line section` is redrawn across its own passage, through the same
-  middle and at the same angle, ending MARGIN past the wall on each side.
+- a `line section` is turned, if need be, to run with the view direction
+  on its left: along the survey from its station (the scrap's station
+  nearest the line) towards the next one, as the converter draws it;
+- it is redrawn across its own passage, through the same middle and at
+  the same angle, ending MARGIN past the wall on each side.
   Where an end's arrow (drawn on the line's left) would land in another
   passage, that end comes in, down to MIN_MARGIN; if that is not enough
   the arrow on that side is left off (`-direction begin` or `end`);
@@ -33,7 +38,11 @@ from shapely.ops import unary_union
 
 from . import project as _project
 from . import register
-from .joins import Drawing, plan_file
+from .autoscraps import survey_legs
+from .deps import walk
+from .geom import view_direction
+from .joins import Drawing
+from .survey import survey_of
 from .tidy import bezier_points, parse_scrap
 
 PROJECT = _project.load()
@@ -56,17 +65,95 @@ def _rows(o):
             if re.match(r'^\s*-?[\d.]+(\s+-?[\d.]+)+\s*$', r) and len(r.split()) in (2, 6)]
 
 
-def survey_drawings(layout, surveys):
+def cave_files():
+    """Every file the cave's master file reaches (deps.walk), as paths."""
+    return [PROJECT.path(f) for f in walk(PROJECT.path(''), PROJECT.cave['master']).files]
+
+
+def survey_drawings(layout, files):
+    """{th2 path: Drawing} for every plan drawing among `files`."""
     out = {}
-    for sv in surveys:
+    ths = [f for f in files if f.endswith('.th') and os.path.exists(f)]
+    for path in files:
+        if not path.endswith('.th2') or not os.path.exists(path):
+            continue
+        with open(path, encoding='utf-8', errors='replace') as f:
+            if not re.search(r'(?m)^scrap \S+[^\n]*-projection plan', f.read()):
+                continue
+        sv = survey_of(path, ths)
         try:
-            if plan_file(sv):
-                d = Drawing(sv, layout)
-                if d.scraps:
-                    out[sv] = d
+            d = Drawing(sv, layout, path)
+            if d.scraps:
+                out[path] = d
         except Exception as e:                       # a drawing that cannot be fitted is left out
-            print(f"{sv}: left out ({e})")
+            print(f"{sv or path}: left out ({e})")
     return out
+
+
+def survey_files(files):
+    """{survey name: the .th declaring it} among `files`."""
+    out = {}
+    for path in files:
+        if path.endswith('.th') and os.path.exists(path):
+            with open(path, encoding='utf-8', errors='replace') as f:
+                for name in re.findall(r'(?m)^\s*survey\s+(\S+)', f.read()):
+                    out.setdefault(name, path)
+    return out
+
+
+def sketch_legs(d):
+    """[(from, to)] the legs of the sketches the drawing has as its backdrop,
+    as the converter reads them (along the survey, as sketched)."""
+    from . import xvi
+    from .convert import PlanGeometry
+    legs = []
+    for m in re.finditer(r'xth_me_image_insert \{[^}]*\} \{[^}]*\} (\{[^}]*\}|\S+)', d.text):
+        path = os.path.join(os.path.dirname(d.path), m.group(1).strip('{}'))
+        if path.lower().endswith('.xvi') and os.path.exists(path):
+            sk = xvi.read(path)
+            legs += PlanGeometry(sk.positions(), sk.shots).legs
+    return legs
+
+
+def in_survey_order(legs):
+    """The legs each turned to run the way the survey went: from the station
+    that comes first in the data to the later one (a leg shot backwards,
+    3 to 2, runs 2 to 3, as the sketch has it)."""
+    first = {}
+    for leg in legs:
+        for x in leg:
+            first.setdefault(x, len(first))
+    return [(x, y) if first[x] <= first[y] else (y, x) for x, y in legs]
+
+
+def looks_along(a, b, station, legs, drawn, layout):
+    """True if the line a -> b has the view direction from `station`
+    ((name, survey)) along the survey on its left, False if it has it on
+    its right, None if the direction is not known. Stations are where the
+    drawing has them (`drawn`, cave coordinates), as the converter took
+    them from the sketch; Therion's only for one the drawing lacks."""
+    n, sv = station
+    near = {(x, sv) for leg in legs for x in leg if n in leg}
+    pos = {}
+    for k in near | {station}:
+        ps = [drawn[k]] if k in drawn else layout.find(*k)
+        if ps:
+            pos[k] = ps[0]
+    if station not in pos:
+        return None
+    v = view_direction(station, [((x, sv), (y, sv)) for x, y in legs], pos)
+    if v is None:
+        return None
+    left = (-(b[1] - a[1]), b[0] - a[0])
+    return left[0] * v[0] + left[1] * v[1] >= 0
+
+
+def line_station(d, si, a, b, reach=3.0):
+    """The scrap's station nearest the line a -> b (cave coordinates), within `reach` m."""
+    seg = LineString([a, b])
+    near = [(seg.distance(Point(p)), k) for k, p in d.stations[si].items()]
+    near = [x for x in near if x[0] <= reach]
+    return min(near)[1] if near else None
 
 
 def plan_sections(d):
@@ -142,29 +229,43 @@ def main(argv):
     p.add_argument('--write', action='store_true')
     a = p.parse_args(argv)
     layout = register.Layout(PROJECT.path(PROJECT.build['layout_plan']))
-    folder = PROJECT.path(PROJECT.cave['folder'])
-    every = sorted(x for x in os.listdir(folder) if os.path.exists(PROJECT.path(PROJECT.survey_file(x))))
-    dr = survey_drawings(layout, every)
-    fills = {(sv, si): d.scrap_fill(si) for sv, d in dr.items() for si in range(len(d.scraps))}
+    files = cave_files()
+    dr = survey_drawings(layout, files)
+    th_of = survey_files(files)
+    legs_of = {}                                       # survey -> its .th legs, in survey order
+    fills = {(key, si): d.scrap_fill(si) for key, d in dr.items() for si in range(len(d.scraps))}
     allfill = unary_union([g for g in fills.values() if g is not None])
-    todo = a.surveys or list(dr)
-    secs = {sv: plan_sections(dr[sv]) for sv in dr}
-    placed = {(sv, n): MultiPoint(pts).convex_hull.buffer(CLEAR)
-              for sv, (_, ds) in secs.items() for n, (_, _, pts, _) in ds.items()}
-    for sv in todo:
-        if sv not in dr:
-            continue
-        d = dr[sv]
-        lines, drawings = secs[sv]
+    todo = [key for key, d in sorted(dr.items(), key=lambda kv: (kv[1].survey or '', kv[0]))
+            if not a.surveys or d.survey in a.surveys]
+    secs = {key: plan_sections(dr[key]) for key in dr}
+    placed = {(key, n): MultiPoint(pts).convex_hull.buffer(CLEAR)
+              for key, (_, ds) in secs.items() for n, (_, _, pts, _) in ds.items()}
+    for key in todo:
+        d = dr[key]
+        sv = d.survey
+        lines, drawings = secs[key]
         edits = {}                                    # (scrap name, obj index) -> new object text
         dirs = {}
+        sketched = sketch_legs(d) if lines else []
+        drawn = {k: p for at in d.stations for k, p in at.items()}
         for si, oi, head, (pa, pb) in lines:
-            own = fills.get((sv, si))
+            turned = False
+            st = line_station(d, si, pa, pb)
+            # the legs as sketched, else the survey's .th in the order it was surveyed
+            if st and st[1] == sv and any(st[0] in leg for leg in sketched):
+                legs = sketched
+            elif st and st[1] in th_of:
+                legs = legs_of.setdefault(st[1], in_survey_order(survey_legs(th_of[st[1]])))
+            else:
+                legs = []
+            if legs and looks_along(pa, pb, st, legs, drawn, layout) is False:
+                pa, pb, turned = pb, pa, True
+            own = fills.get((key, si))
             if own is None:
                 continue
             mid = Point((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2)
             if not own.buffer(0.05).contains(mid):       # its middle in another scrap of the survey
-                own = unary_union([g for (s2, _), g in fills.items() if s2 == sv and g is not None])
+                own = unary_union([g for (s2, _), g in fills.items() if s2 == key and g is not None])
             if not own.buffer(0.05).contains(mid):       # at a join, in the next survey's passage (TridentLeft 1)
                 own = min(getattr(allfill, 'geoms', [allfill]), key=lambda g: g.distance(mid))
             others = allfill.difference(own.buffer(0.05))
@@ -180,11 +281,12 @@ def main(argv):
             o = d.scraps[si][1][oi]
             edits[(d.scraps[si][0], oi)] = '\n'.join([new_head, '  %.2f %.2f' % inv(A), '  %.2f %.2f' % inv(B), 'endline'])
             note = '' if arr_a and arr_b else f" (arrow left off at the {'start' if not arr_a else 'end'})"
+            note += ', turned to look along the survey' if turned else ''
             print(f"{sv}: section line in {d.scraps[si][0]} across {math.dist(A, B) - 2 * MARGIN:.2f} m of passage{note}")
         moves = {}
         for name, (si, oi, pts, at) in drawings.items():
-            hull = placed[(sv, name)]
-            others = unary_union([allfill] + [g for key, g in placed.items() if key != (sv, name)])
+            hull = placed[(key, name)]
+            others = unary_union([allfill] + [g for k2, g in placed.items() if k2 != (key, name)])
             if not hull.intersects(others):
                 continue
             # along its section line: the section line of the scrap holding its point, nearest it
@@ -210,7 +312,7 @@ def main(argv):
             if not best:
                 print(f"{sv} {name}: overlaps, and no clear place within {REACH} m along its line")
                 continue
-            placed[(sv, name)] = MultiPoint([(x + best[0], y + best[1]) for x, y in pts]).convex_hull.buffer(CLEAR)
+            placed[(key, name)] = MultiPoint([(x + best[0], y + best[1]) for x, y in pts]).convex_hull.buffer(CLEAR)
             inv, k = _inverse(d.scraps[si][2])
             o0, o1 = inv((0, 0)), inv(best)
             moves[name] = (si, oi, (o1[0] - o0[0], o1[1] - o0[1]))

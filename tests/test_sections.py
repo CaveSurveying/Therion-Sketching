@@ -142,3 +142,76 @@ class SectionLineEvenly(unittest.TestCase):
         (A, B), arrows, u = sec.redo_line((5.0, -0.3), (5.0, 4.0), own, box(0, 2.05, 10, 5))
         self.assertEqual(arrows, [True, False])
 
+
+
+class FakeLayout:
+    """Therion's layout, as `register.Layout` answers: {(name, survey): (x, y)}."""
+
+    def __init__(self, at):
+        self.at = at
+
+    def find(self, name, survey=None):
+        return [self.at[(name, survey)]] if (name, survey) in self.at else []
+
+
+@unittest.skipUnless(settings, "needs shapely")
+class SectionLooksAlongTheSurvey(unittest.TestCase):
+    """A section line has the view direction, from its station towards the
+    next station surveyed from it, on its left (Style.md, Cross sections)."""
+
+    def test_view_direction(self):
+        from tools.sketch2therion.geom import view_direction
+        pos = {"1": (0, 0), "2": (10, 0), "3": (10, 5), "4": (10.1, 5)}
+        self.assertEqual(view_direction("2", [("1", "2"), ("2", "3")], pos), (0, 5))     # on to 3
+        self.assertEqual(view_direction("3", [("2", "3")], pos), (0, 5))                 # last: on from 2
+        self.assertEqual(view_direction("3", [("3", "4")], pos, "none"), "none")         # 4 is under 0.3 m away
+
+    def test_legs_in_survey_order(self):
+        from tools.sketch2therion.sections import in_survey_order
+        # 3 to 2 shot backwards after 1 to 2: the survey went 2 to 3, then on to 4
+        self.assertEqual(in_survey_order([("1", "2"), ("3", "2"), ("3", "4")]),
+                         [("1", "2"), ("2", "3"), ("3", "4")])
+
+    def test_looks_along(self):
+        from tools.sketch2therion.sections import looks_along
+        drawn = {("1", "X"): (0, 0), ("2", "X"): (10, 0)}
+        legs = [("1", "2")]
+        # across the passage at 1, looking east to 2: north to south has east on its left
+        self.assertTrue(looks_along((0, 2), (0, -2), ("1", "X"), legs, drawn, FakeLayout({})))
+        self.assertFalse(looks_along((0, -2), (0, 2), ("1", "X"), legs, drawn, FakeLayout({})))
+        # 2 not in the drawing: where Therion has it
+        self.assertTrue(looks_along((0, 2), (0, -2), ("1", "X"), legs, {("1", "X"): (0, 0)},
+                                    FakeLayout({("2", "X"): (10, 0)})))
+        self.assertIsNone(looks_along((0, 2), (0, -2), ("1", "X"), legs, {("1", "X"): (0, 0)}, FakeLayout({})))
+
+
+@unittest.skipUnless(settings, "needs shapely")
+class DrawingsOfTheWholeCave(unittest.TestCase):
+    def setUp(self):
+        import shutil
+        import tempfile
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d)
+
+    def write(self, rel, text):
+        path = os.path.join(self.d, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        return path
+
+    def test_survey_of_a_drawing_input_elsewhere(self):
+        from tools.sketch2therion.survey import survey_of
+        top = self.write("Cave.th", 'survey Cave\n  input Part/PartP.th2\nendsurvey\n')
+        th2 = self.write("Part/PartP.th2", "encoding  utf-8\n")
+        self.assertIsNone(survey_of(th2))                   # nothing in its own folder inputs it
+        self.assertEqual(survey_of(th2, [top]), "Cave")
+
+    def test_station_names_qualified(self):
+        from tools.sketch2therion.joins import Drawing
+        th2 = self.write("P.th2", 'scrap AS1 -projection plan -station-names "" @Other\n'
+                                  'point 0 0 station -name 1\npoint 10 0 station -name 2\nendscrap\n')
+        d = Drawing("Cave", FakeLayout({("1", "Other"): (100, 0), ("2", "Other"): (110, 0)}), th2)
+        self.assertEqual(len(d.scraps), 1)
+        self.assertEqual(sorted(d.stations[0]), [("1", "Other"), ("2", "Other")])
+        self.assertAlmostEqual(d.stations[0][("2", "Other")][0], 110)

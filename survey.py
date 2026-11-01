@@ -62,14 +62,15 @@ def survey_sketch(th, projection):
     return None
 
 
-def survey_of(th2):
-    """The survey a th2 file is input in, from the .th files in its folder."""
+def survey_of(th2, ths=None):
+    """The survey a th2 file is input in, from the .th files in its folder
+    (or `ths`, as a whole cave's are). An input is relative to its .th."""
     folder = os.path.dirname(os.path.abspath(th2))
     target = os.path.abspath(th2)
-    for th in sorted(glob.glob(os.path.join(folder, '*.th'))):
+    for th in sorted(glob.glob(os.path.join(folder, '*.th'))) if ths is None else ths:
         t = open(th, encoding='utf-8', errors='replace').read()
         for m in INPUT.finditer(t):
-            if os.path.abspath(os.path.join(folder, m.group(1))) != target:
+            if os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(th)), m.group(1))) != target:
                 continue
             found = re.findall(r'^\s*survey (\S+)', t[:m.start()], re.M)
             if found:
