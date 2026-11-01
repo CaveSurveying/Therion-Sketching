@@ -39,3 +39,18 @@ def cluster(geoms, near):
             groups.remove(grp)
         groups.append(sum(hit, []) + [i])
     return groups
+
+
+def view_direction(n, legs, pos, fallback=None):
+    """Which way a cross section at station n is seen (Style.md, Cross
+    sections): along the survey from n towards the next station, else on
+    from the one before. legs [(from, to)], pos {station: (x, y)}; stations
+    under 0.3 m away are passed over. `fallback` if neither is known."""
+    P = pos[n]
+    ahead = [b for a, b in legs if a == n and b in pos and math.dist(P, pos[b]) > 0.3]
+    if ahead:
+        return (pos[ahead[0]][0] - P[0], pos[ahead[0]][1] - P[1])
+    behind = [a for a, b in legs if b == n and a in pos and math.dist(P, pos[a]) > 0.3]
+    if behind:
+        return (P[0] - pos[behind[0]][0], P[1] - pos[behind[0]][1])
+    return fallback

@@ -31,7 +31,7 @@ from shapely.ops import unary_union
 
 from . import register, scale
 from .features import classify, centroid
-from .geom import closed, length
+from .geom import closed, length, view_direction
 from .outline import wrong_way
 from .symbols import split_symbols, symbols_th2
 from .walls import clean, bezier_lines, bezier_closed, chaikin, split_by_edge
@@ -970,14 +970,7 @@ def section_line(geo, n, px):
         a = (P[0] - perp[0] * hw, P[1] - perp[1] * hw)
         b = (P[0] + perp[0] * hw, P[1] + perp[1] * hw)
         return ["line section", "  %.2f %.2f" % px(a), "  %.2f %.2f" % px(b), "endline", ""], perp, hw
-    ahead = [b for a, b in geo.legs if a == n and math.dist(P, geo.pos[b]) > 0.3]
-    behind = [a for a, b in geo.legs if b == n and math.dist(P, geo.pos[a]) > 0.3]
-    if ahead:
-        v = (geo.pos[ahead[0]][0] - P[0], geo.pos[ahead[0]][1] - P[1])
-    elif behind:
-        v = (P[0] - geo.pos[behind[0]][0], P[1] - geo.pos[behind[0]][1])
-    else:
-        v = u
+    v = view_direction(n, geo.legs, geo.pos, u)
     if u[0] * v[0] + u[1] * v[1] < 0:
         u = (-u[0], -u[1])
     perp = (-u[1], u[0])                 # u's left

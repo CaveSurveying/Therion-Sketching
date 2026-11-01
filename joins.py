@@ -68,31 +68,40 @@ def _at(c, t):
 
 
 class Drawing:
-    """A survey's plan th2 in the cave's coordinates, scrap by scrap."""
+    """A survey's plan th2 (its plan file, or `path`) in the cave's
+    coordinates, scrap by scrap."""
 
-    def __init__(self, survey, layout):
+    def __init__(self, survey, layout, path=None):
         self.survey = survey
-        self.path = plan_file(survey)
+        self.path = path or plan_file(survey)
         self.text = open(self.path, encoding='utf-8', newline='').read()
         self.nl = '\r\n' if '\r\n' in self.text else '\n'
-        self.scraps = []                       # [(name, start, end, objs, fit, inverse)]
+        self.scraps = []                       # [(name, objs, fit)]
+        self.stations = []                     # per scrap: {(name, survey): its th2 position, in cave coordinates}
         t = self.text.replace('\r\n', '\n')
         for m in re.finditer(r'^(scrap (\S+)([^\n]*))\n(.*?)^endscrap', t, re.S | re.M):
             if '-projection' in m.group(3) and '-projection plan' not in m.group(3):
                 continue
+            # -station-names <prefix> <suffix> qualifies the scrap's bare station names
+            q = re.search(r'-station-names\s+("[^"]*"|\S+)\s+("[^"]*"|\S+)', m.group(3))
+            pre, suf = (x.strip('"') for x in q.groups()) if q else ('', '')
             objs = parse_scrap(m.group(4))
-            pairs = []
+            pairs, at = [], {}
             for o in objs:
                 p = re.match(r'point (\S+) (\S+) station\b.*-name\s+(\S+)', o.head) if o.kind == 'point' else None
                 if p:
-                    n, sv = (p.group(3).split('@') + [survey])[:2]
+                    full = p.group(3) if '@' in p.group(3) else pre + p.group(3) + suf
+                    n, sv = (full.split('@') + [survey])[:2]
                     ps = layout.find(n, sv.split('.')[0])
+                    xy = (float(p.group(1)), float(p.group(2)))
+                    at[(n, sv.split('.')[0])] = xy
                     if ps:
-                        pairs.append((complex(float(p.group(1)), float(p.group(2))), complex(*ps[0])))
+                        pairs.append((complex(*xy), complex(*ps[0])))
             if len(pairs) < 2:
                 continue
             fit = _similarity(pairs)
             self.scraps.append((m.group(2), objs, fit))
+            self.stations.append({k: fit(xy) for k, xy in at.items()})
 
     def walls(self, outer_only=True):
         """[(scrap index, obj index, head, [segment rows], cave polyline)]"""
