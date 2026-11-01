@@ -108,9 +108,8 @@ those below are the usual ones.
 
 ### Underground, in SexyTopo
 
-Sketch as `Style.md` says ("Sketching in SexyTopo"): the colours the
-converter reads, cross sections, and drawing both the plan and the
-extended elevation. Note in the book which existing station the trip
+Sketch as `sketching-guide.md` says: the colours the converter reads,
+cross sections, and drawing both the plan and the extended elevation. Note in the book which existing station the trip
 starts from.
 
 ### After the trip

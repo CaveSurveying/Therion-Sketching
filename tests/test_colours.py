@@ -1,5 +1,5 @@
 """[convert] colour_map: where passages overlap, purple is read as a wall
-(black) and red and orange by shape as grey (Style.md, Sketching in SexyTopo)."""
+(black) and red and orange by shape as grey (Style.md, Reading the sketch)."""
 
 import os
 import unittest
