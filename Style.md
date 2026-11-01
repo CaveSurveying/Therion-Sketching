@@ -135,6 +135,10 @@ file is worked out from reviews and may be tuned.
 - Lines of one kind (walls, borders, floor steps, pits, overhangs, the
   same subtype) that run on into each other are one line, whatever their
   length: floor steps above all, as their ticks look wrong at a break.
+  Therion caps each line's ends, so pieces show as bumps where they
+  meet, and a piece lying along another wall draws it twice. A new line
+  starts only where the wall changes kind (wall to presumed) or turns a
+  real corner (Swildons review).
   Ends too close to tell apart join whatever the angle (a sharp turn stays
   a corner); ends up to 0.3 m apart join if the line carries on, turning
   no more than 60 degrees. A wall, step, pitch or overhang is never turned
@@ -201,8 +205,32 @@ file is worked out from reviews and may be tuned.
 - The outline must not cross itself, and no wall may loop back on
   itself. Otherwise Therion warns "invalid scrap outline" (no 3D model
   for the scrap) or MetaPost "scrap outline intersects itself".
+- MetaPost also gives that warning for an outline that does not cross
+  itself, when it miscounts its turns: where one wall ends on the next,
+  Therion joins them with a line of no length, which MetaPost takes as
+  pointing east, so walls running roughly west across the join can lose
+  a whole turn. `mp_turning` in `smooth.py` counts as MetaPost does;
+  making the two walls one line, or turning their ends slightly off due
+  west, fixes it (`review check` shows it).
+- Walls meet at exactly the same point: ends 0.3 units apart make a
+  backwards step that crosses the outline.
+- A curve fitted through a narrow tip can fold over itself: draw a tip
+  through the sketch's corner points, with a sharp corner.
+- Bays and alcoves, where the wall bends in and out, are wall: do not
+  let Therion close a bend with a straight line.
+- A pinch between two pools is a real narrowing of the walls.
 - A line inside the passage (a ledge, the edge of another level) is a
   `line border`, not a wall.
+- A passage that drops below another (a rift under the main passage)
+  is drawn in its own scrap or alongside. Its edge under the upper
+  passage is a `line floor-step`, and the upper passage's edge over it a
+  `line overhang`, not walls: walls are only the cave's outer edges.
+  Noses and fins of rock between passages are drawn; a scrap's closing
+  line does not fill across them.
+- Before taking `-outline out` off a line, check the `join`s in the map
+  files: a scrap joined to another needs that edge.
+- A new line has the same options (`-outline out`) as the neighbours it
+  runs on into, or it is not merged with them.
 - Passages that overlap in plan, or only come close together without
   joining, go in **different scraps**: one scrap would join them up and
   turn the walls between them into borders. A leg from one into the
@@ -924,6 +952,31 @@ Build with `therion -l ../output/therion.log Plan_only.thcfg` in
   continuation is not drawn yet. A splay end may occasionally go
   outside a wall: record it as a thing to check if it is outside by
   more than 0.5 m.
+
+## Reviewing a drawing with someone who knows the cave
+
+The converted drawings follow the sketches closely but misread them in
+predictable ways, and only someone who has been there can settle some
+of it. What worked (Swildons, 2026), in order:
+
+1. Agree the scope first (plan before elevation: the elevation is a
+   bigger job) and work through it a few spots at a time.
+2. Find the spots yourself before asking: `review gaps` (straight
+   closing lines where the sketch has a wall), merged pools, steps that
+   should be walls, lines that weren't drawn. Fix what the sketch makes
+   certain; ask about the rest.
+3. Ask with pictures, never with words alone: `review show` puts the
+   sketch (its colours, legs and station names) beside the drawing with
+   station names (`review build` first). One picture per question,
+   numbered, 3 to 7 per batch, each naming the stations and giving the
+   default you'd take, so the answer can be a word.
+4. After fixing, show sketch, before and after (`review show --before`,
+   with the old `output/review-plan.pdf` copied aside before editing),
+   build every config, and compare the "intersects itself" list with
+   the last build: no new warnings.
+5. Commit and push each round; main moves, so fetch and rebase rather
+   than force.
+6. Write each answer down in this file, as a rule for the next drawing.
 
 ## Updating this file
 
