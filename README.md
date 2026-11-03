@@ -15,6 +15,7 @@ is followed.
 | `rules.toml` | The same rules as settings for the converter. |
 | `*.py` | The converter (`python3 -m tools.sketch2therion`), its checks (`review`, `fillcheck`) and `th2lint`. |
 | `requirements.txt` | Python libraries (`pip install -r tools/sketch2therion/requirements.txt`). |
+| `GUI.md` | The window for running the steps on a new trip (`gui.py`, `trip.py`). |
 | `tests/` | The tools' tests, run in a small test cave (`tests/cave`). |
 
 ## Using it in a cave's repository
@@ -57,6 +58,17 @@ python3 -m tools.sketch2therion.th2lint --from Cave/thconfig
 The steps for a new trip are below ("A new trip"). The cave's
 `tools/README.md` gives its own names, its build and any steps of its
 own.
+
+## The GUI
+
+```bash
+python3 -m tools.sketch2therion.gui
+```
+
+from the top of a cave's repository opens a window that runs the steps
+of "A new trip" (below) on one of the cave's surveys and its drawings:
+the steps ticked, in order, with their output. It needs PySide6 or
+PyQt6; `GUI.md` says what it does and what is planned.
 
 ## Tests
 

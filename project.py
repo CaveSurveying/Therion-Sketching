@@ -60,6 +60,12 @@ class Project:
     def survey_file(self, survey):
         return self._in_cave(self.names["survey_file"], survey)
 
+    def surveys(self):
+        """The surveys in the cave's folder: those with a survey file
+        (`names.survey_file`), sorted."""
+        folder = self.path(self.cave["folder"])
+        return sorted(d for d in os.listdir(folder) if os.path.exists(self.path(self.survey_file(d))))
+
     def plan_file(self, survey):
         return self._in_cave(self.names["plan_file"], survey)
 

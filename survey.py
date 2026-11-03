@@ -36,20 +36,45 @@ def sketch_of(th2):
     return None
 
 
-def drawings(th, projection):
-    """The .th2 files the survey's .th inputs with a scrap in `projection`
-    ('plan', 'extended', or an angle faced, e.g. 315)."""
+def inputs(th):
+    """The .th2 files the survey's .th inputs that exist, in order."""
     folder = os.path.dirname(os.path.abspath(th))
     out = []
     for m in INPUT.finditer(open(th, encoding='utf-8', errors='replace').read()):
         f = os.path.join(folder, m.group(1))
-        if not f.lower().endswith('.th2') or not os.path.exists(f):
-            continue
-        for kind, angle in PROJECTION.findall(open(f, encoding='utf-8', errors='replace').read()):
-            if kind == str(projection) or (kind == 'elevation' and angle == str(projection)):
-                out.append(f)
-                break
+        if f.lower().endswith('.th2') and os.path.exists(f) and f not in out:
+            out.append(f)
     return out
+
+
+def projections(th2):
+    """The projections of a .th2's scraps: 'plan', 'extended', an angle
+    faced as a string (e.g. '315'), 'none'."""
+    found = PROJECTION.findall(open(th2, encoding='utf-8', errors='replace').read())
+    return {angle if kind == 'elevation' and angle else kind for kind, angle in found}
+
+
+def drawings(th, projection):
+    """The .th2 files the survey's .th inputs with a scrap in `projection`
+    ('plan', 'extended', or an angle faced, e.g. 315)."""
+    return [f for f in inputs(th) if str(projection) in projections(f)]
+
+
+TEAM = re.compile(r'(?m)^\s*team\s+"([^"]+)"\s*([^#\n]*)')
+DATE = re.compile(r'(?m)^\s*date\s+(\d{4}\.\d{2}\.\d{2})')
+COPYRIGHT = re.compile(r'(?m)^\s*copyright\s+(\d{4})\s+"([^"]+)"')
+
+
+def details(th):
+    """What the survey's .th says of who and when: {'date': '2026.04.25' or
+    None, 'team': [(name, roles)], 'copyright': (year, holder) or None}."""
+    t = open(th, encoding='utf-8', errors='replace').read()
+    d, c = DATE.search(t), COPYRIGHT.search(t)
+    team = []
+    for name, roles in TEAM.findall(t):
+        if name.strip() not in [n for n, _ in team]:
+            team.append((name.strip(), roles.strip()))
+    return {'date': d and d.group(1), 'team': team, 'copyright': c and (c.group(1), c.group(2))}
 
 
 def survey_sketch(th, projection):

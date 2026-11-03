@@ -36,6 +36,7 @@ import re
 from shapely.geometry import LineString, MultiPoint, Point
 from shapely.ops import unary_union
 
+from . import files
 from . import project as _project
 from . import register
 from .autoscraps import survey_legs
@@ -365,5 +366,5 @@ def write(d, edits, moves):
                 continue
             body = body.replace(old, new, 1)
         text = text[:s] + body + text[e:]
-    open(d.path, 'w', encoding='utf-8', newline='').write(text.replace('\n', nl))
-    print(f"wrote {d.path}")
+    if files.write(d.path, text.replace('\n', nl).encode('utf-8')):
+        print(f"wrote {d.path}")

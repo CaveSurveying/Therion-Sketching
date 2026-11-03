@@ -455,8 +455,7 @@ def main(argv):
     p.add_argument('--only', nargs='*', default=None, help='earlier surveys to change (with --write)')
     a = p.parse_args(argv)
     layout = register.cave_layout()
-    folder = PROJECT.path(PROJECT.cave['folder'])
-    every = sorted(d for d in os.listdir(folder) if os.path.exists(PROJECT.path(PROJECT.survey_file(d))))
+    every = PROJECT.surveys()
     surveys = a.surveys or [s for s in every if _date(s).startswith('2026')]
     todo = {}
     for new, old, at in equated_joins(surveys):

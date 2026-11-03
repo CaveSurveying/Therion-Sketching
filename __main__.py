@@ -38,7 +38,7 @@ import re
 import sys
 
 from . import project as _project
-from . import convert, labels, pockettopo, register, tidy, xvi
+from . import convert, files, labels, pockettopo, register, tidy, xvi
 
 PROJECT = _project.load()
 
@@ -52,7 +52,7 @@ def load(path, view):
 def write_th2(text, path, newline=None):
     # Line endings as the cave's drawings have them (tools/project.toml)
     text = text.replace('\r\n', '\n').replace('\n', newline or PROJECT.newline)
-    open(path, 'wb').write(text.encode('utf-8'))
+    files.write(path, text.encode('utf-8'))
 
 
 def _sexytopo_text(a, sk):
@@ -60,7 +60,7 @@ def _sexytopo_text(a, sk):
     export and leave their letters out of the sketch: the label lines to add."""
     out = a.output
     if os.path.exists(out) and not a.force and not labels.is_export(out):
-        sys.exit(f"{out} has drawing in it (not SexyTopo's export): not overwritten; --force to replace it")
+        sys.exit(f"{out} has lines or points other than stations and labels: not overwritten; --force to replace it")
     export = out if os.path.exists(out) and labels.is_export(out) else labels.export_for(a.sketch)
     if not export:
         print("no SexyTopo th2 export with this sketch as its backdrop: no labels carried over")
@@ -287,7 +287,7 @@ def cmd_extend(a):
     s = s[:j] + "\n".join(block) + "\n" + s[j:]
     if crlf:
         s = s.replace('\n', '\r\n')
-    open(a.th, 'wb').write(s.encode('latin-1'))
+    files.write(a.th, s.encode('latin-1'))
     print(f"{a.th}: {len(out)} legs, {sum(1 for x in out if x[2] == 'left')} left")
 
 
@@ -341,7 +341,7 @@ def main(argv=None):
         q.add_argument('--map-scale', type=int, default=PROJECT.drawing['map_scale'],
                        help='scale of the sheet it will be printed at, for sizing labels (default from tools/project.toml)')
         q.add_argument('--force', action='store_true',
-                       help='replace an output th2 that is not SexyTopo\'s export (a drawing, maybe edited by hand)')
+                       help='replace an output th2 with lines or points other than stations and labels (a drawing, maybe edited by hand)')
 
     q = sub.add_parser('check', help="the sketch's stations, legs and lines, and stations the trip's .th lacks")
     common(q, survey_required=True)

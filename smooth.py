@@ -23,6 +23,7 @@ import re
 from shapely.geometry import LineString, Point, Polygon
 from shapely.strtree import STRtree
 
+from . import files
 from .tidy import Obj, bezier_points, parse_scrap, reverse_segments, scale_of, therion_chain, therion_rings
 
 TOL = 0.10          # m: how far a refitted wall may stray from the old one
@@ -1916,5 +1917,5 @@ def redo_file(path, scraps=None):
             t = drop_slivers(t, SLIVER * k)
     if b'\r\n' in raw:
         t = t.replace('\n', '\r\n')
-    open(path, 'wb').write(t.encode('utf-8'))
+    files.write(path, t.encode('utf-8'))
     return report
