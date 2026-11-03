@@ -32,7 +32,7 @@ from collections import defaultdict
 from shapely.geometry import LineString, Polygon, box
 from shapely.ops import unary_union
 
-from . import database
+from . import database, files
 from . import project as _project
 from . import tidy
 from .survey import survey_of as _survey_of
@@ -283,7 +283,7 @@ def redo_file(path, splays=None, map_scale=200):
     t = ''.join(out)
     if b'\r\n' in raw:
         t = t.replace('\n', '\r\n')
-    open(path, 'wb').write(t.encode('utf-8'))
+    files.write(path, t.encode('utf-8'))
     return done
 
 
@@ -398,5 +398,5 @@ def plan_redo_file(path, splays=None, only=None, map_scale=500):
     t = ''.join(out)
     if b'\r\n' in raw:
         t = t.replace('\n', '\r\n')
-    open(path, 'wb').write(t.encode('utf-8'))
+    files.write(path, t.encode('utf-8'))
     return done

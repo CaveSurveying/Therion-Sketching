@@ -37,6 +37,7 @@ from shapely.ops import substring, unary_union
 
 from .outline import reverse_segments, therion_rings
 
+from . import files
 from . import project as _project
 
 # The drawings' licence (tools/project.toml), written at the top of each file.
@@ -1046,4 +1047,4 @@ def tidy_file(path, map_scale=500):
     t = tidy_text(raw.decode('utf-8'), map_scale)
     if crlf:
         t = t.replace('\n', '\r\n')
-    open(path, 'wb').write(t.encode('utf-8'))
+    files.write(path, t.encode('utf-8'))

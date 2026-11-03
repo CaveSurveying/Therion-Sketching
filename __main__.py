@@ -38,7 +38,7 @@ import re
 import sys
 
 from . import project as _project
-from . import convert, labels, pockettopo, register, tidy, xvi
+from . import convert, files, labels, pockettopo, register, tidy, xvi
 
 PROJECT = _project.load()
 
@@ -52,7 +52,7 @@ def load(path, view):
 def write_th2(text, path, newline=None):
     # Line endings as the cave's drawings have them (tools/project.toml)
     text = text.replace('\r\n', '\n').replace('\n', newline or PROJECT.newline)
-    open(path, 'wb').write(text.encode('utf-8'))
+    files.write(path, text.encode('utf-8'))
 
 
 def _sexytopo_text(a, sk):
@@ -287,7 +287,7 @@ def cmd_extend(a):
     s = s[:j] + "\n".join(block) + "\n" + s[j:]
     if crlf:
         s = s.replace('\n', '\r\n')
-    open(a.th, 'wb').write(s.encode('latin-1'))
+    files.write(a.th, s.encode('latin-1'))
     print(f"{a.th}: {len(out)} legs, {sum(1 for x in out if x[2] == 'left')} left")
 
 

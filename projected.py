@@ -35,6 +35,7 @@ import tempfile
 
 from shapely.geometry import LineString, MultiPoint, Point
 
+from . import files
 from . import project as _project
 from . import register
 from .tidy import bezier_points, parse_scrap, scale_of
@@ -572,7 +573,7 @@ def file_into(survey, tag, names):
         m = re.search(r'^\s*input "?' + re.escape(survey) + r'\.extended\.th2"?.*$', s, re.M)
         at = m.end() if m else 0
         s = s[:at] + f'{nl}input "{survey}{tag}.th2"{nl}{nl}{block}' + s[at:]
-    open(th, 'w', encoding='utf-8', newline='').write(s)
+    files.write(th, s.encode('utf-8'))
     cave = PROJECT.path(PROJECT.cave['plan_map_file'])
     c = open(cave, encoding='utf-8', newline='').read()
     m = re.search(r'^map LongwoodValleySinkM315\s*\r?\n(.*?)^endmap', c, re.S | re.M)

@@ -24,6 +24,7 @@ from shapely.geometry import LineString, Point, Polygon
 
 from .roofs import Splays
 from .survey import survey_of as _survey_of
+from . import files
 from .tidy import Obj, bezier_points, parse_scrap, scale_of
 
 MIN_STEP = 1.0      # m: shorter interior lines stay borders
@@ -538,5 +539,5 @@ def redo_file(path, splays=None, only=None):
     t = ''.join(out)
     if b'\r\n' in raw:
         t = t.replace('\n', '\r\n')
-    open(path, 'wb').write(t.encode('utf-8'))
+    files.write(path, t.encode('utf-8'))
     return report
