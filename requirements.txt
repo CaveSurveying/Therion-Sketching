@@ -4,3 +4,4 @@ numpy               # sketch2therion review: fitting
 matplotlib          # sketch2therion review show: the sketch panel
 pillow              # sketch2therion review show: the picture
 pymupdf             # sketch2therion review show: reading the plan PDF (AGPL; used, not distributed)
+# PySide6         # the GUI (gui.py), optional: pip install PySide6 (or PyQt6, if installed)

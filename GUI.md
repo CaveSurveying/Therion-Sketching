@@ -45,22 +45,24 @@ The window does no converting itself: every step is the command line
 folder, so the README and the window always do the same. `trip.py`
 builds the commands, without Qt, and is tested in `tests/`.
 
+The cave, its Python, the survey, the author's name and the copyright
+holder are remembered on this computer (Qt's settings), for each cave.
+
 ## Plan
 
-1. `trip.py`: a cave's trips, their sketches and drawings, the steps
-   and their commands; tests. `Project.surveys()` lists the cave's
-   surveys (`joins` used its own).
-2. `gui.py`: the window above (cave and trip, drawing options, steps,
-   log, Stop, the questions before `--force` and `sections --write`).
-3. This file and the README.
+Done: `trip.py` with its tests, `Project.surveys()` (which `joins` now
+uses too), `gui.py` (the window above) with its tests, this file and the
+README.
 
 Later:
 
 - Options from `project.toml` in the window, and saved back to it with
   its comments (needs `tomlkit`); where author and copyright are kept
-  (each cave, each person) is still to decide. For now the window
-  remembers them on this computer, for each cave.
-- A trip outside the cave's folder (a `.th` chosen anywhere).
+  (each cave, each person) is still to decide.
+- A trip outside the cave's folder (a `.th` chosen anywhere), and caves
+  whose surveys are not each in a folder of the cave's folder
+  (most of Swildons' trips are deeper down, as `streamway/...`; the
+  window finds only `Tratmans`).
 - `review gaps`, `review show` and `joins` in the window.
 - Reading SexyTopo's own files (`.json`) directly, with SexyTopo's
   (Java) code.
