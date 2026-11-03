@@ -65,18 +65,24 @@ class Trips(unittest.TestCase):
 
     def test_commands_in_order(self):
         opts = trip.Options(("2026.04.25", "A N Other"), ("2026", "Someone"), floor="TestCave/GoSouth/Notes/GoSouthE.xvi")
-        cmds = trip.commands(self.t, {"plan": ["smooth", "plan", "roofs"], "check": ["plan"], "checks": ["th2lint"]},
+        cmds = trip.commands(self.t, {"plan": ["th2lint", "smooth", "plan", "roofs", "check"]},
                              "TestCave/GoSouth/GoSouthP.th2", "TestCave/GoSouth/GoSouthEe.th2", opts, trip.Options())
         self.assertEqual([c.label for c in cmds], ["check GoSouthP.xvi", "check GoSouthPX1.xvi",
-                                                   "Plan: plan", "Plan: roofs", "Plan: smooth", "th2lint"])
+                                                   "Plan: plan", "Plan: roofs", "Plan: smooth", "th2lint GoSouthP.th2"])
         self.assertEqual(cmds[2].line("py"), [
             "py", "-m", "tools.sketch2therion", "plan", "TestCave/GoSouth/Notes/GoSouthP.xvi",
             "--survey", "GoSouth", "-o", "TestCave/GoSouth/GoSouthP.th2",
             "--author", "2026.04.25", "A N Other", "--copyright", "2026", "Someone",
             "--floor", "TestCave/GoSouth/Notes/GoSouthE.xvi"])
         self.assertEqual(cmds[3].args, ["roofs", "TestCave/GoSouth/GoSouthP.th2"])
-        self.assertEqual(cmds[5].line("py"), ["py", "-m", "tools.sketch2therion.th2lint",
-                                              "TestCave/GoSouth/GoSouthP.th2", "TestCave/GoSouth/GoSouthEe.th2"])
+        self.assertEqual(cmds[5].line("py"), ["py", "-m", "tools.sketch2therion.th2lint", "TestCave/GoSouth/GoSouthP.th2"])
+
+    def test_elevation_checks(self):
+        cmds = trip.commands(self.t, {"extended": ["check", "th2lint"]}, None, "TestCave/GoSouth/GoSouthEe.th2",
+                             trip.Options(), trip.Options())
+        self.assertEqual([c.args for c in cmds], [
+            ["check", "TestCave/GoSouth/Notes/GoSouthE.xvi", "--survey", "GoSouth", "--elevation"],
+            ["TestCave/GoSouth/GoSouthEe.th2"]])
 
     def test_extended_takes_no_floor(self):
         c = trip.convert(self.t, "extended", "extended", "TestCave/GoSouth/GoSouthEe.th2",
@@ -90,7 +96,7 @@ class Trips(unittest.TestCase):
             trip.convert(self.t, "extended", "extended", "TestCave/GoSouth/GoSouthE315.th2", trip.Options())
 
     def test_cave_commands(self):
-        cmds = trip.commands(self.t, {"cave": ["database", "sections_write"], "checks": ["fillcheck"]},
+        cmds = trip.commands(self.t, {"cave": ["database", "sections_write", "fillcheck"]},
                              None, None, trip.Options(), trip.Options(), "/opt/therion")
         self.assertEqual(cmds[0].line("py"), ["/opt/therion", "-l", trip.LAYOUT_LOG, trip.LAYOUT_CONFIG])
         self.assertEqual(cmds[1].args, ["sections", "--write"])

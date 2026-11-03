@@ -45,12 +45,13 @@ class Window(unittest.TestCase):
 
     def test_tabs(self):
         titles = [self.w.tabs.tabText(i) for i in range(self.w.tabs.count())]
-        self.assertEqual(titles, ["Check", "Plan", "Elevation", "Cave", "Checks", "Credits", "Environment"])
-        self.assertEqual(self.w.chosen()["plan"], ["plan", "roofs", "details", "smooth"])   # all ticked to start with
-        self.w.section_ticks["check"].setChecked(False)
+        self.assertEqual(titles, ["Plan", "Elevation", "Cave", "Credits", "Environment"])
+        self.assertEqual(self.w.chosen()["plan"],                                        # all ticked to start with
+                         ["check", "plan", "roofs", "details", "smooth", "review", "th2lint"])
+        self.w.section_ticks["cave"].setChecked(False)
         self.w.part_ticks[("plan", "details")].setChecked(False)
-        self.assertNotIn("check", self.w.chosen())
-        self.assertEqual(self.w.chosen()["plan"], ["plan", "roofs", "smooth"])
+        self.assertNotIn("cave", self.w.chosen())
+        self.assertEqual(self.w.chosen()["plan"], ["check", "plan", "roofs", "smooth", "review", "th2lint"])
 
     def test_save_defaults(self):
         self.w.section_ticks["cave"].setChecked(False)
@@ -58,13 +59,13 @@ class Window(unittest.TestCase):
         self.w.save_defaults()
         again = gui.Window(self.w.project.root, self.w.settings)
         self.assertNotIn("cave", again.chosen())
-        self.assertEqual(again.chosen()["plan"], ["plan", "roofs", "smooth"])
+        self.assertEqual(again.chosen()["plan"], ["check", "plan", "roofs", "smooth", "review", "th2lint"])
         again.close()
 
     def test_every_option_explained(self):
         for key, _, parts in gui.trip.SECTIONS:
             for p in parts:
-                self.assertTrue(p.short and p.detail, (key, p.key))
+                self.assertTrue(p.short[0].isupper() and p.short.endswith('.') and p.detail, (key, p.key))
 
     def test_author_from_the_th(self):
         w = self.w
@@ -101,8 +102,9 @@ class Window(unittest.TestCase):
     def test_run_check(self):
         w = self.w
         for key, t in w.section_ticks.items():
-            t.setChecked(key == "check")
-        w.part_ticks[("check", "extended")].setChecked(False)
+            t.setChecked(key == "plan")
+        for (key, part), t in w.part_ticks.items():
+            t.setChecked(part == "check")
         w.run_ticked()
         while w.current:
             loop = gui.QtCore.QEventLoop()

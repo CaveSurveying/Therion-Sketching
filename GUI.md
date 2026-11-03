@@ -25,11 +25,13 @@ the window and the scripts may use different Pythons.
 
   | Tab | Parts |
   |---|---|
-  | Check | the plan drawing's sketches, the elevation drawing's sketches |
-  | Plan | `plan`, `roofs`, `details`, `smooth` (and `--floor`) |
-  | Elevation | `extended`, `roofs`, `smooth` |
-  | Cave | Therion's database (`tools/layout.thcfg`), `place`, `sections` (report, `--write`) |
-  | Checks | `review check`, `th2lint`, `fillcheck --build` |
+  | Plan | check the sketches, `plan` (and `--floor`), `roofs`, `details`, `smooth`, `review check`, `th2lint` |
+  | Elevation | check the sketches, `extended`, `roofs`, `smooth`, `th2lint` |
+  | Cave | Therion's database (`tools/layout.thcfg`), `place`, `sections` (report, `--write`), `fillcheck --build` |
+
+  Each drawing's tab runs in the order the drawing is made: check its
+  sketches, convert them, then check the result. The Cave tab needs the
+  trip tied into the cave.
 
   Run runs the ticked parts of every ticked tab, in order, with their
   output in the log; it stops at the first that fails, and Stop ends
@@ -48,13 +50,16 @@ the window and the scripts may use different Pythons.
   by default), the Therion that compiles, and the viewer (xTherion or
   Therion Studio, each with a local build if wanted).
 - **Every option** has a short note on what it does, and an (i) button
-  for more.
+  for more, giving what it changes or prints, an example of its output and
+  what to do about it. The steps' texts are in `trip.SECTIONS`, the
+  others in `gui.HELP`.
 - **Save defaults** (bottom left) keeps the tick boxes, the copyright
   choice and the Environment as they are, for next time. Every tick box
   is on until then.
-- **Asks first** before what can lose work: replacing a drawing that is
-  not SexyTopo's export (`--force`, its hand edits are lost) and
-  `sections --write` (changes every plan drawing in the cave).
+- **Asks first** before what can lose work: replacing a drawing that
+  has lines or points other than stations and labels (`--force`, its
+  drawing is lost) and `sections --write` (changes every plan drawing in
+  the cave).
 
 The window does no converting itself: every step is the command line
 (`python3 -m tools.sketch2therion ...`, `therion ...`) run in the cave's
@@ -92,6 +97,30 @@ Next:
   fails on Swildons (`BarnesLoopToTratmans.Swildons/...`).
 
 Later:
+
+- **Style in the window, editable in the end.** `Style.md` should hold
+  only how a drawing looks. Today it also holds names and files,
+  licence and authorship, how the converter reads a sketch, Git and
+  CI, checking and reviewing. Not one Style tab, as the rules belong
+  with what they govern:
+  - general drawing rules (the hard rules, walls and the outline,
+    symbols, scraps) shared by plan and elevation, in a tab of their
+    own
+  - plan only rules (cross sections) with the Plan tab, elevation only
+    rules with the Elevation tab
+  - names and files with the cave's settings (`project.toml`), as they
+    differ for each cave
+  - licence and authorship with Credits
+  - how the sketch is read with the steps that read it (`plan`,
+    `extended`)
+  - Git, checking and reviewing stay in the README, linked from the
+    check steps' (i).
+
+  Splitting `Style.md` to match comes first. What can be edited is
+  still to decide (the numbers in `project.toml` are easy, the prose
+  less so), and hard rules change only with the user's confirmation.
+  `Style.md` is shared by every cave, so editing it in the window
+  changes Therion-Sketching, not the cave.
 
 - Options from `project.toml` in the window, and saved back to it with
   its comments (needs `tomlkit`); where author and copyright are kept

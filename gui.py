@@ -26,29 +26,31 @@ DEFAULTS = 'defaults/'          # settings saved by "Save defaults" (and the def
 
 # The other options' short and full descriptions (the steps' are in trip.SECTIONS)
 HELP = {
-    'floor': ('floor steps and gradients from the elevation sketch',
-              "Gives plan the elevation drawing's first sketch (--floor), for floor steps and gradients. "
-              "Ignored where the cave's project.toml draws only what the plan sketch shows."),
-    'author': ("who drew it, in each scrap's -author",
-               "Offers the trip's team from its .th (the notes person first) and your default author. "
-               "Type a name to use another. Written into every scrap the conversion makes."),
-    'date': ("the drawing's date, in each scrap's -author",
+    'floor': ('Uses the elevation sketch for floor steps and gradients.',
+              "Gives plan the elevation drawing's first sketch (--floor), so floor steps and gradients the "
+              "elevation shows are drawn in the plan. Ignored where the cave's project.toml draws only what "
+              "the plan sketch shows."),
+    'author': ("Who drew it, written into every scrap.",
+               "Offers the trip's team from its .th (the notes person first) and your default author, "
+               "with where each name came from shown after it. Type a name to use another. Written into "
+               "every scrap plan and extended make, with the date (-author)."),
+    'date': ("When it was drawn, written with the author.",
              "The date line of the trip's .th, or today if it has none. Type YYYY.MM.DD to change it."),
-    'copyright': ("each scrap's -copyright",
+    'copyright': ("Who holds the copyright, written into every scrap.",
                   "Your default holder, the copyright line of the trip's .th, a holder typed here, or "
-                  "none. The year is the date's."),
-    'licence': ("the cave's, from its project.toml",
+                  "none. The year is the date's. Written into every scrap plan and extended make (-copyright)."),
+    'licence': ("The cave's licence, written at the top of every drawing.",
                 "The licence written at the top of every drawing. The converter writes the cave's licence "
                 "(drawing.licence in tools/project.toml) for now, so the other choices are not yet open."),
-    'defaults': ('kept on this computer for every cave',
+    'defaults': ('Offered for every trip on this computer.',
                  "The author and copyright holder offered for every trip. Change them with the button, "
                  "so it is clear the default is changing and not just this run."),
-    'python': ('runs the scripts, kept for each cave',
+    'python': ('Runs the scripts. Kept for each cave.',
                "The Python the scripts run with. It needs the libraries in requirements.txt. The cave's "
                ".venv if it has one, else the Python running this window."),
-    'therion': ('compiles the database and the check build',
+    'therion': ('Compiles the database and the check build.',
                 "The therion program, or the path to a local build."),
-    'viewer': ('opens a drawing with View',
+    'viewer': ('Opens a drawing when you press View.',
                "xTherion or Therion Studio, each with the path to a local build if wanted (blank uses "
                "the installed one). Therion Studio opens its last session for now, not the drawing."),
 }
@@ -202,9 +204,9 @@ class Window(QtWidgets.QMainWindow):
             t = QtWidgets.QCheckBox(p.label)
             self.part_ticks[(key, p.key)] = t
             lay.addWidget(self._option(t, p.label, p.short, p.detail))
-        if key == 'plan':
-            self.floor_check = QtWidgets.QCheckBox('--floor')
-            lay.addWidget(self._option(self.floor_check, '--floor', *HELP['floor']))
+            if (key, p.key) == ('plan', 'plan'):            # an option of plan, so just after it
+                self.floor_check = QtWidgets.QCheckBox('--floor')
+                lay.addWidget(self._option(self.floor_check, '--floor', *HELP['floor']))
         lay.addStretch(1)
         i = self.tabs.addTab(page, title)
         tick = QtWidgets.QCheckBox()
@@ -552,8 +554,8 @@ class Window(QtWidgets.QMainWindow):
         elif not ok and trip.NEEDS_FORCE in self.output and '--force' not in done.args:
             ask = QtWidgets.QMessageBox.question(
                 self, 'Replace the drawing?',
-                f"{done.args[done.args.index('-o') + 1]} is not SexyTopo's export: it has drawing in it, "
-                "maybe edited by hand. Replace it (--force)? Its hand edits are lost.", Yes | No, No)
+                f"{done.args[done.args.index('-o') + 1]} has lines or points other than stations and labels in it, "
+                "maybe drawn by hand. Replace it (--force)? That drawing is lost.", Yes | No, No)
             if ask == Yes:
                 self.run([trip.Command(done.label, done.args + ['--force'])] + rest)
         elif not ok and rest:
