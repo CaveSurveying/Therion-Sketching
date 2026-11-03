@@ -14,9 +14,9 @@
               the passage on their left, no -clip off, C/P labels outside
               the passage, ... (see tidy.py)
   roofs       redraw converted extended elevations' fill from the splay
-              shots where no roof or floor was sketched (after a build)
+              shots where no roof or floor was sketched
   details     plan details: interior lines -> floor steps, cleaner
-              boulders (after a build)
+              boulders
   smooth      refit converted walls with fewer, smooth points (last, after
               roofs and details)
   review      check a drawing against the sketch with someone who knows the
@@ -26,9 +26,11 @@
 
 Sketches can be SexyTopo or PocketTopo .xvi files, PocketTopo .top files or
 PocketTopo Therion exports (_th.txt). Run from the top of the repository.
-`check`, `joins`, `sections` and `review` need Therion's layout first:
-`therion -l output/therion-layout.log tools/layout.thcfg`. Cave names,
-paths and drawing settings come from tools/project.toml.
+`check` and the conversions need only the trip's own files (its .th and
+sketches), so a trip can be drawn before it is tied into the cave.
+`joins`, `sections` and `review` need Therion's database of the cave
+first: `therion -l output/therion-layout.log tools/layout.thcfg`. Cave
+names, paths and drawing settings come from tools/project.toml.
 """
 import argparse
 import os
@@ -39,21 +41,12 @@ from . import project as _project
 from . import convert, labels, pockettopo, register, tidy, xvi
 
 PROJECT = _project.load()
-PLAN_LAYOUT = PROJECT.build['layout_plan']
-EXT_LAYOUT = PROJECT.build['layout_extended']
 
 
 def load(path, view):
     if path.lower().endswith('.xvi'):
         return xvi.read(path)
     return pockettopo.sketch(path, view)
-
-
-def layout(path):
-    if path and os.path.exists(path):
-        return register.Layout(path)
-    sys.exit(f"{path} not found: run  therion -l output/therion-layout.log tools/layout.thcfg  first"
-             " (with the new trip's .th already input)")
 
 
 def write_th2(text, path, newline=None):
@@ -82,7 +75,10 @@ def _sexytopo_text(a, sk):
 def cmd_check(a):
     view = 'elevation' if a.elevation else 'plan'
     sk = load(a.sketch, view)
-    lay = layout(a.layout or (EXT_LAYOUT if a.elevation else PLAN_LAYOUT))
+    th = _survey_th(a.survey, a.sketch)
+    if not os.path.exists(th):
+        sys.exit(f"no .th declaring survey {a.survey} beside {a.sketch} or at {th}")
+    surveyed = _surveyed(a.survey, a.sketch) or set()
     pos = sk.positions()
     colours = {}
     for c, _ in sk.lines:
@@ -91,11 +87,10 @@ def cmd_check(a):
     print(f"  {len(pos)} stations, {len(sk.legs())} legs, {len(sk.splays())} splays, "
           f"{len(sk.sections())} cross sections")
     print("  lines: " + ", ".join(f"{c.lower()} {n}" for c, n in sorted(colours.items(), key=lambda kv: -kv[1])))
-    missing = [n for n in pos if not lay.find(n, a.survey)]
+    missing = [n for n in pos if n not in surveyed]
     if missing:
         print(f"  NOT IN THE SURVEY ({len(missing)}): {' '.join(sorted(missing, key=register.natural)[:30])}")
-        print(f"    Is the trip's .th input in {PROJECT.cave['master']}, the layout re-exported,"
-              " and --survey right?")
+        print(f"    not on the legs in {th}: is --survey right, and is it the trip's .th?")
     d = register.line_distance(sk, convert.WALLS)
     if d is not None:
         print(f"  stations to nearest wall line: {d:.2f} m (median)"
@@ -332,9 +327,9 @@ def main(argv=None):
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='cmd', required=True)
 
-    def common(q):
+    def common(q, survey_required=False):
         q.add_argument('sketch', help='.xvi (SexyTopo or PocketTopo), .top or _th.txt')
-        q.add_argument('--survey', help="the trip's survey name in Therion, e.g. GoSouth")
+        q.add_argument('--survey', required=survey_required, help="the trip's survey name in Therion, e.g. GoSouth")
 
     def drawing(q):
         q.add_argument('-o', '--output', required=True, help='the th2 file to write')
@@ -348,9 +343,8 @@ def main(argv=None):
         q.add_argument('--force', action='store_true',
                        help='replace an output th2 that is not SexyTopo\'s export (a drawing, maybe edited by hand)')
 
-    q = sub.add_parser('check', help="the sketch's stations, legs and lines, and stations the survey lacks")
-    common(q)
-    q.add_argument('--layout', help="Therion's layout XVI, for the survey's station names (default output/layout-*.xvi)")
+    q = sub.add_parser('check', help="the sketch's stations, legs and lines, and stations the trip's .th lacks")
+    common(q, survey_required=True)
     q.add_argument('--elevation', action='store_true', help='the sketch is an extended elevation')
     q.set_defaults(func=cmd_check)
 
