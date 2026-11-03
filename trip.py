@@ -8,6 +8,7 @@ for the GUI (gui.py) to run in the cave's folder. No Qt here.
     trip.commands(t, {"plan": ["plan", "roofs"]}, t.default_drawing("plan"), None,
                   trip.Options(), trip.Options())
 """
+import collections
 import dataclasses
 import os
 import sys
@@ -18,14 +19,67 @@ from . import survey as _survey
 # The order a drawing's steps always run in (README.md, "Converting a drawing")
 STEPS = {'plan': ('plan', 'roofs', 'details', 'smooth'),
          'extended': ('extended', 'roofs', 'smooth')}
-# The window's tabs, in the order they run: (key, title, [(part, label)])
+# The window's tabs, in the order they run: (key, title, [Part])
+Part = collections.namedtuple('Part', 'key label short detail')
+_CONVERT = ("Converts the drawing's first sketch (the one every later step reads) into {what}, "
+            "written over the drawing, with SexyTopo's labels kept. A drawing that is not SexyTopo's "
+            "export has drawing in it, maybe edited by hand, so it is replaced only if you agree, and "
+            "its hand edits are lost. The first step, and the others follow in order.")
+_SMOOTH = ("Refits the converted walls with fewer, smooth points, joins wall pieces and tidies line "
+           "ends. Always the last step. Run again on a smoothed drawing it still changes it a little "
+           "(to be fixed).")
+_CHECK = ("Runs check on every sketch the {what} drawing links, listing its stations, legs, splays, cross "
+          "sections and line colours, and any station not on a leg in the trip's .th (a wrong survey "
+          "name, or a leg taken out of the .th). Needs only the trip's own files.")
 SECTIONS = [
-    ('check', 'Check', [('plan', 'Plan sketches'), ('extended', 'Elevation sketches')]),
-    ('plan', 'Plan', [(s, s) for s in STEPS['plan']]),
-    ('extended', 'Elevation', [(s, s) for s in STEPS['extended']]),
-    ('cave', 'Cave', [('database', "Therion's database"), ('place', 'Place the plan'),
-                      ('sections', 'Cross sections (report)'), ('sections_write', 'Cross sections (--write)')]),
-    ('checks', 'Checks', [('review', 'review check'), ('th2lint', 'th2lint'), ('fillcheck', 'fillcheck --build')]),
+    ('check', 'Check', [
+        Part('plan', 'Plan sketches', "the plan's sketches against the trip's .th", _CHECK.format(what='plan')),
+        Part('extended', 'Elevation sketches', "the elevation's sketches against the trip's .th",
+             _CHECK.format(what='elevation'))]),
+    ('plan', 'Plan', [
+        Part('plan', 'plan', 'the sketch into plan scraps and cross sections',
+             _CONVERT.format(what='plan scraps and cross sections')),
+        Part('roofs', 'roofs', 'the fill from the splays where no wall was sketched',
+             "Redraws the fill of plan scraps with invisible walls from the splays of the drawing's "
+             "own sketch. Leaves the drawing alone if there is nothing to redo."),
+        Part('details', 'details', 'floor steps, presumed walls and boulders',
+             "Turns lines inside the passage into floor steps, presumed walls and boulders, in "
+             "every plan scrap."),
+        Part('smooth', 'smooth', 'the walls refitted as smooth curves', _SMOOTH)]),
+    ('extended', 'Elevation', [
+        Part('extended', 'extended', 'the sketch into elevation scraps and cross sections',
+             _CONVERT.format(what='extended elevation scraps and cross sections')),
+        Part('roofs', 'roofs', 'roof and floor from the splays where none was sketched',
+             "Redraws the fill of elevation scraps from the steep splays of the drawing's own sketch "
+             "where no roof or floor was sketched. Leaves the drawing alone if there is nothing to redo."),
+        Part('smooth', 'smooth', 'the walls refitted as smooth curves', _SMOOTH)]),
+    ('cave', 'Cave', [
+        Part('database', "Therion's database", 'where Therion puts every station',
+             "Runs Therion on tools/layout.thcfg, which exports the cave's database "
+             "(output/layout.sql), with every station placed once the loops are closed. Cross sections, joins and "
+             "review need it. Run it once the trip is tied into the master file, and again whenever "
+             "the survey data change."),
+        Part('place', 'Place the plan', "the plan into the trip's .th and the cave's plan map",
+             "Inputs the plan drawing in the trip's .th with a map of its scraps, adds that map to the "
+             "cave's plan map, and removes SexyTopo's empty plan th2 unless the drawing was written "
+             "over it. The trip must be tied in."),
+        Part('sections', 'Cross sections (report)', 'how the cross sections would change',
+             "For every plan drawing in the cave, each cross section line turned to look along the "
+             "survey and carried across its passage, and section drawings moved clear of the "
+             "passages. Only reports, and changes nothing."),
+        Part('sections_write', 'Cross sections (write)', 'the cross sections changed in every plan drawing',
+             "As the report, but writes the changes into every plan drawing the master file inputs. "
+             "Asks first.")]),
+    ('checks', 'Checks', [
+        Part('review', 'review check', "the plan's outlines",
+             "Checks the plan drawing's outlines against the hard rules in Style.md, such as a second "
+             "outer wall on one side of a passage."),
+        Part('th2lint', 'th2lint', "both drawings against Style.md",
+             "Checks the plan and elevation drawings against the rules in Style.md that can be checked "
+             "in the file."),
+        Part('fillcheck', 'fillcheck', "legs and splays inside the drawn passage",
+             "Builds the cave's check build with Therion, then checks that the trip's legs and splays "
+             "fall inside the passage as drawn.")]),
 ]
 TITLES = {key: title for key, title, _ in SECTIONS}
 VIEWERS = {'xTherion': 'xtherion', 'Therion Studio': 'TherionStudio'}     # programs to view a th2 with
@@ -166,7 +220,7 @@ def commands(trip, chosen, plan, extended, plan_opts, ext_opts, therion='therion
     drawing = {'plan': plan, 'extended': extended}
     out = []
     for key, _, parts in SECTIONS:
-        for part, _ in parts:
+        for part in (p.key for p in parts):
             if part not in chosen.get(key, ()):
                 continue
             if key == 'check':

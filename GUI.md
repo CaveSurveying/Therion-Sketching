@@ -35,13 +35,23 @@ the window and the scripts may use different Pythons.
   output in the log; it stops at the first that fails, and Stop ends
   the running one. `plan` and `extended` convert the drawing's first
   sketch, the one every later step reads.
-- **Author**: the name (someone in the `.th`'s team, the local default,
-  or typed) and the date (the `.th`'s, or typed); the copyright, from
-  the local default or the `.th`, or none.
+- **Credits**: the author's name (someone in the `.th`'s team, the
+  default author, or typed, with where it came from shown after it) and
+  the date (the `.th`'s, or typed); the copyright, from the default
+  holder, the `.th`, typed here, or none; the licence, the cave's
+  (`drawing.licence` in `project.toml`) and greyed out, as the converter
+  writes no other yet.
+  The default author and copyright holder are changed only with the
+  Change defaults button, so it is clear the default is changing and
+  not just this run.
 - **Environment**: the Python that runs the scripts (the cave's `.venv`
-  by default), the Therion that compiles, the viewer (xTherion or
-  Therion Studio, each with a local build if wanted) and the local
-  default author and copyright holder.
+  by default), the Therion that compiles, and the viewer (xTherion or
+  Therion Studio, each with a local build if wanted).
+- **Every option** has a short note on what it does, and an (i) button
+  for more.
+- **Save defaults** (bottom left) keeps the tick boxes, the copyright
+  choice and the Environment as they are, for next time. Every tick box
+  is on until then.
 - **Asks first** before what can lose work: replacing a drawing that is
   not SexyTopo's export (`--force`, its hand edits are lost) and
   `sections --write` (changes every plan drawing in the cave).
@@ -51,9 +61,8 @@ The window does no converting itself: every step is the command line
 folder, so the README and the window always do the same. `trip.py`
 builds the commands, without Qt, and is tested in `tests/`.
 
-The settings are kept on this computer (Qt's settings): the cave, and
-for each cave its Python, survey, drawings and ticks; the environment
-and local defaults for every cave.
+The settings are kept on this computer (Qt's settings): the defaults
+for every cave, and for each cave its Python, last survey and drawings.
 
 ## Plan
 
@@ -61,19 +70,34 @@ Done: `trip.py` and `gui.py` (the window above) with their tests,
 `Project.surveys()` (which `joins` uses too), and `survey.py` reading a
 `.th`'s inputs, team, date and copyright.
 
+Next:
+
+- **A drawing's other sketches**, cross sections at least: a drawing
+  often links more than one `.xvi` (cross sections sketched on their
+  own), and only its first is converted for now.
+- **Finding the surveys.** Scan the cave's repository for `.th` files,
+  wherever they are (leaving out `tools/` and `.git`, and not following
+  links), and read each one's `survey NAME` lines: every survey with the
+  `.th` that declares it. No pattern and no master file, so a new trip
+  is found before it is tied in, and Swildons' trips two folders down
+  (`Streamway/TratmansToSump1/TratmansToSump1.th`) or several to a
+  folder (`Entrance/EntToWaterChamber/ZigZags.th`) are found too. A
+  name declared in more than one `.th` (Swildons' `SwildonsHole`,
+  `wstanton`) is shown with its path. The window uses that `.th`, not
+  one built from `survey_file`.
+- **One piece of code for it**, in `survey.py`, replacing
+  `sections.survey_files` and `Project.surveys()`; `sections` and
+  `joins` use it too, unless there is a good reason not to. `joins`
+  builds a survey's `.th` path from `survey_file`, which is why it
+  fails on Swildons (`BarnesLoopToTratmans.Swildons/...`).
+
 Later:
 
 - Options from `project.toml` in the window, and saved back to it with
   its comments (needs `tomlkit`); where author and copyright are kept
   (each cave, each person) is still to decide.
-- A drawing's other sketches (often cross sections) used in converting
-  it: for now only its first sketch is converted.
 - Therion Studio opening the drawing it is given (it opens its last
   session for now).
-- A trip outside the cave's folder (a `.th` chosen anywhere), and caves
-  whose surveys are not each in a folder of the cave's folder
-  (most of Swildons' trips are deeper down, as `streamway/...`; the
-  window finds only `Tratmans`).
 - `review gaps`, `review show` and `joins` in the window.
 - Reading SexyTopo's own files (`.json`) directly, with SexyTopo's
   (Java) code.

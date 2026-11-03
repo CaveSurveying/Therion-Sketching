@@ -45,28 +45,52 @@ class Window(unittest.TestCase):
 
     def test_tabs(self):
         titles = [self.w.tabs.tabText(i) for i in range(self.w.tabs.count())]
-        self.assertEqual(titles, ["Check", "Plan", "Elevation", "Cave", "Checks", "Author", "Environment"])
-        self.assertEqual(self.w.chosen(), {})                   # no tab ticked to start with
-        self.w.section_ticks["plan"].setChecked(True)
+        self.assertEqual(titles, ["Check", "Plan", "Elevation", "Cave", "Checks", "Credits", "Environment"])
+        self.assertEqual(self.w.chosen()["plan"], ["plan", "roofs", "details", "smooth"])   # all ticked to start with
+        self.w.section_ticks["check"].setChecked(False)
         self.w.part_ticks[("plan", "details")].setChecked(False)
-        self.assertEqual(self.w.chosen(), {"plan": ["plan", "roofs", "smooth"]})
+        self.assertNotIn("check", self.w.chosen())
+        self.assertEqual(self.w.chosen()["plan"], ["plan", "roofs", "smooth"])
+
+    def test_save_defaults(self):
+        self.w.section_ticks["cave"].setChecked(False)
+        self.w.part_ticks[("plan", "details")].setChecked(False)
+        self.w.save_defaults()
+        again = gui.Window(self.w.project.root, self.w.settings)
+        self.assertNotIn("cave", again.chosen())
+        self.assertEqual(again.chosen()["plan"], ["plan", "roofs", "smooth"])
+        again.close()
+
+    def test_every_option_explained(self):
+        for key, _, parts in gui.trip.SECTIONS:
+            for p in parts:
+                self.assertTrue(p.short and p.detail, (key, p.key))
 
     def test_author_from_the_th(self):
         w = self.w
         self.assertEqual(w.author(), ("2026.04.25", "Andrew Atkinson"))     # the notes person, the .th's date
+        self.assertEqual(w.author_from.text(), "(notes, in the .th)")             # beside it, not in it
         w.author_name.setEditText("Someone Else")
         self.assertEqual(w.author(), ("2026.04.25", "Someone Else"))
+        self.assertEqual(w.author_from.text(), "(typed)")
 
-    def test_local_defaults(self):
+    def test_licence_the_caves(self):
+        self.assertEqual(self.w.licence_choice["default"].text(), "Default: GPLv3.0+")
+        self.assertTrue(self.w.licence_choice["default"].isChecked())
+        self.assertFalse(any(b.isEnabled() for b in self.w.licence_choice.values()))
+
+    def test_defaults_and_copyright(self):
         w = self.w
-        w.local_author.setText("A Local")
-        w.local_author.editingFinished.emit()
-        self.assertIn("A Local (local default)", [w.author_name.itemText(i) for i in range(w.author_name.count())])
-        self.assertIsNone(w.copyright())                        # GoSouth.th has no copyright, none set locally
-        w.local_copyright.setText("A Club")
-        w.local_copyright.editingFinished.emit()
-        self.assertTrue(w.copy_choice["local"].isChecked())
+        self.assertIsNone(w.copyright())                        # GoSouth.th has no copyright, no default set
+        w.set_defaults("A Local", "A Club")
+        self.assertIn("A Local", [w.author_name.itemText(i) for i in range(w.author_name.count())])
+        self.assertTrue(w.copy_choice["default"].isChecked())
         self.assertEqual(w.copyright(), ("2026", "A Club"))
+        w.copy_typed.setText("Someone")
+        w.copy_choice["typed"].setChecked(True)
+        self.assertEqual(w.copyright(), ("2026", "Someone"))
+        w.copy_choice["none"].setChecked(True)
+        self.assertIsNone(w.copyright())
 
     def test_floor_from_the_elevation_drawing(self):
         self.w.floor_check.setChecked(True)
@@ -76,7 +100,8 @@ class Window(unittest.TestCase):
     @unittest.skipUnless(HAVE_SHAPELY, "the scripts need shapely")
     def test_run_check(self):
         w = self.w
-        w.section_ticks["check"].setChecked(True)
+        for key, t in w.section_ticks.items():
+            t.setChecked(key == "check")
         w.part_ticks[("check", "extended")].setChecked(False)
         w.run_ticked()
         while w.current:

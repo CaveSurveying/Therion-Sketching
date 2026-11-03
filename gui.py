@@ -22,6 +22,36 @@ from . import trip
 
 Yes = QtWidgets.QMessageBox.StandardButton.Yes
 No = QtWidgets.QMessageBox.StandardButton.No
+DEFAULTS = 'defaults/'          # settings saved by "Save defaults" (and the default author and copyright)
+
+# The other options' short and full descriptions (the steps' are in trip.SECTIONS)
+HELP = {
+    'floor': ('floor steps and gradients from the elevation sketch',
+              "Gives plan the elevation drawing's first sketch (--floor), for floor steps and gradients. "
+              "Ignored where the cave's project.toml draws only what the plan sketch shows."),
+    'author': ("who drew it, in each scrap's -author",
+               "Offers the trip's team from its .th (the notes person first) and your default author. "
+               "Type a name to use another. Written into every scrap the conversion makes."),
+    'date': ("the drawing's date, in each scrap's -author",
+             "The date line of the trip's .th, or today if it has none. Type YYYY.MM.DD to change it."),
+    'copyright': ("each scrap's -copyright",
+                  "Your default holder, the copyright line of the trip's .th, a holder typed here, or "
+                  "none. The year is the date's."),
+    'licence': ("the cave's, from its project.toml",
+                "The licence written at the top of every drawing. The converter writes the cave's licence "
+                "(drawing.licence in tools/project.toml) for now, so the other choices are not yet open."),
+    'defaults': ('kept on this computer for every cave',
+                 "The author and copyright holder offered for every trip. Change them with the button, "
+                 "so it is clear the default is changing and not just this run."),
+    'python': ('runs the scripts, kept for each cave',
+               "The Python the scripts run with. It needs the libraries in requirements.txt. The cave's "
+               ".venv if it has one, else the Python running this window."),
+    'therion': ('compiles the database and the check build',
+                "The therion program, or the path to a local build."),
+    'viewer': ('opens a drawing with View',
+               "xTherion or Therion Studio, each with the path to a local build if wanted (blank uses "
+               "the installed one). Therion Studio opens its last session for now, not the drawing."),
+}
 
 
 def is_cave(folder):
@@ -36,6 +66,11 @@ def row(*widgets):
     for x in widgets:
         h.addWidget(x) if isinstance(x, QtWidgets.QWidget) else h.addStretch(x)
     return w
+
+
+def narrow(widget):
+    widget.setSizePolicy(QtWidgets.QSizePolicy.Policy.Maximum, QtWidgets.QSizePolicy.Policy.Fixed)
+    return widget
 
 
 class Window(QtWidgets.QMainWindow):
@@ -63,14 +98,13 @@ class Window(QtWidgets.QMainWindow):
         self.section_ticks, self.part_ticks = {}, {}
         for key, title, parts in trip.SECTIONS:
             self._section_tab(key, title, parts)
-        environment = self._environment_tab()          # before Author: it holds the local defaults
-        self.tabs.addTab(self._author_tab(), 'Author')
-        self.tabs.addTab(environment, 'Environment')
+        self.tabs.addTab(self._credits_tab(), 'Credits')
+        self.tabs.addTab(self._environment_tab(), 'Environment')
         top.addWidget(self.tabs)
-        self.run_button = QtWidgets.QPushButton('Run')
+        self.run_button = narrow(QtWidgets.QPushButton('Run'))
         self.run_button.setToolTip('Run the ticked parts of every ticked tab, in order')
         self.run_button.clicked.connect(self.run_ticked)
-        self.stop = QtWidgets.QPushButton('Stop')
+        self.stop = narrow(QtWidgets.QPushButton('Stop'))
         self.stop.clicked.connect(self._stop)
         self.state = QtWidgets.QLabel()
         top.addWidget(row(self.run_button, self.stop, self.state, 1))
@@ -78,11 +112,38 @@ class Window(QtWidgets.QMainWindow):
         self.log.setFont(QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.SystemFont.FixedFont))
         self.log.setMaximumBlockCount(20000)
         top.addWidget(self.log, 1)
-        self.resize(900, 900)
+        save = narrow(QtWidgets.QPushButton('Save defaults'))
+        save.setToolTip('Keep the tick boxes, copyright choice and Environment as they are now, for next time')
+        save.clicked.connect(self.save_defaults)
+        top.addWidget(row(save, 1))
+        self.resize(950, 950)
+        self._apply_defaults()
 
         cave = cave or (os.getcwd() if is_cave(os.getcwd()) else self.settings.value('cave', ''))
         self.cave_edit.setText(cave)
         self._load_cave()
+
+    # --- an option: its widget, a short line on what it does and an (i) for more -------
+
+    def _info(self, title, detail):
+        b = QtWidgets.QToolButton()
+        b.setText('\u24d8')                         # a circled i
+        f = b.font()
+        f.setPointSizeF(f.pointSizeF() * 1.3)
+        b.setFont(f)
+        b.setAutoRaise(True)
+        b.setToolTip('More about this')
+        b.clicked.connect(lambda: QtWidgets.QMessageBox.information(self, title, detail))
+        return b
+
+    def _option(self, widget, title, short, detail, wide=False):
+        """`wide`: the widget takes the room, else the note and (i) sit just after it."""
+        note = QtWidgets.QLabel(short)
+        note.setEnabled(False)                       # greyed: a note, not a control
+        if wide:
+            widget.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
+            return row(widget, note, self._info(title, detail))
+        return row(widget, note, self._info(title, detail), 1)
 
     # --- always shown: the cave, the survey and its drawings ------------------
 
@@ -100,9 +161,8 @@ class Window(QtWidgets.QMainWindow):
             c = QtWidgets.QComboBox()
             c.setToolTip(f"The {title.lower()} drawings the survey's .th inputs")
             c.currentTextChanged.connect(lambda _, v=view: self._drawing_changed(v))
-            b = QtWidgets.QPushButton('View')
-            b.setToolTip('Open it in the viewer (Environment). Therion Studio opens its last session, not the file')
-            b.setSizePolicy(QtWidgets.QSizePolicy.Policy.Maximum, QtWidgets.QSizePolicy.Policy.Fixed)
+            b = narrow(QtWidgets.QPushButton('View'))
+            b.setToolTip('Open it in the viewer (Environment)')
             b.clicked.connect(lambda _=False, v=view: self._view(v))
             self.drawing_combo[view] = c
             form.addRow(title, row(c, b))
@@ -112,8 +172,7 @@ class Window(QtWidgets.QMainWindow):
         return box
 
     def _with_browse(self, edit, browse):
-        b = QtWidgets.QPushButton('Browse…')
-        b.setSizePolicy(QtWidgets.QSizePolicy.Policy.Maximum, QtWidgets.QSizePolicy.Policy.Fixed)
+        b = narrow(QtWidgets.QPushButton('Browse…'))
         b.clicked.connect(browse)
         return row(edit, b)
 
@@ -139,19 +198,17 @@ class Window(QtWidgets.QMainWindow):
     def _section_tab(self, key, title, parts):
         page = QtWidgets.QWidget()
         lay = QtWidgets.QVBoxLayout(page)
-        for part, label in parts:
-            t = QtWidgets.QCheckBox(label)
-            t.toggled.connect(lambda on, k=f'tick/{key}/{part}': self._remember(k, on))
-            self.part_ticks[(key, part)] = t
-            lay.addWidget(t)
+        for p in parts:
+            t = QtWidgets.QCheckBox(p.label)
+            self.part_ticks[(key, p.key)] = t
+            lay.addWidget(self._option(t, p.label, p.short, p.detail))
         if key == 'plan':
-            self.floor_check = QtWidgets.QCheckBox('plan: floor steps from the elevation sketch (--floor)')
-            lay.addWidget(self.floor_check)
+            self.floor_check = QtWidgets.QCheckBox('--floor')
+            lay.addWidget(self._option(self.floor_check, '--floor', *HELP['floor']))
         lay.addStretch(1)
         i = self.tabs.addTab(page, title)
         tick = QtWidgets.QCheckBox()
         tick.setToolTip(f'Run the ticked parts of {title}')
-        tick.toggled.connect(lambda on, k=f'tick/{key}': self._remember(k, on))
         self.tabs.tabBar().setTabButton(i, QtWidgets.QTabBar.ButtonPosition.LeftSide, tick)
         self.section_ticks[key] = tick
 
@@ -160,73 +217,138 @@ class Window(QtWidgets.QMainWindow):
         return {key: [p for (k, p), t in self.part_ticks.items() if k == key and t.isChecked()]
                 for key, tick in self.section_ticks.items() if tick.isChecked()}
 
-    # --- author and copyright ---------------------------------------------------
+    # --- credits: author, copyright and licence ----------------------------------
 
-    def _author_tab(self):
+    def _credits_tab(self):
         page = QtWidgets.QWidget()
         form = QtWidgets.QFormLayout(page)
         self.author_name = QtWidgets.QComboBox()
         self.author_name.setEditable(True)
-        self.author_name.setToolTip("Someone in the .th's team, the local default (Environment), or type a name")
+        self.author_name.setMinimumContentsLength(25)
+        self.author_from = QtWidgets.QLabel()          # where the name came from: not part of it
+        self.author_name.currentIndexChanged.connect(self._author_from)
+        self.author_name.editTextChanged.connect(self._author_from)
+        form.addRow('Author', self._option(row(self.author_name, self.author_from), 'Author', *HELP['author']))
         self.author_date = QtWidgets.QLineEdit()
-        self.author_date.setToolTip("YYYY.MM.DD: the .th's date, or type one")
+        self.author_date.setMaximumWidth(120)
         self.author_date.editingFinished.connect(self._copyright_labels)
-        form.addRow('Author', self.author_name)
-        form.addRow('Date', self.author_date)
+        form.addRow('Date', self._option(self.author_date, 'Date', *HELP['date']))
         self.copy_choice = {}
         group = QtWidgets.QButtonGroup(page)
-        for k in ('local', 'th', 'none'):
+        for k in ('default', 'th', 'typed', 'none'):
             b = QtWidgets.QRadioButton()
             group.addButton(b)
-            b.clicked.connect(lambda _=False, k=k: self._remember('copyright_from', k))     # the user's choice only
             self.copy_choice[k] = b
-            form.addRow('Copyright' if k == 'local' else '', b)
         self.copy_choice['none'].setText('None')
+        self.copy_typed = QtWidgets.QLineEdit()
+        self.copy_typed.setPlaceholderText('the holder, e.g. A Club')
+        self.copy_typed.textEdited.connect(lambda _: self.copy_choice['typed'].setChecked(True))
+        self.copy_choice['typed'].setText('Other')
+        form.addRow('Copyright', self._option(self.copy_choice['default'], 'Copyright', *HELP['copyright']))
+        form.addRow('', self.copy_choice['th'])
+        form.addRow('', row(self.copy_choice['typed'], self.copy_typed))
+        form.addRow('', self.copy_choice['none'])
+        # the licence: the cave's (project.toml) for now, as the converter writes no other
+        self.licence_choice = {k: QtWidgets.QRadioButton(t) for k, t in
+                               (('default', 'Default'), ('th', 'In the .th'), ('typed', 'Other'))}
+        group = QtWidgets.QButtonGroup(page)
+        for b in self.licence_choice.values():
+            group.addButton(b)
+            b.setEnabled(False)
+        self.licence_choice['default'].setChecked(True)
+        licence_typed = QtWidgets.QLineEdit()
+        licence_typed.setEnabled(False)
+        form.addRow('Licence', self._option(self.licence_choice['default'], 'Licence', *HELP['licence']))
+        form.addRow('', self.licence_choice['th'])
+        form.addRow('', row(self.licence_choice['typed'], licence_typed))
+        self.defaults_label = QtWidgets.QLabel()
+        change = narrow(QtWidgets.QPushButton('Change defaults…'))
+        change.clicked.connect(self._change_defaults)
+        form.addRow('Defaults', row(self.defaults_label, change, self._info('Defaults', HELP['defaults'][1]), 1))
+        self._show_defaults()
         return page
+
+    def default_author(self):
+        return self.settings.value(DEFAULTS + 'author', '')
+
+    def default_copyright(self):
+        return self.settings.value(DEFAULTS + 'copyright', '')
+
+    def _show_defaults(self):
+        self.defaults_label.setText(f'author "{self.default_author() or "none"}", '
+                                    f'copyright "{self.default_copyright() or "none"}"')
+
+    def _change_defaults(self):
+        d = QtWidgets.QDialog(self)
+        d.setWindowTitle('Default author and copyright')
+        form = QtWidgets.QFormLayout(d)
+        form.addRow(QtWidgets.QLabel('Offered for every trip on this computer.'))
+        name, holder = QtWidgets.QLineEdit(self.default_author()), QtWidgets.QLineEdit(self.default_copyright())
+        form.addRow('Author', name)
+        form.addRow('Copyright holder', holder)
+        ok = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Ok
+                                        | QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+        ok.accepted.connect(d.accept)
+        ok.rejected.connect(d.reject)
+        form.addRow(ok)
+        if d.exec():
+            self.set_defaults(name.text().strip(), holder.text().strip())
+
+    def set_defaults(self, author, copyright):
+        self.settings.setValue(DEFAULTS + 'author', author)
+        self.settings.setValue(DEFAULTS + 'copyright', copyright)
+        self._show_defaults()
+        self._fill_author()
 
     def _fill_author(self):
         d = self.trip.details() if self.trip else {'date': None, 'team': [], 'copyright': None}
         self.author_name.clear()
         for name, roles in d['team']:
-            self.author_name.addItem(f"{name} ({roles}, in the .th)" if roles else f"{name} (in the .th)", name)
-        local = self.local_author.text().strip()
-        if local and local not in [n for n, _ in d['team']]:
-            self.author_name.addItem(f"{local} (local default)", local)
+            self.author_name.addItem(name, f"{roles}, in the .th" if roles else "in the .th")
+        mine = self.default_author()
+        if mine and mine not in [n for n, _ in d['team']]:
+            self.author_name.addItem(mine, 'default')
         notes = [i for i, (_, roles) in enumerate(d['team']) if 'notes' in roles.split()]
         self.author_name.setCurrentIndex(notes[0] if notes else (0 if self.author_name.count() else -1))
         self.author_date.setText(d['date'] or datetime.date.today().strftime('%Y.%m.%d'))
         self.th_copyright = d['copyright']
         self._copyright_labels()
+        licence = self.project.drawing['licence'] if self.project else ''
+        self.licence_choice['default'].setText(f'Default: {licence}' if licence else 'Default')
 
     def _year(self):
         return (self.author_date.text().strip() or str(datetime.date.today().year))[:4]
 
     def _copyright_labels(self):
-        holder = self.local_copyright.text().strip()
-        local, th = self.copy_choice['local'], self.copy_choice['th']
-        local.setText(f'Local default: {self._year()} "{holder}"' if holder else 'Local default: none set (Environment)')
-        local.setEnabled(bool(holder))
-        c = self.th_copyright
+        holder, c = self.default_copyright(), self.th_copyright
+        default, th = self.copy_choice['default'], self.copy_choice['th']
+        default.setText(f'Default: {self._year()} "{holder}"' if holder else 'Default: none set')
+        default.setEnabled(bool(holder))
         th.setText(f'In the .th: {c[0]} "{c[1]}"' if c else 'In the .th: none there')
         th.setEnabled(bool(c))
-        want = self.copy_choice.get(self.settings.value(self._key('copyright_from'), ''))
-        (want if want and want.isEnabled() else th if c else local if holder else self.copy_choice['none']).setChecked(True)
+        want = self.copy_choice.get(self.settings.value(DEFAULTS + 'copyright_from', ''))
+        if not (want and want.isEnabled()):
+            want = th if c else default if holder else self.copy_choice['none']
+        want.setChecked(True)
+
+    def _author_from(self, *_):
+        i = self.author_name.findText(self.author_name.currentText())
+        self.author_from.setText(f'({self.author_name.itemData(i)})' if i >= 0 else '(typed)')
 
     def author(self):
         """(date, name) for --author, or None."""
-        i = self.author_name.currentIndex()
-        typed = self.author_name.currentText().strip()
-        name = self.author_name.itemData(i) if i >= 0 and typed == self.author_name.itemText(i) else typed
+        name = self.author_name.currentText().strip()
         date = self.author_date.text().strip()
         return (date, name) if date and name else None
 
     def copyright(self):
         """(year, holder) for --copyright, or None."""
+        holder = {'default': self.default_copyright(), 'typed': self.copy_typed.text().strip()}
         if self.copy_choice['th'].isChecked():
             return self.th_copyright
-        holder = self.local_copyright.text().strip()
-        if self.copy_choice['local'].isChecked() and holder:
-            return (self._year(), holder)
+        for k, h in holder.items():
+            if self.copy_choice[k].isChecked() and h:
+                return (self._year(), h)
         return None
 
     def options(self, view):
@@ -241,46 +363,30 @@ class Window(QtWidgets.QMainWindow):
     def _environment_tab(self):
         page = QtWidgets.QWidget()
         form = QtWidgets.QFormLayout(page)
-        self.python_edit = self._setting_edit('python', 'The Python that runs the scripts (needs requirements.txt); '
-                                              'kept for each cave', per_cave=True)
-        form.addRow('Python (scripts)', self._with_browse(self.python_edit, lambda: self._browse(self.python_edit)))
-        self.therion_edit = self._setting_edit('therion', 'therion, or a local build', 'therion')
-        form.addRow('Therion (compiling)', self._with_browse(self.therion_edit, lambda: self._browse(self.therion_edit)))
+        self.python_edit = QtWidgets.QLineEdit()
+        form.addRow('Python', self._option(self._with_browse(self.python_edit, lambda: self._browse(self.python_edit)),
+                                           'Python', *HELP['python'], wide=True))
+        self.therion_edit = QtWidgets.QLineEdit()
+        self.therion_edit.setPlaceholderText('therion')
+        form.addRow('Therion', self._option(self._with_browse(self.therion_edit, lambda: self._browse(self.therion_edit)),
+                                            'Therion', *HELP['therion'], wide=True))
         self.viewer_choice, self.viewer_edit = {}, {}
         group = QtWidgets.QButtonGroup(page)
         for name, program in trip.VIEWERS.items():
             b = QtWidgets.QRadioButton(name)
             group.addButton(b)
-            b.toggled.connect(lambda on, n=name: on and self.settings.setValue('viewer', n))
-            e = self._setting_edit(f'viewer/{name}', f'Blank for {program}, or a local build')
+            e = QtWidgets.QLineEdit()
             e.setPlaceholderText(program)
             self.viewer_choice[name], self.viewer_edit[name] = b, e
-            form.addRow('Viewer' if len(self.viewer_choice) == 1 else '',
-                        row(b, self._with_browse(e, lambda e=e: self._browse(e))))
-        self.viewer_choice.get(self.settings.value('viewer', ''), self.viewer_choice['xTherion']).setChecked(True)
-        self.local_author = self._setting_edit('local/author', "Offered as the author besides the .th's team")
-        self.local_author.editingFinished.connect(self._fill_author)
-        form.addRow('Local default author', self.local_author)
-        self.local_copyright = self._setting_edit('local/copyright', 'The holder, e.g. Andrew Atkinson (WCC)')
-        self.local_copyright.editingFinished.connect(self._copyright_labels)
-        form.addRow('Local default copyright', self.local_copyright)
+            line = row(b, self._with_browse(e, lambda e=e: self._browse(e)))
+            first = len(self.viewer_choice) == 1
+            form.addRow('Viewer' if first else '', self._option(line, 'Viewer', *HELP['viewer'], wide=True) if first else line)
         return page
-
-    def _setting_edit(self, name, tip, default='', per_cave=False):
-        """A line kept in the settings, for each cave or for this computer."""
-        e = QtWidgets.QLineEdit()
-        e.setToolTip(tip)
-        if not per_cave:
-            e.setText(self.settings.value(name, default))
-        e.editingFinished.connect(lambda: self._remember(name, e.text()) if per_cave
-                                  else self.settings.setValue(name, e.text()))
-        return e
 
     def _browse(self, edit):
         f, _ = QtWidgets.QFileDialog.getOpenFileName(self, 'Program', edit.text())
         if f:
             edit.setText(f)
-            edit.editingFinished.emit()
 
     def viewer(self):
         name = next(n for n, b in self.viewer_choice.items() if b.isChecked())
@@ -296,6 +402,39 @@ class Window(QtWidgets.QMainWindow):
             return
         QtCore.QProcess.startDetached(program, [self.project.path(th2)], self.project.root)
 
+    # --- defaults -------------------------------------------------------------------
+
+    def _flag(self, name, default):
+        v = self.settings.value(name, default)
+        return v if isinstance(v, bool) else str(v).lower() == 'true'
+
+    def _apply_defaults(self):
+        """The tick boxes, copyright choice and environment as last saved."""
+        for (key, part), t in self.part_ticks.items():
+            t.setChecked(self._flag(f'{DEFAULTS}tick/{key}/{part}', True))
+        for key, t in self.section_ticks.items():
+            t.setChecked(self._flag(f'{DEFAULTS}tick/{key}', True))
+        self.floor_check.setChecked(self._flag(DEFAULTS + 'floor', False))
+        self.therion_edit.setText(self.settings.value(DEFAULTS + 'therion', ''))
+        for name, e in self.viewer_edit.items():
+            e.setText(self.settings.value(f'{DEFAULTS}viewer/{name}', ''))
+        self.viewer_choice.get(self.settings.value(DEFAULTS + 'viewer', ''), self.viewer_choice['xTherion']).setChecked(True)
+
+    def save_defaults(self):
+        s, d = self.settings, DEFAULTS
+        for (key, part), t in self.part_ticks.items():
+            s.setValue(f'{d}tick/{key}/{part}', t.isChecked())
+        for key, t in self.section_ticks.items():
+            s.setValue(f'{d}tick/{key}', t.isChecked())
+        s.setValue(d + 'floor', self.floor_check.isChecked())
+        s.setValue(d + 'copyright_from', next(k for k, b in self.copy_choice.items() if b.isChecked()))
+        s.setValue(d + 'therion', self.therion_edit.text().strip())
+        s.setValue(d + 'viewer', next(n for n, b in self.viewer_choice.items() if b.isChecked()))
+        for name, e in self.viewer_edit.items():
+            s.setValue(f'{d}viewer/{name}', e.text().strip())
+        self._remember('python', self.python_edit.text().strip())
+        self._say('[defaults saved]')
+
     # --- loading the cave and the survey --------------------------------------------
 
     def _key(self, name):
@@ -305,10 +444,6 @@ class Window(QtWidgets.QMainWindow):
     def _remember(self, name, value):
         if self.project:
             self.settings.setValue(self._key(name), value)
-
-    def _flag(self, name, default):
-        v = self.settings.value(self._key(name), default)
-        return v if isinstance(v, bool) else str(v).lower() == 'true'
 
     def _load_cave(self):
         cave = os.path.abspath(self.cave_edit.text()) if self.cave_edit.text() else ''
@@ -327,10 +462,6 @@ class Window(QtWidgets.QMainWindow):
         self.cave_edit.setText(cave)
         self.settings.setValue('cave', cave)
         self.python_edit.setText(self.settings.value(self._key('python'), '') or trip.python_for(cave))
-        for (key, part), t in self.part_ticks.items():
-            t.setChecked(self._flag(f'tick/{key}/{part}', True))
-        for key, t in self.section_ticks.items():
-            t.setChecked(self._flag(f'tick/{key}', False))
         last = self.settings.value(self._key('survey'), '')
         self.project = p
         self.trip_combo.addItems(p.surveys())
