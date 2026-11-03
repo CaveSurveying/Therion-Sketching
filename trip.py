@@ -14,6 +14,7 @@ import re
 import sys
 
 from . import project as _project
+from .survey import sketch_of
 
 # The order a drawing's steps always run in (README.md, "Converting a drawing")
 STEPS = {'plan': ('plan', 'roofs', 'details', 'smooth'),
@@ -77,12 +78,20 @@ class Trip:
         return sorted(os.path.relpath(f, self.project.root) for f in found)
 
     def plan_sketches(self):
-        return [f for f in self.sketches() if self.project.is_plan_sketch(f)]
+        """The plan sketches, the plan drawing's own (its backdrop) first."""
+        return self._own_first('plan', [f for f in self.sketches() if self.project.is_plan_sketch(f)])
 
     def elevation_sketches(self):
-        """The other sketches, the usual extended sketch's name first."""
-        rest = [f for f in self.sketches() if not self.project.is_plan_sketch(f)]
-        return sorted(rest, key=lambda f: EXTENDED_SKETCH.search(f) is None)
+        """The other sketches: the extended drawing's own first, then the
+        usual extended sketch's name."""
+        rest = sorted((f for f in self.sketches() if not self.project.is_plan_sketch(f)),
+                      key=lambda f: EXTENDED_SKETCH.search(f) is None)
+        return self._own_first('extended', rest)
+
+    def _own_first(self, view, sketches):
+        own = sketch_of(self.project.path(self.output(view)))
+        own = own and os.path.relpath(own, self.project.root)
+        return sorted(sketches, key=lambda f: f != own)
 
     def output(self, view):
         return self.plan_file if view == 'plan' else self.extended_file

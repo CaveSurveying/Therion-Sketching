@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 from tools.sketch2therion import trip
+from tools.sketch2therion import project
 from tools.sketch2therion.project import REPO     # the test cave
 
 
@@ -23,6 +24,20 @@ class Trips(unittest.TestCase):
         self.assertEqual(self.t.elevation_sketches(), ["TestCave/GoSouth/Notes/GoSouthE.xvi"])
         self.assertEqual(self.t.output("plan"), "TestCave/GoSouth/GoSouthP.th2")
         self.assertEqual(self.t.output("extended"), "TestCave/GoSouth/GoSouthEe.th2")
+
+    def test_drawings_own_sketch_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            folder = os.path.join(d, "TestCave", "X", "Notes")
+            os.makedirs(folder)
+            for n in ("X.plan.xvi", "XP.xvi", "X.ee.xvi", "XEe.xvi"):
+                open(os.path.join(folder, n), "w").close()
+            open(os.path.join(d, "TestCave", "X", "X.th"), "w").write("survey X\nendsurvey\n")
+            t = trip.Trip(project.load(os.path.join(REPO, "tools", "project.toml"), d), "X")
+            self.assertEqual(t.plan_sketches()[0], "TestCave/X/Notes/X.plan.xvi")      # by name
+            open(os.path.join(d, t.plan_file), "w").write(
+                "##XTHERION## xth_me_image_insert {0 1 1.0} {0 22} {Notes/XP.xvi} 0 {}\n")
+            self.assertEqual(t.plan_sketches()[0], "TestCave/X/Notes/XP.xvi")         # the drawing's backdrop
+            self.assertEqual(t.elevation_sketches(), ["TestCave/X/Notes/X.ee.xvi", "TestCave/X/Notes/XEe.xvi"])
 
     def test_usual_extended_sketch_first(self):
         self.assertEqual(sorted(["a/XE315.xvi", "a/XEe.xvi"], key=lambda f: trip.EXTENDED_SKETCH.search(f) is None),
