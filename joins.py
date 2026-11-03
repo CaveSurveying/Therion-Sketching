@@ -16,8 +16,8 @@ one is close, by splitting the curve there (no node moves: the user,
 earlier survey kept (black), the new survey (blue) and what is deleted
 (red). With --write the earlier plan files are changed.
 
-Both drawings are put in the cave's coordinates (Therion's plan layout,
-output/layout-plan.xvi) by fitting each scrap to its stations. They could
+Both drawings are put in the cave's coordinates (Therion's database of the
+cave, output/layout.sql) by fitting each scrap to its stations. They could
 instead be lined up by their own th2 station positions at the equate
 (both are drawn north up at the same scale). There is no fallback: a scrap
 with fewer than two stations Therion knows is left out.
@@ -454,7 +454,7 @@ def main(argv):
     p.add_argument('--radius', type=float, default=7.0, help='m round the join shown')
     p.add_argument('--only', nargs='*', default=None, help='earlier surveys to change (with --write)')
     a = p.parse_args(argv)
-    layout = register.Layout(PROJECT.path(PROJECT.build['layout_plan']))
+    layout = register.cave_layout()
     folder = PROJECT.path(PROJECT.cave['folder'])
     every = sorted(d for d in os.listdir(folder) if os.path.exists(PROJECT.path(PROJECT.survey_file(d))))
     surveys = a.surveys or [s for s in every if _date(s).startswith('2026')]

@@ -41,10 +41,11 @@ settings next to the link:
   the reason.
 - `tools/th2lint-baseline.txt`: findings in the cave's existing
   drawings.
-- `tools/layout.thcfg`: exports where Therion puts every station, for
-  `check` (the survey's station names), `joins`, `sections` and `review`
-  (the cave's drawings in one frame). A drawing keeps the sketch's own
-  station positions.
+- `tools/layout.thcfg`: exports Therion's database of the cave
+  (`export database -fmt sql`, to the `sql` path in `project.toml`):
+  where Therion puts every station, for `joins`, `sections` and
+  `review` (the cave's drawings in one frame). A drawing keeps the
+  sketch's own station positions.
 
 Run everything from the top of the cave's repository, for example
 
@@ -118,40 +119,31 @@ starts from.
    the sketches in `X/Notes/` (`XP.xvi` for the plan, `XEe.xvi` for the
    extended elevation). The cave's `tools/new-trip-template.th` shows
    what `X.th` should contain.
-2. **Tie it in** in the cave's master file (`master` in
-   `project.toml`): `input X/X.th`, and an `equate` from the trip's
-   first station to the one it started from. Build and check the log
-   for loop errors.
-3. **Therion's layout:**
-   ```bash
-   therion -l output/therion-layout.log tools/layout.thcfg
-   ```
-   writes `output/layout-plan.xvi`, `output/layout-extended.xvi` and
-   `output/layout.sql`. Rerun it whenever the survey data change.
-4. **Check the sketch:**
+
+   Steps 2 and 3 need only the trip's own files (`X.th` and its
+   sketches), so the trip can be checked and drawn before it is tied
+   into the cave.
+2. **Check the sketch:**
    ```bash
    python3 -m tools.sketch2therion check <Cave>/X/Notes/XP.xvi --survey X
    ```
-   It lists the sketch's stations, legs and lines. Stations Therion
-   doesn't know mean the trip isn't input, the layout is stale or
-   `--survey` is wrong. The drawing keeps the sketch's own station
-   positions, so they are not compared with Therion's.
-5. **Convert the plan**, all four steps:
+   It lists the sketch's stations, legs and lines, and any station not
+   on the legs in the trip's `.th` (the one beside the sketch, or one
+   folder up): `--survey` is wrong, or the leg was taken out of the
+   `.th`. The drawing keeps the sketch's own station positions, so they
+   are not compared with Therion's.
+3. **Convert the plan**, all four steps:
    ```bash
    python3 -m tools.sketch2therion plan <Cave>/X/Notes/XP.xvi --survey X \
      --author 2026.04.25 "Name" --copyright 2026 "licence" -o <Cave>/X/XP.th2
    python3 -m tools.sketch2therion roofs <Cave>/X/XP.th2
    python3 -m tools.sketch2therion details <Cave>/X/XP.th2
    python3 -m tools.sketch2therion smooth <Cave>/X/XP.th2
-   python3 -m tools.sketch2therion place X
    ```
    SexyTopo's labels come from its th2 export, the one with this sketch
    as its backdrop; a th2 that is not that export is not overwritten
    without `--force`. Scraps are named `XSP1`, `XSP2`, … and cross
-   sections `XPX<station>`. `place` inputs the drawing in `X.th` with a
-   `map XMP` of its scraps, adds `XMP@X` to the cave's plan map
-   (`plan_map`), and removes SexyTopo's own empty plan th2 unless the
-   drawing was written over it.
+   sections `XPX<station>`.
 
    **Convert the extended elevation** the same way, all three steps:
    ```bash
@@ -160,7 +152,25 @@ starts from.
    python3 -m tools.sketch2therion roofs <Cave>/X/XEe.th2
    python3 -m tools.sketch2therion smooth <Cave>/X/XEe.th2
    ```
-6. **Cross sections.** With Therion's layout up to date (step 3):
+4. **Tie it in** in the cave's master file (`master` in
+   `project.toml`): `input X/X.th`, and an `equate` from the trip's
+   first station to the one it started from. Build and check the log
+   for loop errors.
+5. **Therion's database of the cave:**
+   ```bash
+   therion -l output/therion-layout.log tools/layout.thcfg
+   ```
+   writes `output/layout.sql` (`sql` in `project.toml`), where Therion
+   puts every station once the loops are closed, for `joins`,
+   `sections` and `review`. Rerun it whenever the survey data change.
+6. **File the plan:**
+   ```bash
+   python3 -m tools.sketch2therion place X
+   ```
+   inputs the drawing in `X.th` with a `map XMP` of its scraps, adds
+   `XMP@X` to the cave's plan map (`plan_map`), and removes SexyTopo's
+   own empty plan th2 unless the drawing was written over it.
+7. **Cross sections.** With Therion's database up to date (step 5):
    ```bash
    python3 -m tools.sketch2therion sections --write
    ```
@@ -170,10 +180,10 @@ starts from.
    clear of the passages and each other by their `point section`, for
    every plan drawing the master file inputs. Without `--write` it only
    reports.
-7. **Finish by hand** in xTherion (the sketch is linked as a
+8. **Finish by hand** in xTherion (the sketch is linked as a
    backdrop): passage names at the label sizes in `Style.md`, flow
    arrows, `C2`/`P5`, `join`s to neighbouring scraps.
-8. **Check**, as in `Style.md` ("Checking"):
+9. **Check**, as in `Style.md` ("Checking"):
    ```bash
    python3 -m tools.sketch2therion review check <Cave>/X/XP.th2
    python3 -m tools.sketch2therion review gaps <Cave>/X/XP.th2 XSP1
@@ -181,7 +191,7 @@ starts from.
    python3 -m tools.sketch2therion fillcheck --build --survey X
    ```
    and with someone who knows the cave ("Reviewing a drawing").
-9. **Commit** one survey per commit. Anything learnt goes into
+10. **Commit** one survey per commit. Anything learnt goes into
    `Style.md` here ("Changing the rules").
 
 ### Reviewing a drawing

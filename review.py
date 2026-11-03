@@ -39,7 +39,6 @@ from .tidy import bezier_points, parse_scrap, reverse_segments, therion_rings
 K = 39.37
 PROJECT = _project.load()
 PLAN = PROJECT.build['review_plan']
-LAYOUT = PROJECT.build['layout_plan']
 COLOURS = {'BLACK': '#111111', 'GRAY': '#888888', 'BROWN': '#8b4513', 'BLUE': '#1f5fff',
            'RED': '#dd0000', 'GREEN': '#1a9a1a', 'ORANGE': '#ff9900'}
 
@@ -244,7 +243,7 @@ def pdf_rect(stations, pdf=PLAN, pad=15, survey=None):
     """Where the stations (of `survey`) are on a review plan PDF."""
     import pymupdf
     if pdf not in _PDFMAP:
-        lay = register.Layout(LAYOUT)
+        lay = register.cave_layout()
         names = {}
         for (n, sv), ps in lay.by_name.items():
             names.setdefault(n, []).extend(ps[:1])

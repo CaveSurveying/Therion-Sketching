@@ -6,10 +6,10 @@ passage, and section drawings clear of the passages and of each other.
     python3 -m tools.sketch2therion sections [X ...] [--write]
 
 Every plan scrap the cave's master file inputs is put in the cave's
-coordinates (Therion's plan layout, output/layout-plan.xvi) by fitting it
-to its stations, as `joins` does, so passages of other surveys are seen
-too (Style.md, Cross sections). This is the one tool that uses Therion's
-station positions with the drawings:
+coordinates (Therion's database of the cave, output/layout.sql) by
+fitting it to its stations, as `joins` does, so passages of other
+surveys are seen too (Style.md, Cross sections). This is the one tool
+that uses Therion's station positions with the drawings:
 
 - a `line section` is turned, if need be, to run with the view direction
   on its left: along the survey from its station (the scrap's station
@@ -228,7 +228,7 @@ def main(argv):
     p.add_argument('surveys', nargs='*', help='surveys to change (default: every survey with a plan)')
     p.add_argument('--write', action='store_true')
     a = p.parse_args(argv)
-    layout = register.Layout(PROJECT.path(PROJECT.build['layout_plan']))
+    layout = register.cave_layout()
     files = cave_files()
     dr = survey_drawings(layout, files)
     th_of = survey_files(files)

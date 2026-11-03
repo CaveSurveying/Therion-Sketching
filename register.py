@@ -1,32 +1,39 @@
 # Ported from caves-mendip-swildons, tools/sketch2therion (commit 198bf46,
 # https://github.com/paperclipmonkey/caves-mendip-swildons). GPLv3: see LICENSE.
-"""Therion's own layout of the survey, read from its XVI export.
+"""Therion's own layout of the survey, read from its database export or
+an XVI export of a map.
 
 Therion lays the survey out itself, closing loops and (in an extended
 elevation) breaking them where its extend flags say, so its station
 positions are not the sketch's. A drawing keeps the sketch's positions
 (Therion morphs each scrap onto its stations); Therion's are used only
-to name the survey's stations (`check`) and to put the cave's drawings
-in one frame (`joins`, `sections`, `review`).
+to put the cave's drawings in one frame (`joins`, `sections`,
+`review`).
 
-Therion's layout comes from `tools/layout.thcfg`, which writes
-output/layout-plan.xvi and output/layout-extended.xvi.
+The cave's layout is Therion's database, which `tools/layout.thcfg`
+exports (`build.sql` in tools/project.toml): `cave_layout()`.
 """
+import os
 import re
 import statistics
+import sys
 
-from . import xvi
+from . import database, xvi
 
 
 class Layout:
-    """Therion's XVI export: stations named name@survey.parent... in metres."""
+    """Therion's station positions in plan, in metres: from its database
+    export (.sql) or an XVI export (stations named name@survey.parent...)."""
 
     def __init__(self, path):
-        sk = xvi.read(path)
         self.path = path
-        self.shots = sk.shots
         self.by_name = {}          # (name, survey) -> [(x, y)]
-        for full, ps in sk.stations.items():
+        if path.lower().endswith('.sql'):
+            for _, name, survey, x, y, _ in database.stations(database.connect(path)):
+                if name not in ('-', '.', ''):          # splay ends
+                    self.by_name.setdefault((name, survey), []).append((x, y))
+            return
+        for full, ps in xvi.read(path).stations.items():
             name, _, where = full.partition('@')
             survey = where.split('.')[0] if where else ''
             self.by_name.setdefault((name, survey), []).extend(ps)
@@ -43,6 +50,17 @@ class Layout:
 
     def surveys_of(self, name):
         return sorted(s for n, s in self.by_name if n == name)
+
+
+def cave_layout():
+    """The cave's layout, from Therion's database of the whole cave."""
+    from . import project
+    p = project.load()
+    path = p.path(p.build['sql'])
+    if not os.path.exists(path):
+        sys.exit(f"{path} not found: run  therion -l output/therion-layout.log tools/layout.thcfg  first"
+                 " (with the trip tied into the cave)")
+    return Layout(path)
 
 
 def natural(n):

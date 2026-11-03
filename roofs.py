@@ -27,12 +27,12 @@ import functools
 import math
 import os
 import re
-import sqlite3
 from collections import defaultdict
 
 from shapely.geometry import LineString, Polygon, box
 from shapely.ops import unary_union
 
+from . import database
 from . import project as _project
 from . import tidy
 from .survey import survey_of as _survey_of
@@ -44,12 +44,6 @@ NEAR = 1.5         # m: a drawn wall this far beyond the splay roof/floor still 
 NEAR_PLAN = 0.4     # m: in plan the splay ends are the walls
 DEFAULT = 1.0       # m: roof/floor where nothing tells us
 REACH = 5.0         # m: how far to look for a drawn wall when the splays don't say
-
-
-def sql_text(text):
-    """Therion's SQL export with bare nan values (it writes them for some
-    projected-elevation maps) made NULL, which SQLite can read."""
-    return re.sub(r'(?<=[,(])(\s*)-?nan(?=\s*[,)])', r'\1NULL', text)
 
 
 class Splays:
@@ -96,13 +90,11 @@ class Splays:
         """From Therion's database export, in the cave's coordinates (for
         work across surveys: joins, projected)."""
         self = cls()
-        db = sqlite3.connect(':memory:')
-        db.executescript(sql_text(open(path, encoding='utf-8', errors='replace').read()))
-        surveys = {i: n for i, n in db.execute('select ID, NAME from SURVEY')}
+        db = database.connect(path)
         st = {}
         xyz = {}
-        for i, name, sv, x, y, z in db.execute('select ID, NAME, SURVEY_ID, X, Y, Z from STATION'):
-            st[i] = (f'{name}@{surveys.get(sv, "")}', z)
+        for i, name, sv, x, y, z in database.stations(db):
+            st[i] = (f'{name}@{sv}', z)
             xyz[i] = (x, y, z)
         spl = {s for s, f in db.execute('select SHOT_ID, FLAG from SHOT_FLAG') if f == 'spl'}
         self.pos = {st[i][0]: xyz[i][:2] for i in st}

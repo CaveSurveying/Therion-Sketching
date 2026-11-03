@@ -163,13 +163,26 @@ class SurveyTest(unittest.TestCase):
 
 class SqlTest(unittest.TestCase):
     def test_nan_becomes_null(self):
-        try:
-            from tools.sketch2therion.roofs import sql_text
-        except ImportError:
-            self.skipTest("needs shapely")
+        from tools.sketch2therion.database import sql_text
         self.assertEqual(sql_text("insert into MAPS values (1, 2, 'XME090', NULL, 5, 0.000, nan);"),
                          "insert into MAPS values (1, 2, 'XME090', NULL, 5, 0.000, NULL);")
         self.assertEqual(sql_text("insert into SURVEY values (3, 'nancy');"), "insert into SURVEY values (3, 'nancy');")
+
+    def test_layout_from_database(self):
+        from tools.sketch2therion import register
+        sql = ("create table SURVEY (ID integer, PARENT_ID integer, NAME varchar(9), FULL_NAME varchar(9), TITLE varchar(4));\n"
+               "create table STATION (ID integer, NAME varchar(5), SURVEY_ID integer, X real, Y real, Z real);\n"
+               "insert into SURVEY values (1, 0, '', '', NULL);\n"
+               "insert into SURVEY values (2, 1, 'GoSouth', 'GoSouth', NULL);\n"
+               "insert into STATION values (1, '1', 2, 100.0, 200.0, 5.0);\n"
+               "insert into STATION values (2, '-', 2, 101.0, 200.0, 5.0);\n"
+               "insert into STATION values (3, '2', 2, 100.0, 203.5, nan);\n")
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "layout.sql")
+            open(path, "w").write(sql)
+            lay = register.Layout(path)
+        self.assertEqual(lay.by_name, {("1", "GoSouth"): [(100.0, 200.0)], ("2", "GoSouth"): [(100.0, 203.5)]})
+        self.assertEqual(lay.find("2"), [(100.0, 203.5)])
 
 
 class NoSwildonsNamesTest(unittest.TestCase):

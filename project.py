@@ -20,7 +20,7 @@ REQUIRED = {
     "cave": ["name", "title", "folder", "master", "survey", "thconfig", "plan_map", "plan_map_file"],
     "names": ["survey_file", "plan_file", "scrap_prefix", "survey_plan_map", "plan_sketch"],
     "drawing": ["line_endings", "map_scale", "licence"],
-    "build": ["outputs", "log", "layout_plan", "layout_extended", "sql", "review_plan"],
+    "build": ["outputs", "log", "sql", "review_plan"],
 }
 
 

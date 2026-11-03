@@ -26,8 +26,6 @@ licence = "CC BY-NC-SA 4.0"
 [build]
 outputs = "C/Outputs"
 log = "output/therion.log"
-layout_plan = "output/layout-plan.xvi"
-layout_extended = "output/layout-extended.xvi"
 sql = "output/layout.sql"
 review_plan = "output/review-plan.pdf"
 """
