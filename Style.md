@@ -759,10 +759,12 @@ underground, and SexyTopo's export settings, are in `sketching-guide.md`.
   run on any survey from its sketch and `.th` (the user, 2026-10-22).
   A drawing's stations are where the sketch put them, before Therion
   averages the survey, and are never compared with Therion's (the user,
-  2026-11-01). Therion's layout is read only to name the survey's
-  stations (`check`) and to put the cave's drawings in one frame
-  (`sections`, `joins`, `review`); `projected` and `unfold` still read
-  the database until the change planned under "Projected elevations".
+  2026-11-01). `check` reads the trip's own `.th`, so a trip is checked
+  and drawn before it is tied into the cave (the user, 2026-11-03).
+  Therion's database of the cave is read only to put the cave's
+  drawings in one frame (`sections`, `joins`, `review`); `projected`
+  and `unfold` still read it until the change planned under "Projected
+  elevations".
 - Text is SexyTopo's own: the labels in its Therion export (`point …
   label -text "…" -scale …`) are carried into the drawing exactly as
   written, every one a `label`; their letters, which SexyTopo also draws
