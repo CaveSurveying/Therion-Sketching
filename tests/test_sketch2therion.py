@@ -163,10 +163,7 @@ class SurveyTest(unittest.TestCase):
 
 class SqlTest(unittest.TestCase):
     def test_nan_becomes_null(self):
-        try:
-            from tools.sketch2therion.roofs import sql_text
-        except ImportError:
-            self.skipTest("needs shapely")
+        from tools.sketch2therion.database import sql_text
         self.assertEqual(sql_text("insert into MAPS values (1, 2, 'XME090', NULL, 5, 0.000, nan);"),
                          "insert into MAPS values (1, 2, 'XME090', NULL, 5, 0.000, NULL);")
         self.assertEqual(sql_text("insert into SURVEY values (3, 'nancy');"), "insert into SURVEY values (3, 'nancy');")
