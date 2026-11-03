@@ -14,28 +14,34 @@ the window and the scripts may use different Pythons.
 
 ## What it does
 
-- **Cave**: the cave's repository (the folder holding
-  `tools/project.toml`), and the Python that runs the scripts.
-- **Trip**: one of the cave's surveys (`survey_file` in
-  `project.toml`), its plan and extended sketches (from its `.xvi`
-  files; `plan_sketch` says which are plans) and the drawings they make
-  (`plan_file`, `extended_file`).
-- **Drawing**: author (date, name) and copyright (year, holder) for
-  `plan` and `extended`, and whether the plan takes floor steps from
-  the extended sketch (`--floor`).
-- **Steps**, each run on its own or a drawing's steps all in order:
+- **Always shown**: the cave (the folder holding `tools/project.toml`),
+  the survey (`survey_file` in `project.toml`), and its plan and
+  elevation drawings: the th2 files the survey's `.th` inputs, each
+  with the `.xvi` sketches it links as backdrops (a drawing may link
+  several, often cross sections). View opens a drawing in the viewer.
+- **Tabs that run**, in this order, each with a tick box for each part
+  and a tick box on the tab itself, so a tab can be switched on or off
+  without opening it:
 
-  | Group | Steps |
+  | Tab | Parts |
   |---|---|
-  | Check | the plan sketch, the extended sketch |
-  | Plan | `plan`, `roofs`, `details`, `smooth` |
-  | Extended | `extended`, `roofs`, `smooth` |
-  | Cave | Therion's database (`tools/layout.thcfg`), `place`, `sections` (report, write) |
+  | Check | the plan drawing's sketches, the elevation drawing's sketches |
+  | Plan | `plan`, `roofs`, `details`, `smooth` (and `--floor`) |
+  | Elevation | `extended`, `roofs`, `smooth` |
+  | Cave | Therion's database (`tools/layout.thcfg`), `place`, `sections` (report, `--write`) |
   | Checks | `review check`, `th2lint`, `fillcheck --build` |
 
-  Each step shows whether it last ran well, and its output goes to the
-  log. A drawing's steps stop at the first that fails. Stop ends the
-  running step.
+  Run runs the ticked parts of every ticked tab, in order, with their
+  output in the log; it stops at the first that fails, and Stop ends
+  the running one. `plan` and `extended` convert the drawing's first
+  sketch, the one every later step reads.
+- **Author**: the name (someone in the `.th`'s team, the local default,
+  or typed) and the date (the `.th`'s, or typed); the copyright, from
+  the local default or the `.th`, or none.
+- **Environment**: the Python that runs the scripts (the cave's `.venv`
+  by default), the Therion that compiles, the viewer (xTherion or
+  Therion Studio, each with a local build if wanted) and the local
+  default author and copyright holder.
 - **Asks first** before what can lose work: replacing a drawing that is
   not SexyTopo's export (`--force`, its hand edits are lost) and
   `sections --write` (changes every plan drawing in the cave).
@@ -45,20 +51,25 @@ The window does no converting itself: every step is the command line
 folder, so the README and the window always do the same. `trip.py`
 builds the commands, without Qt, and is tested in `tests/`.
 
-The cave, its Python, the survey, the author's name and the copyright
-holder are remembered on this computer (Qt's settings), for each cave.
+The settings are kept on this computer (Qt's settings): the cave, and
+for each cave its Python, survey, drawings and ticks; the environment
+and local defaults for every cave.
 
 ## Plan
 
-Done: `trip.py` with its tests, `Project.surveys()` (which `joins` now
-uses too), `gui.py` (the window above) with its tests, this file and the
-README.
+Done: `trip.py` and `gui.py` (the window above) with their tests,
+`Project.surveys()` (which `joins` uses too), and `survey.py` reading a
+`.th`'s inputs, team, date and copyright.
 
 Later:
 
 - Options from `project.toml` in the window, and saved back to it with
   its comments (needs `tomlkit`); where author and copyright are kept
   (each cave, each person) is still to decide.
+- A drawing's other sketches (often cross sections) used in converting
+  it: for now only its first sketch is converted.
+- Therion Studio opening the drawing it is given (it opens its last
+  session for now).
 - A trip outside the cave's folder (a `.th` chosen anywhere), and caves
   whose surveys are not each in a folder of the cave's folder
   (most of Swildons' trips are deeper down, as `streamway/...`; the

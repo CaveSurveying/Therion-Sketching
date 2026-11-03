@@ -66,8 +66,8 @@ python3 -m tools.sketch2therion.gui
 ```
 
 from the top of a cave's repository opens a window that runs the steps
-of "A new trip" (below) on one of the cave's surveys, each on its own or
-a drawing's steps all in order, with their output. It needs PySide6 or
+of "A new trip" (below) on one of the cave's surveys and its drawings:
+the steps ticked, in order, with their output. It needs PySide6 or
 PyQt6; `GUI.md` says what it does and what is planned.
 
 ## Tests

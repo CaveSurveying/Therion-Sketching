@@ -5,24 +5,33 @@ for the GUI (gui.py) to run in the cave's folder. No Qt here.
 
     p = trip.load_project(cave)
     t = trip.Trip(p, "GoSouth")
-    trip.convert(t, "plan", "plan", t.plan_sketches()[0], trip.Options())
+    trip.commands(t, {"plan": ["plan", "roofs"]}, t.default_drawing("plan"), None,
+                  trip.Options(), trip.Options())
 """
 import dataclasses
-import glob
 import os
-import re
 import sys
 
 from . import project as _project
-from .survey import sketch_of
+from . import survey as _survey
 
 # The order a drawing's steps always run in (README.md, "Converting a drawing")
 STEPS = {'plan': ('plan', 'roofs', 'details', 'smooth'),
          'extended': ('extended', 'roofs', 'smooth')}
+# The window's tabs, in the order they run: (key, title, [(part, label)])
+SECTIONS = [
+    ('check', 'Check', [('plan', 'Plan sketches'), ('extended', 'Elevation sketches')]),
+    ('plan', 'Plan', [(s, s) for s in STEPS['plan']]),
+    ('extended', 'Elevation', [(s, s) for s in STEPS['extended']]),
+    ('cave', 'Cave', [('database', "Therion's database"), ('place', 'Place the plan'),
+                      ('sections', 'Cross sections (report)'), ('sections_write', 'Cross sections (--write)')]),
+    ('checks', 'Checks', [('review', 'review check'), ('th2lint', 'th2lint'), ('fillcheck', 'fillcheck --build')]),
+]
+TITLES = {key: title for key, title, _ in SECTIONS}
+VIEWERS = {'xTherion': 'xtherion', 'Therion Studio': 'TherionStudio'}     # programs to view a th2 with
 LAYOUT_CONFIG = 'tools/layout.thcfg'
 LAYOUT_LOG = 'output/therion-layout.log'
 NEEDS_FORCE = '--force to replace it'      # in what plan and extended print when a drawing is in the way
-EXTENDED_SKETCH = re.compile(r'(Ee|\.ee)\.xvi$')     # the usual names (Style.md, naming)
 
 
 def load_project(cave):
@@ -68,36 +77,36 @@ class Trip:
         self.project = project
         self.survey = survey
         self.th = project.survey_file(survey)
-        self.folder = os.path.dirname(self.th)
-        self.plan_file = project.plan_file(survey)
-        self.extended_file = project.extended_file(survey)
+        th = project.path(self.th)
+        self.inputs = [self._rel(f) for f in _survey.inputs(th)] if os.path.exists(th) else []
 
-    def sketches(self):
-        """The trip's .xvi sketches, anywhere in its folder."""
-        found = glob.glob(self.project.path(os.path.join(self.folder, '**', '*.xvi')), recursive=True)
-        return sorted(os.path.relpath(f, self.project.root) for f in found)
+    def _rel(self, path):
+        return os.path.relpath(path, self.project.root)
 
-    def plan_sketches(self):
-        """The plan sketches, the plan drawing's own (its backdrop) first."""
-        return self._own_first('plan', [f for f in self.sketches() if self.project.is_plan_sketch(f)])
+    def drawings(self, view):
+        """The .th2 files the .th inputs for `view` ('plan', 'extended'),
+        and any with no scraps yet."""
+        return [f for f in self.inputs
+                if view in _survey.projections(self.project.path(f)) or not _survey.projections(self.project.path(f))]
 
-    def elevation_sketches(self):
-        """The other sketches: the extended drawing's own first, then the
-        usual extended sketch's name."""
-        rest = sorted((f for f in self.sketches() if not self.project.is_plan_sketch(f)),
-                      key=lambda f: EXTENDED_SKETCH.search(f) is None)
-        return self._own_first('extended', rest)
+    def default_drawing(self, view):
+        usual = self.project.plan_file(self.survey) if view == 'plan' else self.project.extended_file(self.survey)
+        found = self.drawings(view)
+        return usual if usual in found else (found[0] if found else None)
 
-    def _own_first(self, view, sketches):
-        own = sketch_of(self.project.path(self.output(view)))
-        own = own and os.path.relpath(own, self.project.root)
-        return sorted(sketches, key=lambda f: f != own)
+    def sketches(self, th2):
+        """The .xvi files a drawing links as its backdrops, that exist."""
+        folder = os.path.dirname(self.project.path(th2))
+        text = open(self.project.path(th2), encoding='utf-8', errors='replace').read()
+        found = [os.path.normpath(os.path.join(folder, b)) for b in _survey.backdrops(text)]
+        return [self._rel(f) for f in found if f.lower().endswith('.xvi') and os.path.exists(f)]
 
-    def output(self, view):
-        return self.plan_file if view == 'plan' else self.extended_file
+    def details(self):
+        th = self.project.path(self.th)
+        return _survey.details(th) if os.path.exists(th) else {'date': None, 'team': [], 'copyright': None}
 
     def exists(self, rel):
-        return os.path.exists(self.project.path(rel))
+        return bool(rel) and os.path.exists(self.project.path(rel))
 
 
 def check(trip, sketch, elevation=False):
@@ -105,12 +114,16 @@ def check(trip, sketch, elevation=False):
                    ['check', sketch, '--survey', trip.survey] + (['--elevation'] if elevation else []))
 
 
-def convert(trip, view, step, sketch, opts):
-    """One step of converting the trip's plan or extended sketch."""
-    out = trip.output(view)
+def convert(trip, view, step, th2, opts):
+    """One step of converting a drawing. The first converts its sketch, the
+    first .xvi it links (as every later step reads it); the others redo th2."""
+    label = f"{TITLES[view]}: {step}"
     if step != STEPS[view][0]:
-        return Command(f"{view}: {step}", [step, out])
-    args = [step, sketch, '--survey', trip.survey, '-o', out]
+        return Command(label, [step, th2])
+    sketches = trip.sketches(th2)
+    if not sketches:
+        raise ValueError(f"{th2} links no .xvi sketch as its backdrop")
+    args = [step, sketches[0], '--survey', trip.survey, '-o', th2]
     if opts.author:
         args += ['--author', *opts.author]
     if opts.copyright:
@@ -119,16 +132,12 @@ def convert(trip, view, step, sketch, opts):
         args += ['--floor', opts.floor]
     if opts.force:
         args.append('--force')
-    return Command(f"{view}: {step}", args)
+    return Command(label, args)
 
 
-def convert_all(trip, view, sketch, opts):
-    return [convert(trip, view, s, sketch, opts) for s in STEPS[view]]
-
-
-def database():
+def database(therion='therion'):
     """Therion's database of the cave (README step 5)."""
-    return Command("Therion's database", ['-l', LAYOUT_LOG, LAYOUT_CONFIG], 'therion')
+    return Command("Therion's database", ['-l', LAYOUT_LOG, LAYOUT_CONFIG], therion)
 
 
 def place(trip):
@@ -139,14 +148,43 @@ def sections(write=False):
     return Command("sections --write" if write else "sections", ['sections'] + (['--write'] if write else []))
 
 
-def review_check(trip):
-    return Command("review check", ['review', 'check', trip.plan_file])
+def review_check(th2):
+    return Command("review check", ['review', 'check', th2])
 
 
-def th2lint(trip):
-    files = [f for f in (trip.plan_file, trip.extended_file) if trip.exists(f)]
-    return Command("th2lint", files, module='tools.sketch2therion.th2lint')
+def th2lint(files):
+    return Command("th2lint", list(files), module='tools.sketch2therion.th2lint')
 
 
 def fillcheck(trip):
     return Command("fillcheck", ['fillcheck', '--build', '--survey', trip.survey])
+
+
+def commands(trip, chosen, plan, extended, plan_opts, ext_opts, therion='therion'):
+    """The commands for the parts ticked in `chosen` ({section: [part]}),
+    in the order of SECTIONS, on the plan and extended drawings (th2)."""
+    drawing = {'plan': plan, 'extended': extended}
+    out = []
+    for key, _, parts in SECTIONS:
+        for part, _ in parts:
+            if part not in chosen.get(key, ()):
+                continue
+            if key == 'check':
+                out += [check(trip, s, part == 'extended') for s in trip.sketches(drawing[part])] if drawing[part] else []
+            elif key in STEPS:
+                if drawing[key]:
+                    out.append(convert(trip, key, part, drawing[key], plan_opts if key == 'plan' else ext_opts))
+            elif part == 'database':
+                out.append(database(therion))
+            elif part == 'place':
+                out.append(place(trip))
+            elif part in ('sections', 'sections_write'):
+                out.append(sections(part == 'sections_write'))
+            elif part == 'review':
+                out += [review_check(plan)] if plan else []
+            elif part == 'th2lint':
+                files = [f for f in (plan, extended) if trip.exists(f)]
+                out += [th2lint(files)] if files else []
+            elif part == 'fillcheck':
+                out.append(fillcheck(trip))
+    return out
